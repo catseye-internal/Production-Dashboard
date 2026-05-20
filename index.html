@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Production Dashboard | Catseye &amp; USX Pest</title>
+<link rel="preload" href="./cache.json" as="fetch" crossorigin>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #1C1A18;
+    --bg-card: #262320;
+    --bg-card-hover: #2E2B27;
+    --bg-table-row: #222019;
+    --bg-table-alt: #1C1A18;
+    --border: #3A3632;
+    --text: #F5F0EB;
+    --text-muted: #9B948A;
+    --text-dim: #6B645A;
+    --orange: #F47B20;
+    --orange-dim: rgba(244, 123, 32, 0.15);
+    --green: #34D399;
+    --yellow: #FBBF24;
+    --red: #F87171;
+    --blue: #60A5FA;
+    --gray: #9CA3AF;
+    --purple: #A78BFA;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 32px; border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+  .header-left  { display: flex; align-items: center; gap: 16px; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .header-title { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+  .header-title span { color: var(--orange); }
+  .header-badge {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--orange); background: var(--orange-dim);
+    padding: 4px 10px; border-radius: 4px;
+  }
+  .refresh-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+  .refresh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .last-updated { font-size: 12px; color: var(--text-dim); }
+  .last-updated.stale { color: var(--orange); }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; gap: 4px; padding: 12px 32px 0;
+    border-bottom: 1px solid var(--border); background: var(--bg-card);
+  }
+  .tab {
+    font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 10px 18px; border: 1px solid var(--border); border-bottom: none;
+    background: transparent; color: var(--text-muted); cursor: pointer;
+    border-radius: 8px 8px 0 0; transition: all 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--bg); color: var(--orange); border-color: var(--orange); border-bottom-color: var(--bg); }
+  .tab-count {
+    display: inline-block; margin-left: 6px; padding: 1px 6px;
+    border-radius: 8px; background: rgba(244,123,32,0.15); color: var(--orange);
+    font-size: 10px; font-weight: 800; min-width: 16px; text-align: center;
+  }
+  .tab:not(.active) .tab-count { background: rgba(58,54,50,0.6); color: var(--text-muted); }
+
+  /* ── Sub-tab bar (only for Invoice lens) ── */
+  .sub-tabs {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 32px; border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+  .sub-tabs-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.6px; color: var(--text-dim);
+  }
+  .sub-tab-group { display: flex; gap: 4px; }
+  .sub-tab {
+    font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 6px 14px; border-radius: 6px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .sub-tab:hover { color: var(--text); border-color: var(--text-dim); }
+  .sub-tab.active {
+    background: var(--orange-dim); color: var(--orange); border-color: var(--orange);
+  }
+  .sub-tab-hint {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.3px;
+    color: var(--text-dim); text-transform: none;
+  }
+  .sub-tab.active .sub-tab-hint { color: var(--orange); opacity: 0.7; }
+  @media (max-width: 768px) {
+    .sub-tabs { padding: 8px 16px; flex-wrap: wrap; }
+    .sub-tab-hint { display: none; }
+  }
+
+  /* ── Main layout ── */
+  .main { padding: 16px 32px 32px; }
+
+  /* ── Filter bar (matches BDC visual) ── */
+  .filter-bar {
+    display: flex; align-items: flex-end; gap: 12px; margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .filter-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .filter-label {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text-dim);
+  }
+  .filter-bar select, .filter-bar input {
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text); font-family: 'Inter', sans-serif; font-size: 13px;
+    padding: 8px 12px; border-radius: 6px; outline: none; min-width: 120px;
+  }
+  .filter-bar select:focus, .filter-bar input:focus { border-color: var(--orange); }
+  .period-group { display: flex; gap: 4px; }
+  .period-btn {
+    font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 8px 14px; border-radius: 5px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+  }
+  .period-btn.active { background: var(--orange-dim); color: var(--orange); border-color: var(--orange); }
+  .filter-spacer { flex: 1; }
+  .filter-action {
+    font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-muted); cursor: pointer;
+  }
+  .filter-action:hover { border-color: var(--green); color: var(--green); }
+
+  /* ── KPI strip ── */
+  .kpi-strip {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 16px;
+  }
+  .kpi-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+  }
+  .kpi-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text-dim); margin-bottom: 6px;
+  }
+  .kpi-value {
+    font-size: 28px; font-weight: 800; letter-spacing: -1px; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi-value.orange { color: var(--orange); }
+  .kpi-value.green  { color: var(--green); }
+  .kpi-value.blue   { color: var(--blue); }
+  .kpi-value.yellow { color: var(--yellow); }
+  .kpi-value.purple { color: var(--purple); }
+  .kpi-sub {
+    font-size: 10px; font-weight: 600; color: var(--text-dim);
+    margin-top: 4px; letter-spacing: 0.3px;
+  }
+
+  /* ── Table ── */
+  .table-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-height: 70vh; }
+  table.data-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .data-table thead th {
+    text-align: left; padding: 10px 12px;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); font-weight: 600;
+    background: var(--bg-card); border-bottom: 1px solid var(--border);
+    white-space: nowrap; position: sticky; top: 0; z-index: 5; cursor: pointer;
+    user-select: none;
+  }
+  .data-table thead th:hover { color: var(--orange); }
+  .data-table thead th .sort-arrow {
+    display: inline-block; margin-left: 4px; opacity: 0.4;
+  }
+  .data-table thead th.sort-asc  .sort-arrow,
+  .data-table thead th.sort-desc .sort-arrow { opacity: 1; color: var(--orange); }
+  .data-table tbody td {
+    padding: 8px 12px; border-bottom: 1px solid rgba(58,54,50,0.3);
+    white-space: nowrap;
+  }
+  .data-table tbody tr:hover { background: rgba(244,123,32,0.06); }
+  .data-table .col-num   { text-align: right; }
+  .data-table .col-money { text-align: right; color: var(--orange); font-weight: 600; }
+  .data-table .col-date  { color: var(--text-muted); }
+  .data-table tbody tr:nth-child(even) { background: var(--bg-table-alt); }
+  .data-table tbody tr:nth-child(even):hover { background: rgba(244,123,32,0.06); }
+  .empty-state {
+    padding: 48px 24px; text-align: center; color: var(--text-dim); font-size: 13px;
+  }
+
+  /* ── Footer status ── */
+  .footer-status {
+    display: flex; gap: 16px; align-items: center; padding: 10px 32px;
+    border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim);
+    background: var(--bg-card);
+  }
+  .footer-status .count { color: var(--orange); font-weight: 700; }
+
+  /* ── Pills, badges, status flags ── */
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .branch-chip {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; color: var(--text);
+    background: rgba(244,123,32,0.08); border: 1px solid rgba(244,123,32,0.25);
+  }
+  .branch-chip.usx { background: rgba(96,165,250,0.08); border-color: rgba(96,165,250,0.30); color: var(--blue); }
+  .pill.confirmed {
+    background: rgba(167,139,250,0.15); color: var(--purple);
+    border: 1px solid rgba(167,139,250,0.35);
+  }
+  .pill.tentative {
+    background: rgba(155,148,138,0.10); color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .status-flags { display: inline-flex; gap: 4px; align-items: center; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--border); position: relative;
+  }
+  .status-dot.on.progress { background: var(--green); }
+  .status-dot.on.locked   { background: var(--purple); }
+  .status-dot.on.posted   { background: var(--orange); }
+  .status-dot:hover::after {
+    content: attr(data-tip); position: absolute; bottom: 14px; left: -8px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text); font-size: 10px; padding: 3px 6px; border-radius: 4px;
+    white-space: nowrap; z-index: 50;
+  }
+  .text-truncate { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Mobile ── */
+  @media (max-width: 768px) {
+    .main { padding: 12px 16px; }
+    .header { padding: 12px 16px; }
+    .tabs { padding: 8px 16px 0; }
+    .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+    .filter-bar select, .filter-bar input { min-width: 100px; font-size: 12px; }
+    .header-title { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────── HEADER ─────────── -->
+<header class="header">
+  <div class="header-left">
+    <div class="header-title">Production <span>Dashboard</span></div>
+    <span class="header-badge">Catseye &amp; USX</span>
+  </div>
+  <div class="header-right">
+    <div class="refresh-indicator"><div class="refresh-dot"></div><span>Live</span></div>
+    <div class="last-updated" id="lastUpdated">—</div>
+  </div>
+</header>
+
+<!-- ─────────── TABS ─────────── -->
+<!-- Each tab is a pre-filtered slice of the same ServiceOrders data.
+     A standalone Invoices list view doesn't make sense — PestPac's /Invoices
+     endpoint is keyed lookup only (no date-range list). When billing detail is
+     needed it becomes a per-order drill-down. -->
+<!-- Two views: pre-service ("work to be completed") and post-service ("work completed").
+     Callbacks live as a filter on both, not a separate tab. -->
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-view="orders">Service Orders<span class="tab-count" id="tabCount-orders"></span></button>
+  <button class="tab" data-view="invoices">Invoices<span class="tab-count" id="tabCount-invoices"></span></button>
+</nav>
+
+<!-- Sub-view selector (only shown when Invoices tab is active).
+     ALL = every type, PRODUCTION = IN+PR+CM (production accounting),
+     REVENUE = IN+PI+CM (revenue accounting). -->
+<div class="sub-tabs" id="invoiceModeBar" style="display:none">
+  <span class="sub-tabs-label">Invoice lens:</span>
+  <div class="sub-tab-group" id="invoiceModeGroup">
+    <button class="sub-tab active" data-mode="all">All Invoices</button>
+    <button class="sub-tab" data-mode="production">Production <span class="sub-tab-hint">IN · PR · CM</span></button>
+    <button class="sub-tab" data-mode="revenue">Revenue <span class="sub-tab-hint">IN · PI · CM</span></button>
+  </div>
+</div>
+
+<main class="main">
+  <!-- ─────────── FILTER BAR ─────────── -->
+  <div class="filter-bar">
+    <div class="filter-group">
+      <span class="filter-label">Period</span>
+      <div class="period-group" id="periodGroup">
+        <button class="period-btn" data-period="today">Today</button>
+        <button class="period-btn" data-period="yesterday">Yesterday</button>
+        <button class="period-btn" data-period="wk">WK</button>
+        <button class="period-btn active" data-period="mtd">MTD</button>
+        <button class="period-btn" data-period="ytd">YTD</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Branch</span>
+      <select id="branchFilter">
+        <option value="">All Branches</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Callbacks</span>
+      <div class="period-group" id="callbackGroup">
+        <button class="period-btn active" data-callbacks="">All</button>
+        <button class="period-btn" data-callbacks="only">Callbacks only</button>
+        <button class="period-btn" data-callbacks="exclude">Exclude</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Tech</span>
+      <select id="techFilter">
+        <option value="">All Techs</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Confirmation</span>
+      <div class="period-group" id="lockedGroup">
+        <button class="period-btn active" data-locked="">All</button>
+        <button class="period-btn" data-locked="true">Confirmed</button>
+        <button class="period-btn" data-locked="false">Tentative</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Search</span>
+      <input type="text" id="searchInput" placeholder="Service / description / order #">
+    </div>
+    <div class="filter-spacer"></div>
+    <button class="filter-action" id="exportBtn">Export CSV</button>
+  </div>
+
+  <!-- ─────────── KPI STRIP ─────────── -->
+  <div class="kpi-strip" id="kpiStrip">
+    <div class="kpi-card"><div class="kpi-label">Records</div><div class="kpi-value orange" id="kpiCount">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total $</div><div class="kpi-value green" id="kpiTotal">—</div></div>
+    <div class="kpi-card">
+      <div class="kpi-label">Confirmed</div>
+      <div class="kpi-value purple" id="kpiConfirmed">—</div>
+      <div class="kpi-sub" id="kpiConfirmedRate"></div>
+    </div>
+    <div class="kpi-card"><div class="kpi-label">Techs Active</div><div class="kpi-value yellow" id="kpiTechs">—</div></div>
+  </div>
+
+  <!-- ─────────── TABLE ─────────── -->
+  <div class="table-card">
+    <div class="table-wrap">
+      <table class="data-table" id="dataTable">
+        <thead><tr id="tableHead"></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState" style="display:none">
+        No data yet. Run <code>PestPacDiscovery.gs</code> to confirm field names, then the cache refresh will populate this view.
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="footer-status">
+  <div><span class="count" id="footerCount">0</span> records</div>
+  <div>•</div>
+  <div id="footerWindow">—</div>
+  <div>•</div>
+  <div id="footerLatency">cache age —</div>
+</footer>
+
+<!-- ─────────── Config + App ─────────── -->
+<script src="./config.js"></script>
+<script>
+/* ────────────────────────────────────────────────────────────────
+   Production Dashboard — App
+   Stage: scaffold (pre-discovery). Field names and order types
+   will be tightened once PestPacDiscovery.gs runs.
+   ──────────────────────────────────────────────────────────────── */
+
+// Use var for globals (BDC "Never Show Zeros" rule §5.2 — avoid TDZ kills)
+var STATE = {
+  view: 'orders',         // 'orders' | 'invoices'
+  invoiceMode: 'all',     // 'all' | 'production' | 'revenue' — only meaningful on Invoices view
+  period: 'mtd',
+  branch: '',
+  tech: '',
+  callbacks: '',          // '' (all) | 'only' | 'exclude'
+  locked: '',             // '' | 'true' | 'false' — Confirmed/Tentative (orders only)
+  search: '',
+  sort: { key: 'WorkDate', dir: 'desc' },
+  rawCache: null,
+  invoiceCache: null,
+  invoiceLoadPromise: null,
+  records: [],
+};
+
+// Invoice lens definitions — which Invoice Types are visible in each mode
+var INVOICE_LENS = {
+  all:        null,                       // no filter
+  production: new Set(['IN','PR','CM']),  // production accounting basis
+  revenue:    new Set(['IN','PI','CM']),  // revenue accounting basis
+};
+
+// Each tab is a pre-filtered slice of ServiceOrders. The OrderType filter is
+// only shown on the "All Orders" tab — the other tabs are inherently filtered.
+var VIEW_DEFS = {
+  orders:   { source: 'orders',   dateKey: 'WorkDate' },
+  invoices: { source: 'invoices', dateKey: 'InvoiceDate' },
+};
+
+var isRefreshing = false;
+var refreshTimer = null;
+
+/* ── Boot ─────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function() {
+  wireFilters();
+  wireTabs();
+  renderHeader();
+  populateFilterOptions();  // populate from config even before cache lands
+  render();                  // show structure immediately
+  loadCache().finally(function() { scheduleRefresh(); });
+});
+
+function wireTabs() {
+  document.querySelectorAll('#tabs .tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#tabs .tab').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      STATE.view = btn.dataset.view;
+      var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
+      // Locked filter is only meaningful for Service Orders
+      var lockedGroup = document.querySelector('.filter-group:has(#lockedGroup)');
+      if (lockedGroup) lockedGroup.style.display = (def.source === 'orders') ? '' : 'none';
+      // Invoice lens selector is only meaningful for Invoices view
+      var invBar = document.getElementById('invoiceModeBar');
+      if (invBar) invBar.style.display = (def.source === 'invoices') ? '' : 'none';
+      // Invoice-specific sort default
+      if (def.source === 'invoices' && STATE.sort.key === 'WorkDate') {
+        STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
+      } else if (def.source === 'orders' && STATE.sort.key === 'InvoiceDate') {
+        STATE.sort = { key: 'WorkDate', dir: 'desc' };
+      }
+      if (def.source === 'invoices' && !STATE.invoiceCache) {
+        loadInvoiceCache().finally(render);
+      } else {
+        render();
+      }
+    });
+  });
+
+  // Invoice lens (sub-tabs)
+  document.querySelectorAll('#invoiceModeGroup .sub-tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#invoiceModeGroup .sub-tab').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      STATE.invoiceMode = btn.dataset.mode;
+      render();
+    });
+  });
+}
+
+function loadInvoiceCache() {
+  if (STATE.invoiceLoadPromise) return STATE.invoiceLoadPromise;
+  STATE.invoiceLoadPromise = fetch('./cache-invoices.json', { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(data) {
+      STATE.invoiceCache = data;
+      // Re-populate the tech dropdown now that invoice tech codes are available
+      populateFilterOptions();
+    })
+    .catch(function(err) { console.warn('invoice cache load failed:', err); });
+  return STATE.invoiceLoadPromise;
+}
+
+function wireFilters() {
+  document.querySelectorAll('#periodGroup .period-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#periodGroup .period-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      STATE.period = btn.dataset.period;
+      render();
+    });
+  });
+  document.getElementById('branchFilter').addEventListener('change', function(e) {
+    STATE.branch = e.target.value; render();
+  });
+  document.getElementById('techFilter').addEventListener('change', function(e) {
+    STATE.tech = e.target.value; render();
+  });
+  document.querySelectorAll('#callbackGroup .period-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#callbackGroup .period-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      STATE.callbacks = btn.dataset.callbacks;
+      render();
+    });
+  });
+  document.querySelectorAll('#lockedGroup .period-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#lockedGroup .period-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      STATE.locked = btn.dataset.locked;
+      render();
+    });
+  });
+  document.getElementById('searchInput').addEventListener('input', function(e) {
+    STATE.search = e.target.value.trim().toLowerCase(); render();
+  });
+  document.getElementById('exportBtn').addEventListener('click', exportCsv);
+}
+
+/* ── Cache loading (BDC "Never Show Zeros" rule §5.2) ─────────── */
+function loadCache() {
+  if (isRefreshing) return Promise.resolve();
+  isRefreshing = true;
+  return fetch(CACHE_JSON_URL, { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(data) {
+      STATE.rawCache = data;
+      // Expected cache shape (post-discovery): { updated, orders: [...], invoices: [...] }
+      // Until then this runs against an empty placeholder cache.
+      STATE.records = []; // selected per view in render()
+      populateFilterOptions();
+      render();
+    })
+    .catch(function(err) {
+      // Don't wipe existing display. Just log + show stale indicator.
+      console.warn('cache load failed:', err);
+      renderHeader(/*stale*/ true);
+    })
+    .finally(function() { isRefreshing = false; });
+}
+
+function scheduleRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(function() {
+    try { loadCache(); }
+    catch (e) { console.error('refresh error:', e); }
+  }, CACHE_REFRESH_MS);
+}
+
+/* ── Render ───────────────────────────────────────────────────── */
+function renderHeader(stale) {
+  var el = document.getElementById('lastUpdated');
+  var updated = STATE.rawCache && STATE.rawCache.updated;
+  if (!updated) { el.textContent = 'No cache yet'; el.classList.toggle('stale', !!stale); return; }
+  var t = new Date(updated);
+  var ageMs = Date.now() - t.getTime();
+  var ageMin = Math.round(ageMs / 60000);
+  var label = 'Updated ' + t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (ageMin >= 1) label += ' (' + ageMin + 'm ago)';
+  el.textContent = label;
+  el.classList.toggle('stale', ageMs > CACHE_STALE_MS);
+  document.getElementById('footerLatency').textContent = 'cache age ' + ageMin + 'm';
+}
+
+function getRecordsForView() {
+  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
+  if (def.source === 'invoices') {
+    return (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
+  }
+  if (!STATE.rawCache) return [];
+  // Service Orders = everything except Estimates. Production OrderType is folded
+  // in — it's PestPac's auto-generated follow-up work on CG/NWL projects.
+  return (STATE.rawCache.orders || []).filter(function(o) {
+    return ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) === -1;
+  });
+}
+
+// Tab count badges — show the (period-filtered) volume per tab so you can see
+// callback / production load without clicking the tab.
+function updateTabCounts() {
+  if (STATE.rawCache) {
+    var rawOrders = (STATE.rawCache.orders || []).filter(function(o) {
+      return ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) === -1;
+    });
+    var orderCount = rawOrders.filter(function(o) { return dateInPeriod(o.WorkDate, STATE.period); }).length;
+    var el = document.getElementById('tabCount-orders');
+    if (el) el.textContent = orderCount.toLocaleString();
+  }
+  var invEl = document.getElementById('tabCount-invoices');
+  if (invEl) {
+    if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
+      var lens = INVOICE_LENS[STATE.invoiceMode];  // current lens applies to the tab count too
+      var invFiltered = STATE.invoiceCache.invoices.filter(function(r) {
+        if (!dateInPeriod(r.InvoiceDate, STATE.period)) return false;
+        if (lens && !lens.has(r.InvoiceType)) return false;
+        return true;
+      });
+      invEl.textContent = invFiltered.length.toLocaleString();
+    } else {
+      invEl.textContent = '';
+    }
+  }
+}
+
+function dateInPeriod(dateStr, period) {
+  if (!dateStr) return false;
+  var d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (period === 'today') return d >= today;
+  if (period === 'yesterday') {
+    var y = new Date(today); y.setDate(y.getDate() - 1);
+    return d >= y && d < today;
+  }
+  if (period === 'wk') {
+    var ws = new Date(today); ws.setDate(ws.getDate() - ws.getDay());
+    return d >= ws;
+  }
+  if (period === 'mtd') {
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }
+  if (period === 'ytd') return d.getFullYear() === now.getFullYear();
+  return true;
+}
+
+function applyFilters(records, columns) {
+  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
+  var dateKey = def.dateKey || 'WorkDate';
+  var isInvoices = def.source === 'invoices';
+  var invoiceLens = isInvoices ? INVOICE_LENS[STATE.invoiceMode] : null;
+  return records.filter(function(r) {
+    if (!dateInPeriod(r[dateKey], STATE.period)) return false;
+    // Invoice lens — restrict to the types the current mode includes
+    if (isInvoices && invoiceLens && !invoiceLens.has(r.InvoiceType)) return false;
+    if (STATE.branch && r.Branch !== STATE.branch) return false;
+    if (STATE.tech) {
+      var t = r.Tech1 || r.Tech || r.tech || '';
+      if (t !== STATE.tech) return false;
+    }
+    // Callbacks filter — applies to both views
+    var ot = r.OrderType || r.orderType || '';
+    if (STATE.callbacks === 'only'    && ot !== 'CallBack') return false;
+    if (STATE.callbacks === 'exclude' && ot === 'CallBack') return false;
+    // Locked filter is orders-only
+    if (!isInvoices) {
+      if (STATE.locked === 'true'  && r.Locked !== true) return false;
+      if (STATE.locked === 'false' && r.Locked === true) return false;
+    }
+    if (STATE.search) {
+      var blob = JSON.stringify(r).toLowerCase();
+      if (blob.indexOf(STATE.search) === -1) return false;
+    }
+    return true;
+  });
+}
+
+function applySort(records) {
+  var key = STATE.sort.key;
+  var dir = STATE.sort.dir === 'asc' ? 1 : -1;
+  return records.slice().sort(function(a, b) {
+    var av = a[key], bv = b[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
+
+function render() {
+  renderHeader();
+  updateTabCounts();
+  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.all;
+  var columns = (def.source === 'invoices') ? INVOICES_COLUMNS : SERVICE_ORDERS_COLUMNS;
+  var defaultCols = columns.filter(function(c) { return c.default; });
+
+  // Header
+  var thead = document.getElementById('tableHead');
+  thead.innerHTML = defaultCols.map(function(c) {
+    var sortCls = (STATE.sort.key === c.key) ? ('sort-' + STATE.sort.dir) : '';
+    return '<th class="' + sortCls + '" data-key="' + c.key + '">' +
+             c.label + '<span class="sort-arrow">▾</span></th>';
+  }).join('');
+  thead.querySelectorAll('th').forEach(function(th) {
+    th.addEventListener('click', function() {
+      var k = th.dataset.key;
+      if (STATE.sort.key === k) STATE.sort.dir = (STATE.sort.dir === 'asc') ? 'desc' : 'asc';
+      else { STATE.sort.key = k; STATE.sort.dir = 'desc'; }
+      render();
+    });
+  });
+
+  // Body
+  var raw = getRecordsForView();
+  var filtered = applyFilters(raw, defaultCols);
+  var sorted = applySort(filtered);
+
+  var body = document.getElementById('tableBody');
+  var empty = document.getElementById('emptyState');
+  if (sorted.length === 0) {
+    body.innerHTML = '';
+    empty.style.display = '';
+  } else {
+    empty.style.display = 'none';
+    body.innerHTML = sorted.map(function(r) {
+      return '<tr>' + defaultCols.map(function(c) {
+        return '<td class="' + colClass(c.type) + '">' + fmt(r[c.key], c.type, r) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+  }
+
+  // KPI strip + footer — different metrics for orders vs invoices
+  document.getElementById('kpiCount').textContent = sorted.length.toLocaleString();
+  var total = sorted.reduce(function(s, r) { return s + (Number(r.Total) || 0); }, 0);
+  document.getElementById('kpiTotal').textContent = '$' + Math.round(total).toLocaleString();
+
+  if (def.source === 'invoices') {
+    // Outstanding balance + average aging
+    var balanceSum = sorted.reduce(function(s, r) { return s + (Number(r.Balance) || 0); }, 0);
+    document.getElementById('kpiConfirmed').textContent = '$' + Math.round(balanceSum).toLocaleString();
+    document.querySelector('.kpi-card:nth-child(3) .kpi-label').textContent = 'Outstanding';
+    var openCount = sorted.filter(function(r) { return (Number(r.Balance) || 0) > 0; }).length;
+    document.getElementById('kpiConfirmedRate').textContent = sorted.length > 0
+      ? openCount.toLocaleString() + ' open of ' + sorted.length.toLocaleString()
+      : '';
+    var aging = sorted.filter(function(r) { return (Number(r.Balance) || 0) > 0 && r.AgingDays > 0; });
+    var avgAge = aging.length > 0
+      ? Math.round(aging.reduce(function(s, r) { return s + r.AgingDays; }, 0) / aging.length)
+      : 0;
+    document.getElementById('kpiTechs').textContent = avgAge + 'd';
+    document.querySelector('.kpi-card:nth-child(4) .kpi-label').textContent = 'Avg Aging';
+  } else {
+    // Orders KPIs (Confirmed + Techs Active)
+    var confirmedCount = sorted.filter(function(r) { return r.Locked === true; }).length;
+    document.getElementById('kpiConfirmed').textContent = confirmedCount.toLocaleString();
+    document.querySelector('.kpi-card:nth-child(3) .kpi-label').textContent = 'Confirmed';
+    var rate = sorted.length > 0 ? Math.round((confirmedCount / sorted.length) * 100) : 0;
+    document.getElementById('kpiConfirmedRate').textContent = sorted.length > 0
+      ? rate + '% of ' + sorted.length.toLocaleString() + ' orders'
+      : '';
+    document.getElementById('kpiTechs').textContent = new Set(sorted.map(function(r) { return r.Tech1; }).filter(Boolean)).size;
+    document.querySelector('.kpi-card:nth-child(4) .kpi-label').textContent = 'Techs Active';
+  }
+  document.getElementById('footerCount').textContent = sorted.length.toLocaleString();
+  document.getElementById('footerWindow').textContent = (PERIOD_LABELS[STATE.period] || STATE.period) +
+    (STATE.branch ? ' • ' + (BRANCH_DISPLAY[STATE.branch] || STATE.branch) : '');
+}
+
+function colClass(type) {
+  if (type === 'money' || type === 'number') return 'col-num';
+  if (type === 'date'  || type === 'datetime' || type === 'time') return 'col-date';
+  return 'col-text';
+}
+
+function fmt(v, type, record) {
+  // Composite columns derive their value from the whole record
+  if (type === 'status-flags') return renderStatusFlags(record);
+
+  if (v == null || v === '') return '<span style="color:var(--text-dim)">—</span>';
+
+  if (type === 'money')    return '$' + Math.round(Number(v) || 0).toLocaleString();
+  if (type === 'number')   return Number(v).toLocaleString();
+  if (type === 'date')     return String(v).split('T')[0];
+  if (type === 'datetime') return formatDateTime(String(v));
+  if (type === 'time')     return formatTime(String(v));
+  if (type === 'branch')   return renderBranchChip(String(v));
+  if (type === 'badge-orderType') return renderOrderTypeBadge(String(v));
+  if (type === 'text-truncate')   return '<span class="text-truncate" title="' + escapeHtml(String(v)) + '">' + escapeHtml(String(v)) + '</span>';
+  if (type === 'confirmation')    return renderConfirmation(v === true);
+  if (type === 'invoiceType')     return renderInvoiceType(String(v));
+  if (type === 'balance')         return renderBalance(Number(v) || 0);
+  if (type === 'aging')           return renderAging(Number(v) || 0);
+  return escapeHtml(String(v));
+}
+
+function renderInvoiceType(code) {
+  if (!code) return '<span style="color:var(--text-dim)">—</span>';
+  var label = (typeof INVOICE_TYPE_LABEL !== 'undefined' && INVOICE_TYPE_LABEL[code]) || code;
+  var color = (typeof INVOICE_TYPE_COLOR !== 'undefined' && INVOICE_TYPE_COLOR[code]) || '#9CA3AF';
+  return '<span class="pill" style="background:' + color + '22;color:' + color +
+         ';border:1px solid ' + color + '55" title="' + escapeHtml(code) + '">' + escapeHtml(label) + '</span>';
+}
+
+function renderBalance(n) {
+  if (n <= 0) return '<span style="color:var(--text-dim)">—</span>';
+  return '<span style="color:var(--red);font-weight:700">$' + Math.round(n).toLocaleString() + '</span>';
+}
+
+function renderAging(days) {
+  if (!days || days <= 0) return '<span style="color:var(--text-dim)">—</span>';
+  var color, label;
+  if (days < 30)      { color = 'var(--green)';  }
+  else if (days < 60) { color = 'var(--yellow)'; }
+  else if (days < 90) { color = 'var(--orange)'; }
+  else                { color = 'var(--red)';    }
+  return '<span style="color:' + color + ';font-weight:700">' + days + 'd</span>';
+}
+
+function renderConfirmation(isLocked) {
+  // "Locked" in PestPac = appointment is confirmed and won't move.
+  return isLocked
+    ? '<span class="pill confirmed">✓ Confirmed</span>'
+    : '<span class="pill tentative">Tentative</span>';
+}
+
+function formatDateTime(s) {
+  // "2026-05-18T08:30:00" → "5/18 8:30a"
+  if (!s) return '—';
+  var parts = s.split('T');
+  var dateStr = parts[0] || '';
+  var timeStr = parts[1] || '';
+  var d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  var month = d.getMonth() + 1;
+  var day = d.getDate();
+  var h = d.getHours();
+  var m = d.getMinutes();
+  var ampm = h >= 12 ? 'p' : 'a';
+  var h12 = h % 12 || 12;
+  var mm = m < 10 ? '0' + m : m;
+  return month + '/' + day + ' ' + h12 + ':' + mm + ampm;
+}
+
+function formatTime(s) {
+  // "1899-12-30T09:30:00" → "9:30a" (PestPac uses 1899 sentinel year for time-only)
+  if (!s) return '—';
+  var d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  var h = d.getHours();
+  var m = d.getMinutes();
+  var ampm = h >= 12 ? 'p' : 'a';
+  var h12 = h % 12 || 12;
+  var mm = m < 10 ? '0' + m : m;
+  return h12 + ':' + mm + ampm;
+}
+
+function renderBranchChip(branch) {
+  if (!branch) return '<span style="color:var(--text-dim)">—</span>';
+  var label = (typeof BRANCH_DISPLAY !== 'undefined' && BRANCH_DISPLAY[branch]) || branch;
+  var isUsx = branch.indexOf('USX') === 0;
+  return '<span class="branch-chip ' + (isUsx ? 'usx' : '') + '">' + escapeHtml(label) + '</span>';
+}
+
+function renderOrderTypeBadge(t) {
+  if (!t) return '<span style="color:var(--text-dim)">—</span>';
+  var label = (typeof ORDER_TYPE_LABEL !== 'undefined' && ORDER_TYPE_LABEL[t]) || t;
+  var color = (typeof ORDER_TYPE_COLOR !== 'undefined' && ORDER_TYPE_COLOR[t]) || '#9CA3AF';
+  return '<span class="pill" style="background:' + color + '22;color:' + color + ';border:1px solid ' + color + '55">' + escapeHtml(label) + '</span>';
+}
+
+function renderStatusFlags(r) {
+  if (!r) return '';
+  var inProg = r.InProgress === true;
+  var locked = r.Locked === true;
+  var posted = r.Posted === true;
+  return '<span class="status-flags">' +
+    '<span class="status-dot progress ' + (inProg ? 'on' : '') + '" data-tip="Tech on the job now"></span>' +
+    '<span class="status-dot locked '   + (locked ? 'on' : '') + '" data-tip="Confirmed — won\'t move"></span>' +
+    '<span class="status-dot posted '   + (posted ? 'on' : '') + '" data-tip="Invoiced"></span>' +
+    '</span>';
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, function(c) {
+    return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+  });
+}
+
+/* ── Filter option population ─────────────────────────────────── */
+function populateFilterOptions() {
+  // Branches — union of known branches + any new ones seen in EITHER cache.
+  // This is the "as we grow, new branches just appear" behavior: any branch
+  // that shows up in PestPac data automatically appears in the dropdown.
+  var orders = (STATE.rawCache && STATE.rawCache.orders) || [];
+  var invoices = (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
+  var branchSet = new Set(BRANCH_ALL);
+  orders.forEach(function(o)   { if (o.Branch) branchSet.add(o.Branch); });
+  invoices.forEach(function(r) { if (r.Branch) branchSet.add(r.Branch); });
+  var branches = Array.from(branchSet).sort();
+  var bSel = document.getElementById('branchFilter');
+  bSel.innerHTML = '<option value="">All Branches</option>' +
+    branches.map(function(b) {
+      var label = (BRANCH_DISPLAY[b] || b);
+      return '<option value="' + escapeHtml(b) + '">' + escapeHtml(label) + '</option>';
+    }).join('');
+
+  // OrderType filter dropdown removed — Callback filter handles the common case.
+  // OrderType is still surfaced as a color-coded badge column for visibility.
+  var orders = (STATE.rawCache && STATE.rawCache.orders) || [];
+
+  // Techs — derived from orders (Tech1) + invoices (Tech) when loaded
+  var techSet = new Set();
+  orders.forEach(function(o) { if (o.Tech1) techSet.add(o.Tech1); });
+  if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
+    STATE.invoiceCache.invoices.forEach(function(r) { if (r.Tech) techSet.add(r.Tech); });
+  }
+  var techs = Array.from(techSet).sort();
+  document.getElementById('techFilter').innerHTML =
+    '<option value="">All Techs</option>' +
+    techs.map(function(t) { return '<option value="' + t + '">' + t + '</option>'; }).join('');
+}
+
+/* ── CSV export ───────────────────────────────────────────────── */
+function exportCsv() {
+  var columns = (STATE.view === 'orders') ? SERVICE_ORDERS_COLUMNS : INVOICES_COLUMNS;
+  var defaultCols = columns.filter(function(c) { return c.default; });
+  var rows = applySort(applyFilters(getRecordsForView(), defaultCols));
+  var header = defaultCols.map(function(c) { return '"' + c.label + '"'; }).join(',');
+  var body = rows.map(function(r) {
+    return defaultCols.map(function(c) {
+      var v = r[c.key];
+      if (v == null) v = '';
+      return '"' + String(v).replace(/"/g, '""') + '"';
+    }).join(',');
+  }).join('\n');
+  var blob = new Blob([header + '\n' + body], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'production-' + STATE.view + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+</script>
+</body>
+</html>

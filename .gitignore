@@ -1,0 +1,11 @@
+# macOS noise
+.DS_Store
+
+# Keep the PestPac source export OUT of the repo — it lives in the parent folder
+# and is sensitive/large enough that we shouldn't accidentally commit it.
+*.xls
+
+# Editor / IDE noise
+.vscode/
+.idea/
+*.swp

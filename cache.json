@@ -1,0 +1,6 @@
+{
+  "updated": null,
+  "note": "Placeholder cache. Real cache will be written every 10 min by Production CacheRefresh.gs (built in Phase 2). Until then, the dashboard renders an empty-state.",
+  "orders": [],
+  "invoices": []
+}
