@@ -142,6 +142,41 @@
     color: var(--text-muted); cursor: pointer; transition: all 0.15s;
   }
   .period-btn.active { background: var(--orange-dim); color: var(--orange); border-color: var(--orange); }
+
+  /* ── Custom date range overlay ── */
+  .filter-group { position: relative; }
+  .custom-date-range {
+    display: none;
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 200;
+    background: var(--bg-card); border: 1px solid var(--orange);
+    border-radius: 8px; padding: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    flex-direction: column; gap: 8px;
+    min-width: 220px;
+  }
+  .custom-date-range.visible { display: flex; }
+  .custom-date-row { display: flex; align-items: center; gap: 8px; }
+  .custom-date-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.6px; color: var(--text-dim);
+    min-width: 36px;
+  }
+  .custom-date-input {
+    flex: 1;
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: 'Inter', sans-serif; font-size: 12px;
+    padding: 6px 8px; border-radius: 5px; outline: none;
+    color-scheme: dark;
+  }
+  .custom-date-input:focus { border-color: var(--orange); }
+  .custom-date-apply {
+    font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 8px 14px; border-radius: 5px; border: none;
+    background: var(--orange); color: #fff; cursor: pointer;
+    margin-top: 2px;
+  }
+  .custom-date-apply:hover { filter: brightness(1.1); }
   .filter-spacer { flex: 1; }
   .filter-action {
     font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700;
@@ -266,8 +301,23 @@
     .header { padding: 12px 16px; }
     .tabs { padding: 8px 16px 0; }
     .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+    .filter-bar { gap: 8px; }
     .filter-bar select, .filter-bar input { min-width: 100px; font-size: 12px; }
+    .filter-group { min-width: 100%; }   /* one filter per row on phones */
+    .period-group { flex-wrap: wrap; gap: 3px; }
+    .period-btn { font-size: 10px; padding: 6px 10px; }
+    .custom-date-range { position: static; min-width: 0; width: 100%; }
     .header-title { font-size: 16px; }
+    .data-table { font-size: 11px; }
+    .data-table thead th, .data-table tbody td { padding: 6px 8px; }
+    .text-truncate { max-width: 140px; }
+    .filter-action { width: 100%; }
+    .filter-spacer { display: none; }
+  }
+  @media (max-width: 480px) {
+    .kpi-strip { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+    .kpi-card { padding: 10px; }
+    .kpi-value { font-size: 20px; }
   }
 </style>
 </head>
@@ -312,14 +362,31 @@
 <main class="main">
   <!-- ─────────── FILTER BAR ─────────── -->
   <div class="filter-bar">
-    <div class="filter-group">
+    <!-- Period filter — buttons swap depending on active view -->
+    <div class="filter-group" id="periodFilterGroup">
       <span class="filter-label">Period</span>
       <div class="period-group" id="periodGroup">
-        <button class="period-btn" data-period="today">Today</button>
-        <button class="period-btn" data-period="yesterday">Yesterday</button>
-        <button class="period-btn" data-period="wk">WK</button>
-        <button class="period-btn active" data-period="mtd">MTD</button>
-        <button class="period-btn" data-period="ytd">YTD</button>
+        <!-- Buttons rendered dynamically by setupPeriodButtons() -->
+      </div>
+      <!-- Custom date range overlay (shown when Custom selected) -->
+      <div class="custom-date-range" id="customDateRange">
+        <div class="custom-date-row">
+          <label class="custom-date-label">From</label>
+          <input type="date" id="customStart" class="custom-date-input">
+        </div>
+        <div class="custom-date-row">
+          <label class="custom-date-label">To</label>
+          <input type="date" id="customEnd" class="custom-date-input">
+        </div>
+        <button class="custom-date-apply" id="customApplyBtn">Apply</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Company</span>
+      <div class="period-group" id="companyGroup">
+        <button class="period-btn active" data-company="">All</button>
+        <button class="period-btn" data-company="catseye">Catseye</button>
+        <button class="period-btn" data-company="usx">USX</button>
       </div>
     </div>
     <div class="filter-group">
@@ -342,7 +409,7 @@
         <option value="">All Techs</option>
       </select>
     </div>
-    <div class="filter-group">
+    <div class="filter-group" id="lockedFilterGroup">
       <span class="filter-label">Confirmation</span>
       <div class="period-group" id="lockedGroup">
         <button class="period-btn active" data-locked="">All</button>
@@ -403,19 +470,43 @@
 
 // Use var for globals (BDC "Never Show Zeros" rule §5.2 — avoid TDZ kills)
 var STATE = {
-  view: 'orders',         // 'orders' | 'invoices'
-  invoiceMode: 'all',     // 'all' | 'production' | 'revenue' — only meaningful on Invoices view
-  period: 'mtd',
+  view: 'orders',          // 'orders' | 'invoices'
+  invoiceMode: 'all',      // 'all' | 'production' | 'revenue'
+  // Per-view date state — switching tabs preserves each tab's selection
+  ordersPeriod: 'week',    // 'today' | 'tomorrow' | 'week' | 'eom' | 'custom'
+  invoicesPeriod: 'mtd',   // 'today' | 'yesterday' | 'wk' | 'mtd' | 'ytd' | 'custom'
+  ordersCustom:   { start: '', end: '' },
+  invoicesCustom: { start: '', end: '' },
+  // Common filters
+  company: '',             // '' | 'catseye' | 'usx'
   branch: '',
   tech: '',
-  callbacks: '',          // '' (all) | 'only' | 'exclude'
-  locked: '',             // '' | 'true' | 'false' — Confirmed/Tentative (orders only)
+  callbacks: '',           // '' | 'only' | 'exclude'
+  locked: '',              // '' | 'true' | 'false'
   search: '',
   sort: { key: 'WorkDate', dir: 'desc' },
   rawCache: null,
   invoiceCache: null,
   invoiceLoadPromise: null,
-  records: [],
+};
+
+// Per-view period button definitions
+var PERIOD_BUTTONS = {
+  orders: [
+    { key: 'today',    label: 'Today' },
+    { key: 'tomorrow', label: 'Tomorrow' },
+    { key: 'week',     label: 'This Week' },     // today through Saturday
+    { key: 'eom',      label: 'End of Month' },  // today through last day of month
+    { key: 'custom',   label: 'Custom' }
+  ],
+  invoices: [
+    { key: 'today',     label: 'Today' },
+    { key: 'yesterday', label: 'Yesterday' },
+    { key: 'wk',        label: 'WK' },           // Sun → Sat current week
+    { key: 'mtd',       label: 'MTD' },
+    { key: 'ytd',       label: 'YTD' },
+    { key: 'custom',    label: 'Custom' }
+  ]
 };
 
 // Invoice lens definitions — which Invoice Types are visible in each mode
@@ -424,6 +515,12 @@ var INVOICE_LENS = {
   production: new Set(['IN','PR','CM']),  // production accounting basis
   revenue:    new Set(['IN','PI','CM']),  // revenue accounting basis
 };
+
+// Company → branch classifier
+function isUsxBranch(branch) {
+  if (!branch) return false;
+  return branch.indexOf('USX') === 0;
+}
 
 // Each tab is a pre-filtered slice of ServiceOrders. The OrderType filter is
 // only shown on the "All Orders" tab — the other tabs are inherently filtered.
@@ -453,11 +550,15 @@ function wireTabs() {
       STATE.view = btn.dataset.view;
       var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
       // Locked filter is only meaningful for Service Orders
-      var lockedGroup = document.querySelector('.filter-group:has(#lockedGroup)');
+      var lockedGroup = document.getElementById('lockedFilterGroup');
       if (lockedGroup) lockedGroup.style.display = (def.source === 'orders') ? '' : 'none';
       // Invoice lens selector is only meaningful for Invoices view
       var invBar = document.getElementById('invoiceModeBar');
       if (invBar) invBar.style.display = (def.source === 'invoices') ? '' : 'none';
+      // Re-render period buttons for the new view (Orders vs Invoices uses different button sets)
+      setupPeriodButtons();
+      // Hide custom date overlay when switching tabs
+      document.getElementById('customDateRange').classList.remove('visible');
       // Invoice-specific sort default
       if (def.source === 'invoices' && STATE.sort.key === 'WorkDate') {
         STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
@@ -497,14 +598,22 @@ function loadInvoiceCache() {
 }
 
 function wireFilters() {
-  document.querySelectorAll('#periodGroup .period-btn').forEach(function(btn) {
+  // Period buttons are rendered dynamically — setupPeriodButtons() handles wiring
+  setupPeriodButtons();
+
+  // Company toggle (All / Catseye / USX)
+  document.querySelectorAll('#companyGroup .period-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      document.querySelectorAll('#periodGroup .period-btn').forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('#companyGroup .period-btn').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
-      STATE.period = btn.dataset.period;
+      STATE.company = btn.dataset.company;
+      // Reset branch when switching company — branches are scoped to one company
+      STATE.branch = '';
+      populateFilterOptions();
       render();
     });
   });
+
   document.getElementById('branchFilter').addEventListener('change', function(e) {
     STATE.branch = e.target.value; render();
   });
@@ -531,6 +640,64 @@ function wireFilters() {
     STATE.search = e.target.value.trim().toLowerCase(); render();
   });
   document.getElementById('exportBtn').addEventListener('click', exportCsv);
+
+  // Custom date range apply button
+  document.getElementById('customApplyBtn').addEventListener('click', function() {
+    var s = document.getElementById('customStart').value;
+    var e = document.getElementById('customEnd').value;
+    if (!s || !e) return;
+    var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
+    if (def.source === 'orders') {
+      STATE.ordersPeriod = 'custom';
+      STATE.ordersCustom = { start: s, end: e };
+    } else {
+      STATE.invoicesPeriod = 'custom';
+      STATE.invoicesCustom = { start: s, end: e };
+    }
+    document.getElementById('customDateRange').classList.remove('visible');
+    setupPeriodButtons();  // re-mark Custom as active
+    render();
+  });
+}
+
+// Render period buttons for the active view + wire click handlers
+function setupPeriodButtons() {
+  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
+  var buttons = (def.source === 'orders') ? PERIOD_BUTTONS.orders : PERIOD_BUTTONS.invoices;
+  var activePeriod = (def.source === 'orders') ? STATE.ordersPeriod : STATE.invoicesPeriod;
+  var groupEl = document.getElementById('periodGroup');
+  groupEl.innerHTML = buttons.map(function(b) {
+    return '<button class="period-btn ' + (b.key === activePeriod ? 'active' : '') +
+           '" data-period="' + b.key + '">' + b.label + '</button>';
+  }).join('');
+  groupEl.querySelectorAll('.period-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var k = btn.dataset.period;
+      if (k === 'custom') {
+        toggleCustomDateRange();
+        return;
+      }
+      // Hide custom overlay if open
+      document.getElementById('customDateRange').classList.remove('visible');
+      if (def.source === 'orders') STATE.ordersPeriod = k;
+      else STATE.invoicesPeriod = k;
+      setupPeriodButtons();
+      render();
+    });
+  });
+}
+
+function toggleCustomDateRange() {
+  var overlay = document.getElementById('customDateRange');
+  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
+  var custom = (def.source === 'orders') ? STATE.ordersCustom : STATE.invoicesCustom;
+  // Pre-fill inputs with current custom range, or sensible defaults
+  var today = new Date();
+  var defaultEnd = fmtDate(today);
+  var defaultStart = fmtDate(new Date(today.getFullYear(), today.getMonth(), 1));
+  document.getElementById('customStart').value = custom.start || defaultStart;
+  document.getElementById('customEnd').value = custom.end || defaultEnd;
+  overlay.classList.toggle('visible');
 }
 
 /* ── Cache loading (BDC "Never Show Zeros" rule §5.2) ─────────── */
@@ -594,20 +761,23 @@ function getRecordsForView() {
 // Tab count badges — show the (period-filtered) volume per tab so you can see
 // callback / production load without clicking the tab.
 function updateTabCounts() {
+  // Each tab gets counted using ITS OWN period (independent of the other tab's selection)
   if (STATE.rawCache) {
     var rawOrders = (STATE.rawCache.orders || []).filter(function(o) {
       return ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) === -1;
     });
-    var orderCount = rawOrders.filter(function(o) { return dateInPeriod(o.WorkDate, STATE.period); }).length;
+    var ordersRange = resolvePeriod(STATE.ordersPeriod, STATE.ordersCustom);
+    var orderCount = rawOrders.filter(function(o) { return dateInPeriod(o.WorkDate, ordersRange); }).length;
     var el = document.getElementById('tabCount-orders');
     if (el) el.textContent = orderCount.toLocaleString();
   }
   var invEl = document.getElementById('tabCount-invoices');
   if (invEl) {
     if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
-      var lens = INVOICE_LENS[STATE.invoiceMode];  // current lens applies to the tab count too
+      var invRange = resolvePeriod(STATE.invoicesPeriod, STATE.invoicesCustom);
+      var lens = INVOICE_LENS[STATE.invoiceMode];
       var invFiltered = STATE.invoiceCache.invoices.filter(function(r) {
-        if (!dateInPeriod(r.InvoiceDate, STATE.period)) return false;
+        if (!dateInPeriod(r.InvoiceDate, invRange)) return false;
         if (lens && !lens.has(r.InvoiceType)) return false;
         return true;
       });
@@ -618,26 +788,78 @@ function updateTabCounts() {
   }
 }
 
-function dateInPeriod(dateStr, period) {
-  if (!dateStr) return false;
-  var d = new Date(dateStr);
-  if (isNaN(d.getTime())) return false;
+// ── Date helpers ──
+// All comparisons use YYYY-MM-DD STRINGS (not Date objects). Date objects parse
+// "2026-05-19" as UTC midnight which becomes May 18 19:00 in Eastern Time —
+// that's the bug that caused "Yesterday" to show no records. String comparison
+// is timezone-safe.
+
+function fmtDate(d) {
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+// Resolve the active period for the current view into a {start, end} string range
+function getActiveDateRange() {
+  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
+  var period = (def.source === 'orders') ? STATE.ordersPeriod : STATE.invoicesPeriod;
+  var custom = (def.source === 'orders') ? STATE.ordersCustom : STATE.invoicesCustom;
+  return resolvePeriod(period, custom);
+}
+
+function resolvePeriod(period, custom) {
   var now = new Date();
   var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (period === 'today') return d >= today;
+  var todayStr = fmtDate(today);
+
+  if (period === 'today')     return { start: todayStr, end: todayStr };
+  if (period === 'tomorrow') {
+    var t = new Date(today); t.setDate(t.getDate() + 1);
+    var s = fmtDate(t); return { start: s, end: s };
+  }
   if (period === 'yesterday') {
     var y = new Date(today); y.setDate(y.getDate() - 1);
-    return d >= y && d < today;
+    var s = fmtDate(y); return { start: s, end: s };
   }
-  if (period === 'wk') {
-    var ws = new Date(today); ws.setDate(ws.getDate() - ws.getDay());
-    return d >= ws;
+  if (period === 'week') {  // today through Saturday
+    var sat = new Date(today);
+    sat.setDate(sat.getDate() + (6 - sat.getDay()));
+    return { start: todayStr, end: fmtDate(sat) };
+  }
+  if (period === 'wk') {  // Sun → Sat current week
+    var sun = new Date(today); sun.setDate(sun.getDate() - sun.getDay());
+    var sat2 = new Date(sun); sat2.setDate(sat2.getDate() + 6);
+    return { start: fmtDate(sun), end: fmtDate(sat2) };
+  }
+  if (period === 'eom') {  // today through last day of month
+    var eom = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    return { start: todayStr, end: fmtDate(eom) };
   }
   if (period === 'mtd') {
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    var som = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { start: fmtDate(som), end: todayStr };
   }
-  if (period === 'ytd') return d.getFullYear() === now.getFullYear();
-  return true;
+  if (period === 'ytd') {
+    return { start: today.getFullYear() + '-01-01', end: todayStr };
+  }
+  if (period === 'custom' && custom && custom.start && custom.end) {
+    return { start: custom.start, end: custom.end };
+  }
+  // Fallback — no filter
+  return { start: '0000-01-01', end: '9999-12-31' };
+}
+
+function dateInPeriod(dateStr, periodOrRange) {
+  if (!dateStr) return false;
+  // dateStr might be "2026-05-19" or "2026-05-19T08:30:00" — slice to YYYY-MM-DD
+  var ds = String(dateStr).substring(0, 10);
+  // Accept either a period name OR a precomputed {start,end} range
+  var range = (typeof periodOrRange === 'object')
+    ? periodOrRange
+    : resolvePeriod(periodOrRange, null);
+  return ds >= range.start && ds <= range.end;
 }
 
 function applyFilters(records, columns) {
@@ -645,19 +867,25 @@ function applyFilters(records, columns) {
   var dateKey = def.dateKey || 'WorkDate';
   var isInvoices = def.source === 'invoices';
   var invoiceLens = isInvoices ? INVOICE_LENS[STATE.invoiceMode] : null;
+  var range = getActiveDateRange();
   return records.filter(function(r) {
-    if (!dateInPeriod(r[dateKey], STATE.period)) return false;
+    if (!dateInPeriod(r[dateKey], range)) return false;
     // Invoice lens — restrict to the types the current mode includes
     if (isInvoices && invoiceLens && !invoiceLens.has(r.InvoiceType)) return false;
+    // Company filter (overrides individual branch filter when active)
+    if (STATE.company === 'catseye' && isUsxBranch(r.Branch)) return false;
+    if (STATE.company === 'usx'     && !isUsxBranch(r.Branch)) return false;
     if (STATE.branch && r.Branch !== STATE.branch) return false;
     if (STATE.tech) {
       var t = r.Tech1 || r.Tech || r.tech || '';
       if (t !== STATE.tech) return false;
     }
-    // Callbacks filter — applies to both views
+    // Callbacks — for orders: OrderType === 'CallBack'; for invoices: InvoiceType === 'CB'
     var ot = r.OrderType || r.orderType || '';
-    if (STATE.callbacks === 'only'    && ot !== 'CallBack') return false;
-    if (STATE.callbacks === 'exclude' && ot === 'CallBack') return false;
+    var inv = r.InvoiceType || '';
+    var isCallback = (ot === 'CallBack') || (inv === 'CB');
+    if (STATE.callbacks === 'only'    && !isCallback) return false;
+    if (STATE.callbacks === 'exclude' &&  isCallback) return false;
     // Locked filter is orders-only
     if (!isInvoices) {
       if (STATE.locked === 'true'  && r.Locked !== true) return false;
@@ -759,7 +987,10 @@ function render() {
     document.querySelector('.kpi-card:nth-child(4) .kpi-label').textContent = 'Techs Active';
   }
   document.getElementById('footerCount').textContent = sorted.length.toLocaleString();
-  document.getElementById('footerWindow').textContent = (PERIOD_LABELS[STATE.period] || STATE.period) +
+  var range = getActiveDateRange();
+  var rangeLabel = (range.start === range.end) ? range.start : (range.start + ' → ' + range.end);
+  document.getElementById('footerWindow').textContent = rangeLabel +
+    (STATE.company ? ' • ' + (STATE.company === 'usx' ? 'USX' : 'Catseye') : '') +
     (STATE.branch ? ' • ' + (BRANCH_DISPLAY[STATE.branch] || STATE.branch) : '');
 }
 
@@ -885,15 +1116,18 @@ function escapeHtml(s) {
 
 /* ── Filter option population ─────────────────────────────────── */
 function populateFilterOptions() {
-  // Branches — union of known branches + any new ones seen in EITHER cache.
-  // This is the "as we grow, new branches just appear" behavior: any branch
-  // that shows up in PestPac data automatically appears in the dropdown.
+  // Branches — union of known branches + any new ones seen in EITHER cache,
+  // scoped to the active company filter (Catseye / USX / All).
   var orders = (STATE.rawCache && STATE.rawCache.orders) || [];
   var invoices = (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
   var branchSet = new Set(BRANCH_ALL);
   orders.forEach(function(o)   { if (o.Branch) branchSet.add(o.Branch); });
   invoices.forEach(function(r) { if (r.Branch) branchSet.add(r.Branch); });
-  var branches = Array.from(branchSet).sort();
+  var branches = Array.from(branchSet).filter(function(b) {
+    if (STATE.company === 'catseye') return !isUsxBranch(b);
+    if (STATE.company === 'usx')     return  isUsxBranch(b);
+    return true;
+  }).sort();
   var bSel = document.getElementById('branchFilter');
   bSel.innerHTML = '<option value="">All Branches</option>' +
     branches.map(function(b) {

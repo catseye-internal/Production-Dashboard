@@ -137,20 +137,20 @@ const INVOICES_COLUMNS = [
   { key: 'WorkDate',           label: 'Work Date',     type: 'date',           sortable: true, default: false },
 ];
 
-// Invoice Type code → friendly label and color
+// Invoice Type code → friendly label and color (confirmed with Joe 2026-05-20)
 const INVOICE_TYPE_LABEL = {
-  'IN': 'Invoice',
-  'PI': 'Posted',
-  'CB': 'Credit Bal',
-  'CM': 'Credit Memo',
-  'ES': 'Estimate',
-  'PR': 'Prorated',
+  'IN': 'Invoice',     // standard completed work
+  'PR': 'Production',  // production lens type
+  'CB': 'Callback',    // callback follow-up
+  'CM': 'Credit Memo', // credit memo
+  'PI': 'Pre-Bill',    // pre-billed
+  'ES': 'Estimate',    // legacy
 };
 const INVOICE_TYPE_COLOR = {
-  'IN': '#60A5FA',  // blue — normal invoice
-  'PI': '#34D399',  // green — fully posted
-  'CB': '#FBBF24',  // yellow — credit balance
-  'CM': '#A78BFA',  // purple — credit memo
+  'IN': '#60A5FA',  // blue — invoice
+  'PR': '#A78BFA',  // purple — production
+  'CB': '#FBBF24',  // yellow — callback
+  'CM': '#EC4899',  // pink — credit memo
+  'PI': '#34D399',  // green — pre-bill
   'ES': '#9CA3AF',  // gray — estimate
-  'PR': '#F47B20',  // orange — prorated
 };
