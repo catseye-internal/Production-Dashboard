@@ -65,7 +65,7 @@ const CURATED_FIELDS_ORDER = [
   // Identity & links
   'OrderID', 'OrderNumber', 'ParentOrderID', 'LeadID', 'SetupID',
   // Classification
-  'OrderType', 'Origin',
+  'OrderType', 'Origin', 'ServiceClass',
   // Location / branch
   'Branch', 'BranchID', 'LocationID', 'BillToID', 'Route',
   // Work scheduling
@@ -76,9 +76,17 @@ const CURATED_FIELDS_ORDER = [
   'SubTotal', 'Tax', 'Total',
   // Status & technician
   'Tech1', 'TechID1', 'InProgress', 'Locked', 'Posted',
-  // Notes — truncated in slimOrder_ below to avoid blowing up the cache
+  // Notes — truncated below to avoid blowing up the cache
   'TechnicianComment'
 ];
+
+// Enrichment window — orders within this many days from today get full
+// /ServiceOrders/{id} lookups for their complete field set. Past this horizon,
+// records stay slim (smaller cache, faster refresh).
+const ENRICH_WINDOW_DAYS = 14;
+const ENRICH_MAX_RECORDS = 350;    // safety cap to keep within Apps Script time limit
+const ENRICH_BATCH_SIZE  = 10;     // calls per batch
+const ENRICH_BATCH_PAUSE_MS = 500; // pause between batches (rate-limit friendly)
 // Invoices: still pending /Invoices endpoint discovery — placeholders only.
 const CURATED_FIELDS_INVOICE = [
   'InvoiceNumber', 'InvoiceDate', 'Branch',
@@ -182,6 +190,54 @@ function fetchInvoiceForOrder_(token, orderId) {
   return JSON.parse(r.text);
 }
 
+// ──────────────────────────────────────────────────────────────
+// Enrichment — list endpoint returns slim records; fetch each near-term
+// order individually via /ServiceOrders/{id} to get full 45-field detail.
+// ──────────────────────────────────────────────────────────────
+function enrichNearTermOrders_(token, orders) {
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + ENRICH_WINDOW_DAYS);
+  // Pick records within the enrichment window (and with a parseable date)
+  var candidates = [];
+  for (var i = 0; i < orders.length; i++) {
+    var ws = String(orders[i].WorkDate || '');
+    if (!ws) continue;
+    var wd = new Date(ws);
+    if (isNaN(wd.getTime())) continue;
+    if (wd >= today && wd <= cutoff && orders[i].OrderID) candidates.push(orders[i]);
+  }
+  // Cap to keep refresh under the Apps Script execution limit
+  if (candidates.length > ENRICH_MAX_RECORDS) {
+    Logger.log('  Enrichment capped: ' + candidates.length + ' candidates → ' + ENRICH_MAX_RECORDS);
+    candidates = candidates.slice(0, ENRICH_MAX_RECORDS);
+  }
+  Logger.log('  Enriching ' + candidates.length + ' near-term orders (next ' + ENRICH_WINDOW_DAYS + ' days)...');
+  var enrichedCount = 0;
+  var failedCount = 0;
+  var t0 = Date.now();
+  for (var j = 0; j < candidates.length; j++) {
+    if (j > 0 && j % ENRICH_BATCH_SIZE === 0) Utilities.sleep(ENRICH_BATCH_PAUSE_MS);
+    var r = ppGet_(token, '/ServiceOrders/' + candidates[j].OrderID);
+    if (r.code !== 200) {
+      failedCount++;
+      continue;
+    }
+    try {
+      var full = JSON.parse(r.text);
+      // Merge full fields onto the slim record (slim's stamped OrderType wins
+      // only if PestPac left OrderType blank in the detail response)
+      var slimOrderType = candidates[j].OrderType;
+      Object.keys(full).forEach(function(k) { candidates[j][k] = full[k]; });
+      if (!candidates[j].OrderType && slimOrderType) candidates[j].OrderType = slimOrderType;
+      enrichedCount++;
+    } catch (e) {
+      failedCount++;
+    }
+  }
+  var elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  Logger.log('  ✓ Enriched ' + enrichedCount + ' (' + failedCount + ' failed) in ' + elapsed + 's');
+}
+
 function chunked31_(startDate, endDate, fn) {
   var out = [];
   var s = new Date(startDate);
@@ -258,6 +314,9 @@ function refreshProductionCache() {
     });
     Logger.log('  → ' + rawOrders.length + ' orders');
 
+    // Enrich near-term orders (next 14 days) with full field detail
+    enrichNearTermOrders_(token, rawOrders);
+
     // Invoices intentionally skipped — PestPac /Invoices is keyed-lookup only.
     // Billing signal arrives via webhooks (InvoiceWebhookHandler.gs).
 
@@ -305,6 +364,248 @@ function refreshProductionCache() {
 function forceRawSnapshot() {
   PropertiesService.getScriptProperties().deleteProperty(RAW_REFRESH_KEY);
   refreshProductionCache();
+}
+
+// ══════════════════════════════════════════════════════════════
+// DIAGNOSTIC SUITE — investigate slim-record behavior
+// Run from the Apps Script dropdown one at a time. All write to Logger.
+// ══════════════════════════════════════════════════════════════
+
+// TEST 1 — Does window size change field richness?
+// Hypothesis: smaller windows may return full records, large windows truncate.
+function test1_windowSize() {
+  var token = ppToken_();
+  var today = new Date();
+  var ranges = [
+    { name: '1d',  end: 1 },
+    { name: '3d',  end: 3 },
+    { name: '7d',  end: 7 },
+    { name: '14d', end: 14 },
+    { name: '31d', end: 31 },
+    { name: '60d', end: 60 },
+    { name: '90d', end: 90 }
+  ];
+  Logger.log('🧪 TEST 1 — Window size vs field richness');
+  ranges.forEach(function(rg) {
+    var s = new Date(today); s.setDate(s.getDate() - 1);
+    var e = new Date(today); e.setDate(e.getDate() + rg.end);
+    var path = '/ServiceOrders?orderType=ServiceOrder&startWorkDate=' + fmt_(s) + '&endWorkDate=' + fmt_(e);
+    var r = ppGet_(token, path);
+    if (r.code !== 200) {
+      Logger.log('  ' + rg.name + ': HTTP ' + r.code);
+      return;
+    }
+    var orders = JSON.parse(r.text);
+    var sample = orders[0] || {};
+    var keyCount = Object.keys(sample).length;
+    var hasTech = sample.Tech1 !== undefined;
+    var hasDesc = sample.Description !== undefined;
+    var hasDur  = sample.Duration !== undefined;
+    var hasLock = sample.Locked !== undefined;
+    Logger.log('  ' + rg.name + ': ' + orders.length + ' records, ' + keyCount + ' fields | Tech1=' + hasTech + ' Description=' + hasDesc + ' Duration=' + hasDur + ' Locked=' + hasLock);
+  });
+}
+
+// TEST 2 — Unfiltered /ServiceOrders (no params at all)
+// This is what /PestPacDiscovery did — see if removing all filters changes the shape.
+function test2_unfiltered() {
+  var token = ppToken_();
+  Logger.log('🧪 TEST 2 — Unfiltered /ServiceOrders');
+  var r = ppGet_(token, '/ServiceOrders');
+  Logger.log('  HTTP ' + r.code + ', body len: ' + r.text.length);
+  if (r.code !== 200) { Logger.log('  Body: ' + r.text.substring(0, 400)); return; }
+  var orders = JSON.parse(r.text);
+  Logger.log('  Records: ' + orders.length);
+  if (orders.length > 0) {
+    var sample = orders[0];
+    Logger.log('  Sample (first record):');
+    Logger.log('    Keys (' + Object.keys(sample).length + '): ' + Object.keys(sample).sort().join(', '));
+    Logger.log('    JSON: ' + JSON.stringify(sample).substring(0, 800));
+  }
+}
+
+// TEST 3 — Direct /ServiceOrders/{id} lookup for a known OrderID
+// Pulls a recent OrderID from the list endpoint, then fetches it by ID.
+// Compares field counts side-by-side.
+function test3_directIdLookup() {
+  var token = ppToken_();
+  Logger.log('🧪 TEST 3 — Direct /ServiceOrders/{id} lookup');
+  var today = new Date();
+  var s = new Date(today); s.setDate(s.getDate() - 1);
+  var e = new Date(today); e.setDate(e.getDate() + 3);
+  var listR = ppGet_(token, '/ServiceOrders?orderType=ServiceOrder&startWorkDate=' + fmt_(s) + '&endWorkDate=' + fmt_(e));
+  if (listR.code !== 200) { Logger.log('  list HTTP ' + listR.code); return; }
+  var orders = JSON.parse(listR.text);
+  if (orders.length === 0) { Logger.log('  No orders in window'); return; }
+  var slim = orders[0];
+  var slimKeys = Object.keys(slim).sort();
+  Logger.log('  SLIM (from list): ' + slimKeys.length + ' fields, OrderID=' + slim.OrderID);
+  Logger.log('    Keys: ' + slimKeys.join(', '));
+  Logger.log('    JSON: ' + JSON.stringify(slim));
+
+  var idR = ppGet_(token, '/ServiceOrders/' + slim.OrderID);
+  Logger.log('  /ServiceOrders/' + slim.OrderID + ' → HTTP ' + idR.code);
+  if (idR.code !== 200) { Logger.log('  Body: ' + idR.text.substring(0, 400)); return; }
+  var full = JSON.parse(idR.text);
+  var fullKeys = Object.keys(full).sort();
+  Logger.log('  FULL (from /id): ' + fullKeys.length + ' fields');
+  Logger.log('    Keys: ' + fullKeys.join(', '));
+  Logger.log('    JSON: ' + JSON.stringify(full).substring(0, 1500));
+
+  // Diff: what does /id give us that list doesn't?
+  var extras = fullKeys.filter(function(k) { return slimKeys.indexOf(k) === -1; });
+  Logger.log('  EXTRAS only in /id: ' + extras.join(', '));
+}
+
+// TEST 4 — Try $expand / Accept-header variations
+// PestPac may support deep-fetch via header or query param.
+function test4_expandVariations() {
+  var token = ppToken_();
+  Logger.log('🧪 TEST 4 — Header / query-param variations');
+  var today = new Date();
+  var s = new Date(today); s.setDate(s.getDate() - 1);
+  var e = new Date(today); e.setDate(e.getDate() + 3);
+  var qs = 'orderType=ServiceOrder&startWorkDate=' + fmt_(s) + '&endWorkDate=' + fmt_(e);
+  var variations = [
+    { name: 'baseline',           path: '/ServiceOrders?' + qs,                       headers: null },
+    { name: '$expand=*',          path: '/ServiceOrders?' + qs + '&$expand=*',        headers: null },
+    { name: '$select=*',          path: '/ServiceOrders?' + qs + '&$select=*',        headers: null },
+    { name: 'expand=all',         path: '/ServiceOrders?' + qs + '&expand=all',       headers: null },
+    { name: 'detail=full',        path: '/ServiceOrders?' + qs + '&detail=full',      headers: null },
+    { name: 'view=full',          path: '/ServiceOrders?' + qs + '&view=full',        headers: null },
+    { name: 'Accept full',        path: '/ServiceOrders?' + qs,                       headers: { 'Accept': 'application/vnd.workwave.full+json' } },
+    { name: 'Accept v2',          path: '/ServiceOrders?' + qs,                       headers: { 'Accept': 'application/vnd.workwave.v2+json' } },
+    { name: 'Prefer return=rep',  path: '/ServiceOrders?' + qs,                       headers: { 'Prefer': 'return=representation' } }
+  ];
+  variations.forEach(function(v) {
+    var resp;
+    try {
+      var opts = {
+        method: 'get',
+        headers: Object.assign({
+          'Authorization': 'Bearer ' + token,
+          'apikey': PP_API_KEY,
+          'tenant-id': PP_TENANT_ID
+        }, v.headers || {}),
+        muteHttpExceptions: true
+      };
+      resp = UrlFetchApp.fetch(PP_API_BASE + v.path, opts);
+      var code = resp.getResponseCode();
+      var text = resp.getContentText();
+      if (code !== 200) { Logger.log('  ' + v.name + ': HTTP ' + code); return; }
+      var orders = JSON.parse(text);
+      var keys = orders[0] ? Object.keys(orders[0]).length : 0;
+      var hasTech = orders[0] && orders[0].Tech1 !== undefined;
+      Logger.log('  ' + v.name + ': ' + orders.length + ' rec, ' + keys + ' fields, Tech1=' + hasTech);
+    } catch (e) {
+      Logger.log('  ' + v.name + ': error ' + e.message);
+    }
+  });
+}
+
+// TEST 5 — Alternative endpoints that may carry richer data
+// /Locations/{id}/serviceHistory, /Routes, /ServiceSetups, etc.
+function test5_alternativeEndpoints() {
+  var token = ppToken_();
+  Logger.log('🧪 TEST 5 — Alternative endpoints');
+  var endpoints = [
+    '/ServiceOrders/queue',
+    '/ServiceOrders/upcoming',
+    '/ServiceOrders/scheduled',
+    '/ServiceSetups',
+    '/Routes',
+    '/Schedule',
+    '/Appointments',
+    '/Visits'
+  ];
+  endpoints.forEach(function(ep) {
+    var r = ppGet_(token, ep);
+    if (r.code === 200) {
+      try {
+        var data = JSON.parse(r.text);
+        var len = Array.isArray(data) ? data.length : (data && typeof data === 'object' ? Object.keys(data).length : 0);
+        var sample = Array.isArray(data) ? data[0] : data;
+        var keys = sample ? Object.keys(sample).length : 0;
+        Logger.log('  ' + ep + ': HTTP 200, len=' + len + ', sample-fields=' + keys);
+      } catch (e) { Logger.log('  ' + ep + ': HTTP 200, non-JSON'); }
+    } else {
+      Logger.log('  ' + ep + ': HTTP ' + r.code);
+    }
+  });
+}
+
+// TEST 6 — Replicate the original discovery query that returned 45-field records
+// PestPacDiscovery.gs ran 2026-05-20 and identified 4 OrderTypes — implying it saw
+// the OrderType field on responses. Reproduce its exact call shape.
+function test6_replicateDiscovery() {
+  var token = ppToken_();
+  Logger.log('🧪 TEST 6 — Replicate discovery query patterns');
+  // Likely call patterns the discovery used:
+  var paths = [
+    '/ServiceOrders?pageSize=1',
+    '/ServiceOrders?limit=1',
+    '/ServiceOrders?top=1',
+    '/ServiceOrders?$top=1',
+    '/ServiceOrders?startWorkDate=2026-01-01&endWorkDate=2026-12-31',
+    '/ServiceOrders?orderType=ServiceOrder',
+    '/ServiceOrders?orderType=ServiceOrder&pageSize=5'
+  ];
+  paths.forEach(function(p) {
+    var r = ppGet_(token, p);
+    if (r.code !== 200) { Logger.log('  ' + p + ': HTTP ' + r.code); return; }
+    var data = JSON.parse(r.text);
+    var sample = Array.isArray(data) ? data[0] : data;
+    var keys = sample ? Object.keys(sample).length : 0;
+    var hasTech = sample && sample.Tech1 !== undefined;
+    Logger.log('  ' + p + ': ' + (Array.isArray(data) ? data.length : '?') + ' rec, ' + keys + ' fields, Tech1=' + hasTech);
+  });
+}
+
+// TEST 7 — Full record dump for a known order
+// Hard-coded OrderID variant — try a few different IDs across the window
+// to see if specific orders carry full data while others don't.
+function test7_idVariation() {
+  var token = ppToken_();
+  Logger.log('🧪 TEST 7 — Field count variance by OrderID');
+  var today = new Date();
+  var s = new Date(today); s.setDate(s.getDate() - 1);
+  var e = new Date(today); e.setDate(e.getDate() + 14);
+  var listR = ppGet_(token, '/ServiceOrders?orderType=ServiceOrder&startWorkDate=' + fmt_(s) + '&endWorkDate=' + fmt_(e));
+  if (listR.code !== 200) return;
+  var orders = JSON.parse(listR.text);
+  Logger.log('  Sampling ' + Math.min(10, orders.length) + ' of ' + orders.length + ' orders');
+  for (var i = 0; i < Math.min(10, orders.length); i++) {
+    var oid = orders[i].OrderID;
+    var detail = ppGet_(token, '/ServiceOrders/' + oid);
+    if (detail.code !== 200) { Logger.log('  #' + oid + ': HTTP ' + detail.code); continue; }
+    var d = JSON.parse(detail.text);
+    var keys = Object.keys(d);
+    Logger.log('  #' + oid + ': ' + keys.length + ' fields, Tech1=' + (d.Tech1 || 'null') + ', Desc=' + (d.Description ? d.Description.substring(0, 30) : 'null'));
+    Utilities.sleep(200);
+  }
+}
+
+// TEST 8 — Run all tests in sequence (use sparingly — heavy API load)
+function testAllDiagnostics() {
+  Logger.log('═══════════════════════════════════════════════');
+  Logger.log('🧪 RUNNING FULL DIAGNOSTIC SUITE');
+  Logger.log('═══════════════════════════════════════════════');
+  test1_windowSize();
+  Logger.log('');
+  test2_unfiltered();
+  Logger.log('');
+  test3_directIdLookup();
+  Logger.log('');
+  test4_expandVariations();
+  Logger.log('');
+  test5_alternativeEndpoints();
+  Logger.log('');
+  test6_replicateDiscovery();
+  Logger.log('');
+  test7_idVariation();
+  Logger.log('═══════════════════════════════════════════════');
+  Logger.log('🧪 DIAGNOSTIC SUITE COMPLETE');
+  Logger.log('═══════════════════════════════════════════════');
 }
 
 // ──────────────────────────────────────────────────────────────

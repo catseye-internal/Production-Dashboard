@@ -393,9 +393,12 @@
       <span class="filter-label">Division</span>
       <div class="period-group" id="divisionGroup">
         <button class="period-btn active" data-division="">All</button>
+        <button class="period-btn" data-division="all-pest">All Pest</button>
         <button class="period-btn" data-division="pest-resi">Pest · Resi</button>
         <button class="period-btn" data-division="pest-commerc">Pest · Comm</button>
         <button class="period-btn" data-division="cgnwl">CG/NWL</button>
+        <button class="period-btn" data-division="cg">CG Only</button>
+        <button class="period-btn" data-division="nwl">NWL Only</button>
       </div>
     </div>
     <div class="filter-group">
@@ -896,8 +899,8 @@ function applyFilters(records, columns) {
     if (STATE.company === 'catseye' && isUsxBranch(r.Branch)) return false;
     if (STATE.company === 'usx'     && !isUsxBranch(r.Branch)) return false;
     if (STATE.branch && r.Branch !== STATE.branch) return false;
-    // Division filter (Pest Resi / Pest Comm / CG/NWL)
-    if (STATE.division && classifyDivision(r) !== STATE.division) return false;
+    // Division filter — supports composite values (all-pest, cgnwl) via matchesDivision
+    if (!matchesDivision(r, STATE.division)) return false;
     if (STATE.tech) {
       var t = r.Tech1 || r.Tech || r.tech || '';
       if (t !== STATE.tech) return false;

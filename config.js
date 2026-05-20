@@ -137,35 +137,53 @@ const INVOICES_COLUMNS = [
   { key: 'WorkDate',           label: 'Work Date',     type: 'date',           sortable: true, default: false },
 ];
 
-// ── Division classification (Pest vs CG/NWL, Resi vs Commercial) ──
+// ── Division classification (Pest vs CG vs NWL, Resi vs Commercial) ──
 // Per Joe 2026-05-20.
 //
-// CG/NWL Service Classes (used on Invoices, exact match):
-const CGNWL_CLASSES = new Set(['CAT-GUARD', 'CATGUARD', 'CG WARRANT', 'NWL']);
+// CG (Cat-Guard) and NWL are tracked separately.
+// Rule from Joe: "if NWL, it's NWL. Everything else previously in cgnwl is CG."
+//
+// Service Classes (used on Invoices, exact match):
+const CG_CLASSES   = new Set(['CAT-GUARD', 'CATGUARD', 'CG WARRANT']);
+const NWL_CLASSES  = new Set(['NWL']);
 //
 // Commercial Pest Service Classes (used on Invoices, exact match):
 const COMMERC_CLASSES = new Set(['COMM INIT', 'COMM SERVI', 'COMMERCIAL']);
 //
 // For Service Orders the API only returns ServiceCode (not ServiceClass), so
-// we pattern-match on the code. CG/NWL codes include things like CG PRE-WALK,
-// NWL EVICT FU, COURT CG RESEAL, BIRD EXCLUSION, BAT FOLLOW-UP, etc.
-const CGNWL_CODE_PATTERN = /\b(CG|CATGUARD|NWL|BAT|BIRD|WOODPECKER|WILDLIFE|EVICT|EXCLUS|RIDGE|TRENCH|RESEAL)\b/;
+// we pattern-match. NWL pattern is checked FIRST; anything else previously
+// caught by the old cgnwl pattern falls into CG.
+const NWL_CODE_PATTERN = /\bNWL\b/;
+const CG_CODE_PATTERN  = /\b(CG|CATGUARD|BAT|BIRD|WOODPECKER|WILDLIFE|EVICT|EXCLUS|RIDGE|TRENCH|RESEAL)\b/;
 const COMMERC_CODE_PATTERN = /^COMM/;
 
-// Classify a record into one of: 'pest-resi' | 'pest-commerc' | 'cgnwl'
+// Classify a record into one of: 'pest-resi' | 'pest-commerc' | 'cg' | 'nwl'
 // Prefer ServiceClass when present (Invoices); fall back to ServiceCode (Service Orders).
 function classifyDivision(rec) {
   var sc = String(rec.ServiceClass || '').toUpperCase().trim();
   if (sc) {
-    if (CGNWL_CLASSES.has(sc))   return 'cgnwl';
+    if (NWL_CLASSES.has(sc))     return 'nwl';
+    if (CG_CLASSES.has(sc))      return 'cg';
     if (COMMERC_CLASSES.has(sc)) return 'pest-commerc';
     return 'pest-resi';
   }
   var code = String(rec.ServiceCode || '').toUpperCase().trim();
   if (!code) return 'pest-resi';
-  if (CGNWL_CODE_PATTERN.test(code))   return 'cgnwl';
+  if (NWL_CODE_PATTERN.test(code))     return 'nwl';
+  if (CG_CODE_PATTERN.test(code))      return 'cg';
   if (COMMERC_CODE_PATTERN.test(code)) return 'pest-commerc';
   return 'pest-resi';
+}
+
+// Helper used by the filter buttons: does a record match a (possibly composite) division value?
+// Supports the 7 button values: '' (all), 'all-pest', 'pest-resi', 'pest-commerc',
+// 'cgnwl' (cg OR nwl), 'cg', 'nwl'.
+function matchesDivision(rec, division) {
+  if (!division) return true;
+  var d = classifyDivision(rec);
+  if (division === 'all-pest') return d === 'pest-resi' || d === 'pest-commerc';
+  if (division === 'cgnwl')    return d === 'cg' || d === 'nwl';
+  return d === division;
 }
 
 // Invoice Type code → friendly label and color (confirmed with Joe 2026-05-20)
