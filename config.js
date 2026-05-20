@@ -140,8 +140,8 @@ const INVOICES_COLUMNS = [
 // ── Division classification (Pest vs CG vs NWL, Resi vs Commercial) ──
 // Per Joe 2026-05-20.
 //
-// CG (Cat-Guard) and NWL are tracked separately.
-// Rule from Joe: "if NWL, it's NWL. Everything else previously in cgnwl is CG."
+// CG (Cat-Guard) and NWL (Nuisance Wildlife Services) are tracked separately.
+// Rule: ServiceClass "NWL" = NWL. All other previously-cgnwl classes = CG.
 //
 // Service Classes (used on Invoices, exact match):
 const CG_CLASSES   = new Set(['CAT-GUARD', 'CATGUARD', 'CG WARRANT']);
@@ -150,11 +150,34 @@ const NWL_CLASSES  = new Set(['NWL']);
 // Commercial Pest Service Classes (used on Invoices, exact match):
 const COMMERC_CLASSES = new Set(['COMM INIT', 'COMM SERVI', 'COMMERCIAL']);
 //
-// For Service Orders the API only returns ServiceCode (not ServiceClass), so
-// we pattern-match. NWL pattern is checked FIRST; anything else previously
-// caught by the old cgnwl pattern falls into CG.
-const NWL_CODE_PATTERN = /\bNWL\b/;
-const CG_CODE_PATTERN  = /\b(CG|CATGUARD|BAT|BIRD|WOODPECKER|WILDLIFE|EVICT|EXCLUS|RIDGE|TRENCH|RESEAL)\b/;
+// For ServiceOrders the API only returns ServiceCode (not ServiceClass).
+// These explicit Sets were extracted from the cache-invoices.json code→class
+// mapping on 2026-05-20 and are AUTHORITATIVE — they reflect actual PestPac
+// data, not a regex guess.
+const NWL_SERVICE_CODES = new Set([
+  'BAT FOLLOW-UP', 'BAT INITIAL', 'BIRD REMOVAL',
+  'NWFU', 'NWI', 'NWL EVICT FU', 'NWL EVICT INIT',
+  'USX BAT FOLLOW', 'USX BAT INITIAL',
+  'USX NWL EVIC FU', 'USX NWL EVICT', 'USX NWL FU', 'USX NWL INIT',
+  'WOODPECKER INTL'
+]);
+const CG_SERVICE_CODES = new Set([
+  'CG ATTIC ABATE', 'CG BASEMENT', 'CG BIRD EXCL', 'CG FULL INIT',
+  'CG LOWER INIT', 'CG PRE-WALK', 'CG TRENCH INIT', 'CG UPPER INIT',
+  'CG WARR 1YR', 'CGW AUTO-BILL', 'CGW AUTO-PAY', 'CGW AUTO-RENEW',
+  'CGW NO RENEWAL', 'CGW RESEAL',
+  'CONTINUE EXCLUS', 'CONTINUE REPAIR',
+  'EXCLUSION INIT', 'EXTENDED REPAIR', 'FINAL WALK', 'GENERAL CG', 'LIFT',
+  'USX ATTIC ABATE', 'USX BASEMENT', 'USX CONT EXCLU', 'USX CONT REPAIR',
+  'USX EXCLUS INIT', 'USX FULL INIT', 'USX GENERAL CG',
+  'USX LOWER INIT', 'USX TRENCH INIT', 'USX UPPER INIT',
+  'USX WAR AUTOREN', 'USX WAR RESEAL', 'USX WARR 1YR'
+]);
+// Fallback patterns for ServiceOrder codes not yet seen in invoice data.
+// NWL fallback matches wildlife-specific terms (BAT, WOODPECKER, NWL, NW[FI]).
+// CG fallback matches Cat-Guard construction terms. NWL is checked first.
+const NWL_CODE_PATTERN = /\b(NWL|NWFU|NWI|BAT|WOODPECKER)\b/;
+const CG_CODE_PATTERN  = /\b(CG|CGW|CATGUARD|RIDGE|TRENCH|RESEAL|EXCLUS|EVICT|CONTINUE|EXTENDED|FINAL\s*WALK|GENERAL\s*CG)\b/;
 const COMMERC_CODE_PATTERN = /^COMM/;
 
 // Classify a record into one of: 'pest-resi' | 'pest-commerc' | 'cg' | 'nwl'
@@ -169,6 +192,10 @@ function classifyDivision(rec) {
   }
   var code = String(rec.ServiceCode || '').toUpperCase().trim();
   if (!code) return 'pest-resi';
+  // Explicit Set lookup is authoritative
+  if (NWL_SERVICE_CODES.has(code)) return 'nwl';
+  if (CG_SERVICE_CODES.has(code))  return 'cg';
+  // Fallback to patterns for codes not yet in invoice data
   if (NWL_CODE_PATTERN.test(code))     return 'nwl';
   if (CG_CODE_PATTERN.test(code))      return 'cg';
   if (COMMERC_CODE_PATTERN.test(code)) return 'pest-commerc';

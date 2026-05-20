@@ -91,7 +91,7 @@ function doPost(e) {
         markInvoiceVoided_(entityId);
       } else {
         var inv = fetchInvoice_(token, entityId);
-        if (inv) upsertInvoice_(curate_(inv));
+        if (inv) upsertInvoice_(curateInvoice_(inv));
       }
     } else if (entityType === 'Payment') {
       // Payment.Apply changes balance on the affected invoice(s).
@@ -101,7 +101,7 @@ function doPost(e) {
         payment.Applications.forEach(function(app) {
           if (app.ApplyToType === 'Invoice' && app.ApplyToID) {
             var inv = fetchInvoice_(token, app.ApplyToID);
-            if (inv) upsertInvoice_(curate_(inv));
+            if (inv) upsertInvoice_(curateInvoice_(inv));
           }
         });
       }
@@ -152,8 +152,12 @@ function fetchPayment_(token, paymentId) {
 
 // ──────────────────────────────────────────────────────────────
 // Curate invoice — strip to whitelisted fields, drop empties
+// Renamed from curate_ to curateInvoice_ on 2026-05-20 to avoid colliding
+// with curate_(rec, whitelist) in CacheRefresh.gs (Apps Script projects
+// share a single global namespace across .gs files; the later-loaded
+// definition silently wins, which was the cause of the slim-cache bug).
 // ──────────────────────────────────────────────────────────────
-function curate_(rec) {
+function curateInvoice_(rec) {
   var out = {};
   for (var i = 0; i < CURATED_INV_KEYS.length; i++) {
     var k = CURATED_INV_KEYS[i];

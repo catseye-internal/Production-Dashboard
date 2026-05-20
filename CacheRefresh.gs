@@ -238,14 +238,19 @@ function enrichNearTermOrders_(token, orders) {
   Logger.log('  ✓ Enriched ' + enrichedCount + ' (' + failedCount + ' failed) in ' + elapsed + 's');
 }
 
-function chunked31_(startDate, endDate, fn) {
+// Chunks the date range into 14-day windows. Confirmed via test1_windowSize
+// (2026-05-20): PestPac returns full 45-field records for windows ≤ 14 days
+// and HTTP 400 for windows ≥ 31 days. Some intermediate sizes return slim
+// records (10 fields) — 14 days is the safe upper bound that guarantees
+// full field shape every time.
+function chunked14_(startDate, endDate, fn) {
   var out = [];
   var s = new Date(startDate);
   var e = new Date(endDate);
   var cursor = new Date(s);
   while (cursor <= e) {
     var chunkEnd = new Date(cursor);
-    chunkEnd.setDate(chunkEnd.getDate() + 30);
+    chunkEnd.setDate(chunkEnd.getDate() + 13);  // 14-day window inclusive
     if (chunkEnd > e) chunkEnd = e;
     var rows = fn(fmt_(cursor), fmt_(chunkEnd));
     for (var i = 0; i < rows.length; i++) out.push(rows[i]);
@@ -309,13 +314,16 @@ function refreshProductionCache() {
     Logger.log('  Window: ' + startStr + ' → ' + endStr);
 
     Logger.log('  Fetching ServiceOrders (non-estimate)...');
-    var rawOrders = chunked31_(startStr, endStr, function(s, e) {
+    var rawOrders = chunked14_(startStr, endStr, function(s, e) {
       return fetchServiceOrdersRaw_(token, s, e);
     });
     Logger.log('  → ' + rawOrders.length + ' orders');
 
-    // Enrich near-term orders (next 14 days) with full field detail
-    enrichNearTermOrders_(token, rawOrders);
+    // Enrichment removed 2026-05-20: 14-day list chunks return full 45-field
+    // records, so per-record /ServiceOrders/{id} lookups are no longer needed.
+    // The enrichNearTermOrders_ function below is dead code but kept for
+    // potential future use (e.g., fetching Applications/LineItems/Materials
+    // for a drill-down view).
 
     // Invoices intentionally skipped — PestPac /Invoices is keyed-lookup only.
     // Billing signal arrives via webhooks (InvoiceWebhookHandler.gs).
