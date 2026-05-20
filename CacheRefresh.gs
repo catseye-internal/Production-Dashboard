@@ -51,8 +51,12 @@ const GH_PATH_RAW     = 'cache-raw.json';
 const RAW_REFRESH_MIN_HOURS = 20;          // ≥ this many hours since last raw write → write again
 const RAW_REFRESH_KEY = 'lastRawWriteAt';  // Script Properties key holding ISO timestamp
 
-// ── Order type filter ──
-const ORDER_TYPES_EXCLUDED = ['Estimate'];
+// ── Order types ──
+// Unfiltered /ServiceOrders calls return a SLIM record subset (~12 per month,
+// missing OrderType/Tech/status fields). To get the full payload we must query
+// each orderType explicitly. Confirmed 2026-05-20.
+const ORDER_TYPES_INCLUDED = ['ServiceOrder', 'CallBack', 'Production'];
+const ORDER_TYPES_EXCLUDED = ['Estimate'];  // BDC handles these
 
 // ── Curated field whitelists ──
 // Confirmed against live API (PestPacDiscovery.gs run on 2026-05-20).
@@ -128,16 +132,31 @@ function fmt_(d) { return d.getFullYear() + '-' + pad_(d.getMonth() + 1) + '-' +
 // Fetch helpers — pull RAW (all fields) — chunked by 31-day windows
 // ──────────────────────────────────────────────────────────────
 function fetchServiceOrdersRaw_(token, startDate, endDate) {
-  var r = ppGet_(token, '/ServiceOrders?startWorkDate=' + startDate + '&endWorkDate=' + endDate);
-  if (r.code !== 200) {
-    Logger.log('  ServiceOrders ' + startDate + '→' + endDate + ' HTTP ' + r.code + ': ' + r.text.substring(0, 200));
-    return [];
+  // PestPac quirks discovered 2026-05-20:
+  // 1. /ServiceOrders returns OPEN orders only — completed orders move to /Invoices.
+  //    So use a FORWARD-LOOKING window (today-7d → today+90d), not YTD historical.
+  // 2. Unfiltered queries return a SLIM record subset; filtered queries also
+  //    return slim records but strip OrderType from the response — so we stamp
+  //    it back on from the query value.
+  var all = [];
+  for (var i = 0; i < ORDER_TYPES_INCLUDED.length; i++) {
+    var ot = ORDER_TYPES_INCLUDED[i];
+    var r = ppGet_(token, '/ServiceOrders?orderType=' + encodeURIComponent(ot) +
+                          '&startWorkDate=' + startDate + '&endWorkDate=' + endDate);
+    if (r.code !== 200) {
+      Logger.log('  ServiceOrders ' + ot + ' ' + startDate + '→' + endDate +
+                 ' HTTP ' + r.code + ': ' + r.text.substring(0, 200));
+      continue;
+    }
+    var orders = JSON.parse(r.text);
+    Logger.log('    ' + ot + ' ' + startDate + '→' + endDate + ' → ' + orders.length + ' records');
+    // Stamp OrderType — PestPac strips it from filtered responses
+    for (var j = 0; j < orders.length; j++) {
+      if (!orders[j].OrderType) orders[j].OrderType = ot;
+      all.push(orders[j]);
+    }
   }
-  var orders = JSON.parse(r.text);
-  return orders.filter(function(o) {
-    var t = o.OrderType || o.orderType;
-    return ORDER_TYPES_EXCLUDED.indexOf(t) === -1;
-  });
+  return all;
 }
 
 // PestPac's /Invoices is a keyed-lookup endpoint, NOT a list endpoint.
@@ -223,26 +242,31 @@ function refreshProductionCache() {
   try {
     var token = ppToken_();
     var now = new Date();
-    var ytdStart = now.getFullYear() + '-01-01';
-    var todayStr = fmt_(now);
+    // /ServiceOrders returns OPEN orders only. Look forward, not backward.
+    // 7 days back catches recently-completed-not-yet-invoiced; 90 days forward
+    // catches upcoming scheduled work.
+    var windowStart = new Date(now); windowStart.setDate(windowStart.getDate() - 7);
+    var windowEnd   = new Date(now); windowEnd.setDate(windowEnd.getDate() + 90);
+    var startStr = fmt_(windowStart);
+    var endStr   = fmt_(windowEnd);
 
-    Logger.log('  Window: ' + ytdStart + ' → ' + todayStr);
+    Logger.log('  Window: ' + startStr + ' → ' + endStr);
 
     Logger.log('  Fetching ServiceOrders (non-estimate)...');
-    var rawOrders = chunked31_(ytdStart, todayStr, function(s, e) {
+    var rawOrders = chunked31_(startStr, endStr, function(s, e) {
       return fetchServiceOrdersRaw_(token, s, e);
     });
     Logger.log('  → ' + rawOrders.length + ' orders');
 
     // Invoices intentionally skipped — PestPac /Invoices is keyed-lookup only.
-    // Billing signal comes from ServiceOrders (Posted, SubTotal, Tax, Total).
+    // Billing signal arrives via webhooks (InvoiceWebhookHandler.gs).
 
     // ── Build curated payload (every refresh) ──
     var curatedOrders = rawOrders.map(function(o) { return curate_(o, CURATED_FIELDS_ORDER); });
 
     var curatedCache = {
       updated: new Date().toISOString(),
-      ytdStart: ytdStart,
+      windowStart: startStr, windowEnd: endStr,
       orders: curatedOrders
     };
     var curatedJson = JSON.stringify(curatedCache);
@@ -257,7 +281,7 @@ function refreshProductionCache() {
       Logger.log('  Raw write due (≥' + RAW_REFRESH_MIN_HOURS + 'h since last) — building cache-raw.json...');
       var rawCache = {
         updated: new Date().toISOString(),
-        ytdStart: ytdStart,
+        windowStart: startStr, windowEnd: endStr,
         orders: rawOrders
       };
       var rawJson = JSON.stringify(rawCache);
