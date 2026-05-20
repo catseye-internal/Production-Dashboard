@@ -485,7 +485,7 @@ var STATE = {
   view: 'orders',          // 'orders' | 'invoices'
   invoiceMode: 'all',      // 'all' | 'production' | 'revenue'
   // Per-view date state — switching tabs preserves each tab's selection
-  ordersPeriod: 'week',    // 'today' | 'tomorrow' | 'week' | 'eom' | 'custom'
+  ordersPeriod: 'next7',   // 'today' | 'tomorrow' | 'next7' | 'next14' | 'custom'
   invoicesPeriod: 'mtd',   // 'today' | 'yesterday' | 'wk' | 'mtd' | 'ytd' | 'custom'
   ordersCustom:   { start: '', end: '' },
   invoicesCustom: { start: '', end: '' },
@@ -508,8 +508,8 @@ var PERIOD_BUTTONS = {
   orders: [
     { key: 'today',    label: 'Today' },
     { key: 'tomorrow', label: 'Tomorrow' },
-    { key: 'week',     label: 'This Week' },     // today through Saturday
-    { key: 'eom',      label: 'End of Month' },  // today through last day of month
+    { key: 'next7',    label: '7-Day' },          // today through today+6 (7 days inclusive)
+    { key: 'next14',   label: '14-Day' },         // today through today+13 (14 days inclusive — matches PestPac cache horizon)
     { key: 'custom',   label: 'Custom' }
   ],
   invoices: [
@@ -846,17 +846,25 @@ function resolvePeriod(period, custom) {
     var y = new Date(today); y.setDate(y.getDate() - 1);
     var s = fmtDate(y); return { start: s, end: s };
   }
-  if (period === 'week') {  // today through Saturday
+  if (period === 'next7') {  // today through today+6 (7 days inclusive)
+    var d7 = new Date(today); d7.setDate(d7.getDate() + 6);
+    return { start: todayStr, end: fmtDate(d7) };
+  }
+  if (period === 'next14') {  // today through today+13 (14 days inclusive)
+    var d14 = new Date(today); d14.setDate(d14.getDate() + 13);
+    return { start: todayStr, end: fmtDate(d14) };
+  }
+  if (period === 'week') {  // legacy: today through Saturday — kept for back-compat with any saved state
     var sat = new Date(today);
     sat.setDate(sat.getDate() + (6 - sat.getDay()));
     return { start: todayStr, end: fmtDate(sat) };
   }
-  if (period === 'wk') {  // Sun → Sat current week
+  if (period === 'wk') {  // Sun → Sat current week (used by invoices view)
     var sun = new Date(today); sun.setDate(sun.getDate() - sun.getDay());
     var sat2 = new Date(sun); sat2.setDate(sat2.getDate() + 6);
     return { start: fmtDate(sun), end: fmtDate(sat2) };
   }
-  if (period === 'eom') {  // today through last day of month
+  if (period === 'eom') {  // legacy: today through last day of month — kept for back-compat
     var eom = new Date(today.getFullYear(), today.getMonth() + 1, 0);
     return { start: todayStr, end: fmtDate(eom) };
   }
