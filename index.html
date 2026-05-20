@@ -390,6 +390,15 @@
       </div>
     </div>
     <div class="filter-group">
+      <span class="filter-label">Division</span>
+      <div class="period-group" id="divisionGroup">
+        <button class="period-btn active" data-division="">All</button>
+        <button class="period-btn" data-division="pest-resi">Pest · Resi</button>
+        <button class="period-btn" data-division="pest-commerc">Pest · Comm</button>
+        <button class="period-btn" data-division="cgnwl">CG/NWL</button>
+      </div>
+    </div>
+    <div class="filter-group">
       <span class="filter-label">Branch</span>
       <select id="branchFilter">
         <option value="">All Branches</option>
@@ -479,6 +488,7 @@ var STATE = {
   invoicesCustom: { start: '', end: '' },
   // Common filters
   company: '',             // '' | 'catseye' | 'usx'
+  division: '',            // '' | 'pest-resi' | 'pest-commerc' | 'cgnwl'
   branch: '',
   tech: '',
   callbacks: '',           // '' | 'only' | 'exclude'
@@ -610,6 +620,16 @@ function wireFilters() {
       // Reset branch when switching company — branches are scoped to one company
       STATE.branch = '';
       populateFilterOptions();
+      render();
+    });
+  });
+
+  // Division toggle (All / Pest · Resi / Pest · Comm / CG/NWL)
+  document.querySelectorAll('#divisionGroup .period-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#divisionGroup .period-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      STATE.division = btn.dataset.division;
       render();
     });
   });
@@ -876,6 +896,8 @@ function applyFilters(records, columns) {
     if (STATE.company === 'catseye' && isUsxBranch(r.Branch)) return false;
     if (STATE.company === 'usx'     && !isUsxBranch(r.Branch)) return false;
     if (STATE.branch && r.Branch !== STATE.branch) return false;
+    // Division filter (Pest Resi / Pest Comm / CG/NWL)
+    if (STATE.division && classifyDivision(r) !== STATE.division) return false;
     if (STATE.tech) {
       var t = r.Tech1 || r.Tech || r.tech || '';
       if (t !== STATE.tech) return false;

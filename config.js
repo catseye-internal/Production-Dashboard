@@ -137,6 +137,37 @@ const INVOICES_COLUMNS = [
   { key: 'WorkDate',           label: 'Work Date',     type: 'date',           sortable: true, default: false },
 ];
 
+// ── Division classification (Pest vs CG/NWL, Resi vs Commercial) ──
+// Per Joe 2026-05-20.
+//
+// CG/NWL Service Classes (used on Invoices, exact match):
+const CGNWL_CLASSES = new Set(['CAT-GUARD', 'CATGUARD', 'CG WARRANT', 'NWL']);
+//
+// Commercial Pest Service Classes (used on Invoices, exact match):
+const COMMERC_CLASSES = new Set(['COMM INIT', 'COMM SERVI', 'COMMERCIAL']);
+//
+// For Service Orders the API only returns ServiceCode (not ServiceClass), so
+// we pattern-match on the code. CG/NWL codes include things like CG PRE-WALK,
+// NWL EVICT FU, COURT CG RESEAL, BIRD EXCLUSION, BAT FOLLOW-UP, etc.
+const CGNWL_CODE_PATTERN = /\b(CG|CATGUARD|NWL|BAT|BIRD|WOODPECKER|WILDLIFE|EVICT|EXCLUS|RIDGE|TRENCH|RESEAL)\b/;
+const COMMERC_CODE_PATTERN = /^COMM/;
+
+// Classify a record into one of: 'pest-resi' | 'pest-commerc' | 'cgnwl'
+// Prefer ServiceClass when present (Invoices); fall back to ServiceCode (Service Orders).
+function classifyDivision(rec) {
+  var sc = String(rec.ServiceClass || '').toUpperCase().trim();
+  if (sc) {
+    if (CGNWL_CLASSES.has(sc))   return 'cgnwl';
+    if (COMMERC_CLASSES.has(sc)) return 'pest-commerc';
+    return 'pest-resi';
+  }
+  var code = String(rec.ServiceCode || '').toUpperCase().trim();
+  if (!code) return 'pest-resi';
+  if (CGNWL_CODE_PATTERN.test(code))   return 'cgnwl';
+  if (COMMERC_CODE_PATTERN.test(code)) return 'pest-commerc';
+  return 'pest-resi';
+}
+
 // Invoice Type code → friendly label and color (confirmed with Joe 2026-05-20)
 const INVOICE_TYPE_LABEL = {
   'IN': 'Invoice',     // standard completed work
