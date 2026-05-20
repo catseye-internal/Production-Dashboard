@@ -180,17 +180,27 @@ const NWL_CODE_PATTERN = /\b(NWL|NWFU|NWI|BAT|WOODPECKER)\b/;
 const CG_CODE_PATTERN  = /\b(CG|CGW|CATGUARD|RIDGE|TRENCH|RESEAL|EXCLUS|EVICT|CONTINUE|EXTENDED|FINAL\s*WALK|GENERAL\s*CG)\b/;
 const COMMERC_CODE_PATTERN = /^COMM/;
 
+// Codes that contain "TOTAL PLAT" are Total Platinum pest service tiers
+// (even when bundled with CGW). They are pest, NOT CG/NWL.
+// Per Joe 2026-05-20.
+const TOTAL_PLAT_PATTERN = /\bTOTAL\s*PLAT\b/;
+
 // Classify a record into one of: 'pest-resi' | 'pest-commerc' | 'cg' | 'nwl'
 // Prefer ServiceClass when present (Invoices); fall back to ServiceCode (Service Orders).
 function classifyDivision(rec) {
   var sc = String(rec.ServiceClass || '').toUpperCase().trim();
+  var code = String(rec.ServiceCode || '').toUpperCase().trim();
+  // Early exclusion: TOTAL PLAT codes are always pest, never CG/NWL
+  if (code && TOTAL_PLAT_PATTERN.test(code)) {
+    if (sc && COMMERC_CLASSES.has(sc)) return 'pest-commerc';
+    return 'pest-resi';
+  }
   if (sc) {
     if (NWL_CLASSES.has(sc))     return 'nwl';
     if (CG_CLASSES.has(sc))      return 'cg';
     if (COMMERC_CLASSES.has(sc)) return 'pest-commerc';
     return 'pest-resi';
   }
-  var code = String(rec.ServiceCode || '').toUpperCase().trim();
   if (!code) return 'pest-resi';
   // Explicit Set lookup is authoritative
   if (NWL_SERVICE_CODES.has(code)) return 'nwl';
