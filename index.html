@@ -533,6 +533,10 @@ var STATE = {
   rawCache: null,
   invoiceCache: null,
   invoiceLoadPromise: null,
+  setupsCache: null,
+  setupsLoadPromise: null,
+  setupsMap: null,            // SetupID → setup
+  setupsByLocService: null,   // LocationID + ':' + ServiceCode → setup (for invoices fallback)
 };
 
 // Per-view period button definitions
@@ -586,6 +590,8 @@ document.addEventListener('DOMContentLoaded', function() {
   render();                  // show structure immediately
   // Load locations cache in parallel with main cache — locations are joined at render time
   loadLocationsCache();
+  // Load setups cache in parallel — powers Schedule + Frequency columns on both views
+  loadSetupsCache();
   // Load invoice cache eagerly (non-blocking) so the Class column populates on Service Orders
   // without waiting for the user to switch to the Invoices tab. ~24 MB but cached after first load.
   loadInvoiceCache();
@@ -678,6 +684,55 @@ function loadLocationsCache() {
   return STATE.locationsLoadPromise;
 }
 
+// Loads cache-setups.json and builds two maps for fast lookup:
+//   STATE.setupsMap          — SetupID → setup (Service Orders join by this)
+//   STATE.setupsByLocService — LocationID:ServiceCode → setup (Invoices fallback for Frequency)
+// Joined onto records at render time via joinLocationData().
+function loadSetupsCache() {
+  if (STATE.setupsLoadPromise) return STATE.setupsLoadPromise;
+  STATE.setupsLoadPromise = fetch('./cache-setups.json', { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(data) {
+      STATE.setupsCache = data;
+      STATE.setupsMap = {};
+      STATE.setupsByLocService = {};
+      (data.setups || []).forEach(function(s) {
+        if (s.SetupID != null) STATE.setupsMap[String(s.SetupID)] = s;
+        if (s.LocationID != null && s.ServiceCode) {
+          var key = String(s.LocationID) + ':' + String(s.ServiceCode).toUpperCase();
+          // Prefer Active setups when there are duplicates for a (loc, service) pair
+          var existing = STATE.setupsByLocService[key];
+          if (!existing || (s.Active && !existing.Active)) {
+            STATE.setupsByLocService[key] = s;
+          }
+        }
+      });
+      try { render(); } catch (e) { /* render might not be ready yet */ }
+    })
+    .catch(function(err) {
+      console.warn('setups cache load failed (this is OK if cache-setups.json doesn\'t exist yet):', err);
+      STATE.setupsMap = {};
+      STATE.setupsByLocService = {};
+    });
+  return STATE.setupsLoadPromise;
+}
+
+// Derive a Frequency label from a PestPac Schedule code when we don't have a
+// setup lookup. Pattern conventions confirmed from cache-invoices.json
+// distribution (141 distinct values across 29,152 invoices).
+function frequencyFromScheduleCode(code) {
+  if (!code) return null;
+  var c = String(code).toUpperCase().trim();
+  if (c === 'NO ROUTE') return 'Unscheduled';
+  if (/^BM/.test(c))                       return 'Bi-Monthly';
+  if (/^W/.test(c))                        return 'Weekly';
+  if (/^Q[A-Z]{3}/.test(c))                return 'Quarterly';
+  if (/^[0-9]+\s*DAY\s*W(EEK|K)?/.test(c)) return 'Multi-Day Weekly';
+  if (/^M[1-4]\/[1-4]/.test(c))            return 'Monthly (Multi-Week)';
+  if (/^M[1-4]/.test(c))                   return 'Monthly';
+  return null;
+}
+
 // Augment a record (service order OR invoice) with location fields under "_Loc*" keys.
 // Service orders join by LocationID; invoices join by LocationCode.
 // When the locations cache doesn't have a match (e.g., historical invoice for a
@@ -723,7 +778,47 @@ function joinLocationData(r) {
   if (STATE.codeToClassMap && r.ServiceCode) {
     r._Class = STATE.codeToClassMap[String(r.ServiceCode).toUpperCase()] || null;
   }
+  // Schedule + Frequency — join from setups cache
+  //   Service Orders: look up by r.SetupID
+  //   Invoices: r.Schedule is already in the cache; for Frequency, fall back
+  //   to (LocationID + ServiceCode) → setup, then to a Schedule-pattern derivation.
+  var setup = null;
+  if (STATE.setupsMap && r.SetupID != null) {
+    setup = STATE.setupsMap[String(r.SetupID)];
+  }
+  if (!setup && STATE.setupsByLocService && r.ServiceCode) {
+    // Invoices don't carry LocationID — resolve via LocationCode → LocationID first
+    var locId = r.LocationID;
+    if (locId == null && r.LocationCode != null && STATE.locationsByCode) {
+      var matchedLoc = STATE.locationsByCode[String(r.LocationCode)];
+      if (matchedLoc) locId = matchedLoc.LocationID;
+    }
+    if (locId != null) {
+      var key = String(locId) + ':' + String(r.ServiceCode).toUpperCase();
+      setup = STATE.setupsByLocService[key];
+    }
+  }
+  // Schedule: setup > record's own Schedule field (invoices have it directly)
+  r._Schedule  = (setup && setup.Schedule)  || r.Schedule  || null;
+  // Frequency: PestPac /ServiceSetups returns FrequencyDescription ("Bi-Monthly Services")
+  // and FrequencyCode ("BI-MONTHLY"). Prefer the description (strip trailing " Services"
+  // for compactness), fall back to a title-cased code, then to schedule-pattern derivation.
+  r._Frequency = prettyFrequency(setup) || frequencyFromScheduleCode(r._Schedule);
   return r;
+}
+
+function prettyFrequency(setup) {
+  if (!setup) return null;
+  if (setup.FrequencyDescription) {
+    return String(setup.FrequencyDescription).replace(/\s+Services?$/i, '');
+  }
+  if (setup.FrequencyCode) {
+    // BI-MONTHLY → Bi-Monthly
+    return String(setup.FrequencyCode).split('-').map(function(p) {
+      return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+    }).join('-');
+  }
+  return null;
 }
 
 // Build a ServiceCode → ServiceClass lookup from cache-invoices.json. Each ServiceCode
