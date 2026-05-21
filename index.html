@@ -659,9 +659,13 @@ function loadLocationsCache() {
     .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data) {
       STATE.locationsCache = data;
+      // Two maps: by LocationID (service orders use this) AND by LocationCode (invoices use this,
+      // since the YTD export doesn't include LocationID, only LocationCode).
       STATE.locationsMap = {};
+      STATE.locationsByCode = {};
       (data.locations || []).forEach(function(l) {
         if (l.LocationID != null) STATE.locationsMap[String(l.LocationID)] = l;
+        if (l.LocationCode != null) STATE.locationsByCode[String(l.LocationCode)] = l;
       });
       // Re-render to pick up the joined fields
       try { render(); } catch (e) { /* render might not be ready yet */ }
@@ -669,15 +673,18 @@ function loadLocationsCache() {
     .catch(function(err) {
       console.warn('locations cache load failed (this is OK if cache-locations.json doesn\'t exist yet):', err);
       STATE.locationsMap = {};
+      STATE.locationsByCode = {};
     });
   return STATE.locationsLoadPromise;
 }
 
-// Augment a service-order record with location fields under "_Loc*" keys
-// so they don't collide with order-side keys. Returns the same object.
+// Augment a record (service order OR invoice) with location fields under "_Loc*" keys.
+// Service orders join by LocationID; invoices join by LocationCode (the YTD export doesn't carry LocationID).
 function joinLocationData(r) {
   if (!r || !STATE.locationsMap) return r;
-  var loc = STATE.locationsMap[String(r.LocationID || '')];
+  var loc = null;
+  if (r.LocationID != null) loc = STATE.locationsMap[String(r.LocationID)];
+  if (!loc && r.LocationCode != null && STATE.locationsByCode) loc = STATE.locationsByCode[String(r.LocationCode)];
   if (loc) {
     // Derived "Name" — Company for commercial, FirstName + LastName for residential
     var name = (loc.Company && loc.Company.trim())
