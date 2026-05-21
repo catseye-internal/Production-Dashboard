@@ -259,6 +259,35 @@ function matchesDivision(rec, division) {
   return d === division;
 }
 
+// ── Recurring vs Non-Recurring classification (Joe 2026-05-21) ──
+// "Recurring" means the customer is on a contracted/ongoing service cadence
+// — they generate predictable revenue every month/quarter/year. "Non-recurring"
+// is one-off or initial-service work (callbacks, exclusions, initial setups).
+//
+// Source of truth: ServiceClass on the invoice (or ServiceClass derived from
+// ServiceCode → invoice cache lookup on Service Orders).
+const RECURRING_SERVICE_CLASSES = new Set([
+  'CG WARRANT',
+  'COMM SERVI',
+  'LAWN/ORNAM',
+  'PG CG',
+  'PG CG PRE',
+  'PG PLUS',
+  'PG SERVICE',
+  'SEASONAL',
+  'TERMITE RE',
+]);
+
+// Returns true if the record represents a recurring service contract.
+// Invoices have ServiceClass directly; Service Orders get it via the
+// code→class map joined at render time (r._Class).
+function isRecurring(rec) {
+  if (!rec) return false;
+  var sc = String(rec.ServiceClass || rec._Class || '').toUpperCase().trim();
+  if (!sc) return false;
+  return RECURRING_SERVICE_CLASSES.has(sc);
+}
+
 // Invoice Type code → friendly label and color (confirmed with Joe 2026-05-20)
 const INVOICE_TYPE_LABEL = {
   'IN': 'Invoice',     // standard completed work

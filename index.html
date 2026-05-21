@@ -440,6 +440,14 @@
       </select>
     </div>
     <div class="filter-group">
+      <span class="filter-label">Recurrence</span>
+      <div class="period-group" id="recurringGroup">
+        <button class="period-btn active" data-recurring="">All</button>
+        <button class="period-btn" data-recurring="recurring">Recurring</button>
+        <button class="period-btn" data-recurring="non-recurring">Non-Recurring</button>
+      </div>
+    </div>
+    <div class="filter-group">
       <span class="filter-label">Callbacks</span>
       <div class="period-group" id="callbackGroup">
         <button class="period-btn active" data-callbacks="">All</button>
@@ -527,6 +535,7 @@ var STATE = {
   branch: '',
   tech: '',
   callbacks: '',           // '' | 'only' | 'exclude'
+  recurring: '',           // '' | 'recurring' | 'non-recurring'
   locked: '',              // '' | 'true' | 'false'
   search: '',
   sort: { key: 'WorkDate', dir: 'desc' },
@@ -545,7 +554,6 @@ var PERIOD_BUTTONS = {
     { key: 'today',    label: 'Today' },
     { key: 'tomorrow', label: 'Tomorrow' },
     { key: 'next7',    label: '7-Day' },          // today through today+6 (7 days inclusive)
-    { key: 'next14',   label: '14-Day' },         // today through today+13 (14 days inclusive — matches PestPac cache horizon)
     { key: 'custom',   label: 'Custom' }
   ],
   invoices: [
@@ -888,6 +896,14 @@ function wireFilters() {
       render();
     });
   });
+  document.querySelectorAll('#recurringGroup .period-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#recurringGroup .period-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      STATE.recurring = btn.dataset.recurring;
+      render();
+    });
+  });
   document.querySelectorAll('#lockedGroup .period-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       document.querySelectorAll('#lockedGroup .period-btn').forEach(function(b) { b.classList.remove('active'); });
@@ -1151,6 +1167,9 @@ function applyFilters(records, columns) {
     if (STATE.branch && r.Branch !== STATE.branch) return false;
     // Division filter — supports composite values (all-pest, cgnwl) via matchesDivision
     if (!matchesDivision(r, STATE.division)) return false;
+    // Recurring filter — keyed off ServiceClass (invoices) or _Class (orders, joined from invoice cache)
+    if (STATE.recurring === 'recurring'     && !isRecurring(r)) return false;
+    if (STATE.recurring === 'non-recurring' &&  isRecurring(r)) return false;
     if (STATE.tech) {
       var t = r.Tech1 || r.Tech || r.tech || '';
       if (t !== STATE.tech) return false;
