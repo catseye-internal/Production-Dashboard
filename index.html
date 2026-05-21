@@ -264,6 +264,14 @@
   /* Force the first USX branch card to start a new row so USX is visually
      grouped at the bottom (even when Catseye has an odd branch count). */
   .group-block.usx-first { grid-column-start: 1; }
+  /* When Catseye branch count is odd, center the lonely card across both cols
+     (same width as a normal half-width card, just horizontally centered). */
+  .group-block.lone-center {
+    grid-column: 1 / -1;
+    width: calc(50% - 7px);
+    margin-left: auto;
+    margin-right: auto;
+  }
   .group-block {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
     padding: 10px 12px; min-width: 0;
@@ -1476,8 +1484,13 @@ function renderSummaryView_() {
     { id: 'cat-total', label: 'CATSEYE TOTAL',  cls: '', include: function(b) { return !isUsxBranch(b); } },
     { id: 'usx-total', label: 'USX PEST TOTAL', cls: '', include: function(b) { return  isUsxBranch(b); } },
   ];
-  BRANCH_CATSEYE.forEach(function(b) {
-    bucketOrder.push({ id: 'cat-' + b, cls: '',
+  BRANCH_CATSEYE.forEach(function(b, i) {
+    // Last Catseye card centers if Catseye branch count is odd (RI alone case).
+    // We have 2 totals on top row already, so Catseye branches start at row 2;
+    // odd count → last one alone, centered.
+    var isLast = (i === BRANCH_CATSEYE.length - 1);
+    var cls = (isLast && (BRANCH_CATSEYE.length % 2 === 1)) ? 'lone-center' : '';
+    bucketOrder.push({ id: 'cat-' + b, cls: cls,
       label: 'CATSEYE — ' + (BRANCH_DISPLAY[b] || b).toUpperCase(),
       include: function(branch) { return branch === b; } });
   });
@@ -1591,16 +1604,33 @@ function renderTechView_() {
     if (role)   r.roleVotes[role]     = (r.roleVotes[role] || 0) + 1;
   }
 
+  // Helper: attribute revenue to one or both techs depending on role + Tech2.
+  // CG/NWL jobs with two techs split 50/50 (both did the installation work).
+  // Pest jobs always credit Tech1 only (Tech2 on pest is typically a trainee/check-in).
+  function attribute(bucket, branch, role, amount, tech1, tech2) {
+    if (!tech1) return;
+    if (role === 'cgnwl' && tech2 && tech2 !== tech1) {
+      var half = amount / 2;
+      var r1 = row(tech1);
+      noteBranchRole(r1, branch, role);
+      r1[bucket] += half;
+      var r2 = row(tech2);
+      noteBranchRole(r2, branch, role);
+      r2[bucket] += half;
+    } else {
+      var r = row(tech1);
+      noteBranchRole(r, branch, role);
+      r[bucket] += amount;
+    }
+  }
+
   // Completed (MTD) — invoice cache, 1st of month through yesterday
   if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
     STATE.invoiceCache.invoices.forEach(function(inv) {
       var date = String(inv.InvoiceDate || '').substring(0, 10);
       if (date < dSom || date > dYest) return;
-      var tech = inv.Tech;
-      if (!tech) return;
-      var r = row(tech);
-      noteBranchRole(r, inv.Branch, roleOf(inv));
-      r.completed += Number(inv.SubTotal) || 0;
+      var role = roleOf(inv);
+      attribute('completed', inv.Branch, role, Number(inv.SubTotal) || 0, inv.Tech, inv.Tech2);
     });
   }
 
@@ -1615,11 +1645,8 @@ function renderTechView_() {
       else if (date === dPlus2) bucket = 'd2';
       else if (date === dPlus3) bucket = 'd3';
       if (!bucket) return;
-      var tech = o.Tech1;
-      if (!tech) return;
-      var r = row(tech);
-      noteBranchRole(r, o.Branch, roleOf(o));
-      r[bucket] += Number(o.SubTotal) || 0;
+      var role = roleOf(o);
+      attribute(bucket, o.Branch, role, Number(o.SubTotal) || 0, o.Tech1, o.Tech2);
     });
   }
 
@@ -1660,12 +1687,27 @@ function renderTechView_() {
     return wd + ' ' + (d.getMonth() + 1) + '/' + d.getDate();
   }
 
-  var branchOrder = BRANCH_ALL.filter(function(b) { return byBranch[b]; });
-  Object.keys(byBranch).forEach(function(b) {
-    if (branchOrder.indexOf(b) === -1) branchOrder.push(b);
+  // Build branch render order with layout classes for grid placement
+  var catseyeBranches = BRANCH_CATSEYE.filter(function(b) { return byBranch[b]; });
+  var usxBranches     = BRANCH_USX.filter(function(b) { return byBranch[b]; });
+  var orphanBranches  = Object.keys(byBranch).filter(function(b) {
+    return BRANCH_ALL.indexOf(b) === -1;
   });
+  var branchEntries = [];
+  catseyeBranches.forEach(function(b, i) {
+    // Center the last Catseye card when count is odd (would otherwise sit alone in col 1)
+    var cls = (i === catseyeBranches.length - 1 && catseyeBranches.length % 2 === 1)
+      ? 'lone-center' : '';
+    branchEntries.push({ b: b, cls: cls });
+  });
+  usxBranches.forEach(function(b, i) {
+    branchEntries.push({ b: b, cls: (i === 0 ? 'usx-first' : '') });
+  });
+  orphanBranches.forEach(function(b) { branchEntries.push({ b: b, cls: '' }); });
 
-  var html = branchOrder.map(function(b) {
+  var html = branchEntries.map(function(entry) {
+    var b = entry.b;
+    var blockCls = 'group-block' + (entry.cls ? ' ' + entry.cls : '');
     var techs = byBranch[b].slice();
     // Pest first, then CG/NWL. Within each group, by 4-day forecast desc.
     techs.sort(function(a, c) {
@@ -1689,7 +1731,7 @@ function renderTechView_() {
       return '<tr>' +
         '<td>' + escapeHtml(item.tech) + '</td>' +
         '<td><span class="pill-role ' + pillCls + '">' + pillTxt + '</span></td>' +
-        moneyCell(d.completed, d.completed / mtdDays, isPest) +
+        moneyCell(d.completed, 0, false) +  // MTD never colored (Joe directive 2026-05-21)
         moneyCell(d.today, d.today, isPest) +
         moneyCell(d.tmrw,  d.tmrw,  isPest) +
         moneyCell(d.d2,    d.d2,    isPest) +
@@ -1697,18 +1739,18 @@ function renderTechView_() {
       '</tr>';
     }).join('');
 
-    // Branch total — color always uses Pest thresholds (CSRs care about overall branch productivity)
+    // Branch total — color on forecast columns uses Pest thresholds; MTD stays uncolored
     var totalRow = '<tr class="total-row">' +
       '<td>Total</td>' +
       '<td></td>' +
-      moneyCell(totals.completed, totals.completed / mtdDays, true) +
+      moneyCell(totals.completed, 0, false) +
       moneyCell(totals.today, totals.today, true) +
       moneyCell(totals.tmrw,  totals.tmrw,  true) +
       moneyCell(totals.d2,    totals.d2,    true) +
       moneyCell(totals.d3,    totals.d3,    true) +
     '</tr>';
 
-    return '<div class="group-block">' +
+    return '<div class="' + blockCls + '">' +
       '<div class="group-block-header">' +
         '<h3 class="group-block-title">' + (BRANCH_DISPLAY[b] || b).toUpperCase() + '</h3>' +
         '<div class="group-block-meta">' + techs.length + ' techs</div>' +
