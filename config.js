@@ -134,13 +134,13 @@ const SERVICE_ORDERS_COLUMNS = [
 // columns (Balance, Aging) sit after Subtotal. Location fields (_LocName, _LocCity, etc.)
 // come from cache-locations.json via joinLocationData — invoices have LocationID too.
 const INVOICES_COLUMNS = [
-  { key: 'InvoiceDate',        label: 'Invoice Date',  type: 'date',           sortable: true, default: true,  width: 95 },
+  { key: 'InvoiceDate',        label: 'Invoice Date',  type: 'date',           sortable: true, default: true,  width: 90 },
   { key: 'Branch',             label: 'Branch',        type: 'branch',         sortable: true, default: true,  width: 75 },
   { key: '_LocCodeLink',       label: 'Loc #',         type: 'pp-loc-link',    sortable: true, default: true,  width: 70 },
   { key: 'CustomerName',       label: 'Name',          type: 'text-truncate',  sortable: true, default: true,  width: 130 },
   { key: '_LocCity',           label: 'City',          type: 'text',           sortable: true, default: true,  width: 100 },
   { key: '_LocState',          label: 'State',         type: 'text',           sortable: true, default: true,  width: 45 },
-  { key: 'InvoiceType',        label: 'Type',          type: 'invoiceType',    sortable: true, default: true,  width: 95 },
+  { key: 'InvoiceType',        label: 'Type',          type: 'invoiceType',    sortable: true, default: true,  width: 110 },
   { key: 'Tech',               label: 'Tech',          type: 'text',           sortable: true, default: true,  width: 55 },
   { key: 'Tech2',              label: 'Tech 2',        type: 'text',           sortable: true, default: true,  width: 60 },
   { key: 'ServiceCode',        label: 'Service',       type: 'text',           sortable: true, default: true,  width: 140 },
