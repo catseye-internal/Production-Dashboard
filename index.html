@@ -251,42 +251,52 @@
     padding: 48px 24px; text-align: center; color: var(--text-dim); font-size: 13px;
   }
 
-  /* ── Grouped views (Summary, Tech) ── */
+  /* ── Grouped views (Summary, Tech) — 2-column grid ── */
   .grouped-view {
-    padding: 0 32px 24px; display: flex; flex-direction: column; gap: 18px;
+    padding: 0 32px 24px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
   }
+  @media (max-width: 1100px) {
+    .grouped-view { grid-template-columns: 1fr; }
+  }
+  /* Force the first USX branch card to start a new row so USX is visually
+     grouped at the bottom (even when Catseye has an odd branch count). */
+  .group-block.usx-first { grid-column-start: 1; }
   .group-block {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
-    padding: 14px 16px;
+    padding: 10px 12px; min-width: 0;
   }
   .group-block-header {
     display: flex; align-items: baseline; justify-content: space-between;
-    margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+    margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
   }
   .group-block-title {
-    font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
     color: var(--text); margin: 0;
   }
-  .group-block-title .pill-role {
-    display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 4px;
-    font-size: 10px; letter-spacing: 0.5px;
+  .pill-role {
+    display: inline-block; padding: 1px 7px; border-radius: 4px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
   }
-  .group-block-meta { font-size: 11px; color: var(--text-dim); }
+  .group-block-meta { font-size: 10px; color: var(--text-dim); }
   .summary-table, .tech-table {
-    width: 100%; border-collapse: collapse; font-size: 12px;
+    width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed;
   }
   .summary-table th, .tech-table th {
-    text-align: left; padding: 6px 10px; font-size: 10px; font-weight: 700;
-    letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim);
-    border-bottom: 1px solid var(--border);
+    text-align: left; padding: 4px 6px; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-dim);
+    border-bottom: 1px solid var(--border); white-space: nowrap;
   }
   .summary-table td, .tech-table td {
-    padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .summary-table tr:last-child td, .tech-table tr:last-child td { border-bottom: none; }
   .summary-table .num, .tech-table .num { text-align: right; font-variant-numeric: tabular-nums; }
   .summary-table .total-row td, .tech-table .total-row td {
-    font-weight: 700; border-top: 2px solid var(--border); padding-top: 8px;
+    font-weight: 700; border-top: 2px solid var(--border); padding-top: 5px;
     color: var(--text);
   }
   /* Role color treatment for Tech view headers */
@@ -1254,8 +1264,13 @@ function resolvePeriod(period, custom) {
     return { start: todayStr, end: fmtDate(eom) };
   }
   if (period === 'mtd') {
+    // MTD = 1st of month through the most recent completed day (yesterday).
+    // On the 1st of a month, this yields {start, end} where end < start —
+    // i.e., no records match, which is the correct semantic ("nothing completed
+    // this month yet"). Joe directive 2026-05-21.
     var som = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { start: fmtDate(som), end: todayStr };
+    var yest = new Date(today); yest.setDate(yest.getDate() - 1);
+    return { start: fmtDate(som), end: fmtDate(yest) };
   }
   if (period === 'ytd') {
     return { start: today.getFullYear() + '-01-01', end: todayStr };
@@ -1455,16 +1470,18 @@ function renderSummaryView_() {
   // Aggregate: count + subtotal by ServiceClass, grouped per branch bucket
   // Bucket order: Catseye total, USX total, Catseye branches, USX branches
   var bucketOrder = [
-    { id: 'cat-total', label: 'CATSEYE TOTAL',   include: function(b) { return !isUsxBranch(b); } },
-    { id: 'usx-total', label: 'USX PEST TOTAL',  include: function(b) { return  isUsxBranch(b); } },
+    { id: 'cat-total', label: 'CATSEYE TOTAL',  cls: '', include: function(b) { return !isUsxBranch(b); } },
+    { id: 'usx-total', label: 'USX PEST TOTAL', cls: '', include: function(b) { return  isUsxBranch(b); } },
   ];
   BRANCH_CATSEYE.forEach(function(b) {
-    bucketOrder.push({ id: 'cat-' + b, label: 'CATSEYE — ' + (BRANCH_DISPLAY[b] || b).toUpperCase(),
-                       include: function(branch) { return branch === b; } });
+    bucketOrder.push({ id: 'cat-' + b, cls: '',
+      label: 'CATSEYE — ' + (BRANCH_DISPLAY[b] || b).toUpperCase(),
+      include: function(branch) { return branch === b; } });
   });
-  BRANCH_USX.forEach(function(b) {
-    bucketOrder.push({ id: 'usx-' + b, label: 'USX — ' + (BRANCH_DISPLAY[b] || b.replace(/^USX[^A-Za-z]*/, '')).toUpperCase(),
-                       include: function(branch) { return branch === b; } });
+  BRANCH_USX.forEach(function(b, i) {
+    bucketOrder.push({ id: 'usx-' + b, cls: (i === 0 ? 'usx-first' : ''),
+      label: 'USX — ' + (BRANCH_DISPLAY[b] || b.replace(/^USX[^A-Za-z]*/, '')).toUpperCase(),
+      include: function(branch) { return branch === b; } });
   });
 
   var summary = {};
@@ -1485,8 +1502,9 @@ function renderSummaryView_() {
   var html = bucketOrder.map(function(bucket) {
     var rows = summary[bucket.id];
     var classes = Object.keys(rows).sort(function(a, b) { return rows[b].subtotal - rows[a].subtotal; });
+    var blockCls = 'group-block' + (bucket.cls ? ' ' + bucket.cls : '');
     if (classes.length === 0) {
-      return '<div class="group-block">' +
+      return '<div class="' + blockCls + '">' +
              '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
              '<div class="group-block-meta">No invoices in period</div></div></div>';
     }
@@ -1505,9 +1523,9 @@ function renderSummaryView_() {
         '<td class="num">' + totalCount.toLocaleString() + '</td>' +
         '<td class="num">$' + Math.round(totalSubtotal).toLocaleString() + '</td>' +
       '</tr>';
-    return '<div class="group-block">' +
+    return '<div class="' + blockCls + '">' +
       '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
-      '<div class="group-block-meta">' + totalCount.toLocaleString() + ' invoices · $' + Math.round(totalSubtotal).toLocaleString() + '</div></div>' +
+      '<div class="group-block-meta">' + totalCount.toLocaleString() + ' inv · $' + Math.round(totalSubtotal).toLocaleString() + '</div></div>' +
       '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Count</th><th class="num">Subtotal</th></tr></thead>' +
       '<tbody>' + bodyRows + totalRow + '</tbody></table></div>';
   }).join('');
@@ -1527,13 +1545,12 @@ function renderSummaryView_() {
 }
 
 /* ─────────── TECH VIEW (fixed periods — no filters) ───────────
- * Columns per tech: Completed (MTD invoices) | Forecast Today | Tomorrow | +2 | +3
- * Grouped by Role (Pest vs CG/NWL) → Branch.
- * Score color (Pest only): daily revenue ≥$1700 green / ≥$1500 yellow / else red.
- * Completed column uses MTD daily average for color.
+ * Columns per tech: Class | Completed (MTD) | Forecast Today | Tmrw | +2 | +3
+ * One card per Branch — Pest and CG/NWL techs combined into a single table.
+ * Score color (Pest rows only): daily revenue ≥$1700 green / ≥$1500 yellow / else red.
+ * MTD = first of month through yesterday (most recent completed day).
  */
 function renderTechView_() {
-  // Compute the 5 fixed period anchors
   var todayD = new Date(); todayD.setHours(0, 0, 0, 0);
   function offsetYmd(n) {
     var d = new Date(todayD); d.setDate(d.getDate() + n);
@@ -1545,7 +1562,10 @@ function renderTechView_() {
   var dPlus3 = offsetYmd(3);
   var somDate = new Date(todayD.getFullYear(), todayD.getMonth(), 1);
   var dSom = fmtDate(somDate);
-  var mtdDays = Math.round((todayD - somDate) / 86400000) + 1;
+  var yestDate = new Date(todayD); yestDate.setDate(yestDate.getDate() - 1);
+  var dYest = fmtDate(yestDate);
+  // mtdDays = number of completed days this month so far (1st through yesterday inclusive)
+  var mtdDays = Math.round((yestDate - somDate) / 86400000) + 1;
   if (mtdDays < 1) mtdDays = 1;
 
   // techRows: techCode → { branchVotes, roleVotes, completed, today, tmrw, d2, d3 }
@@ -1568,11 +1588,11 @@ function renderTechView_() {
     if (role)   r.roleVotes[role]     = (r.roleVotes[role] || 0) + 1;
   }
 
-  // Completed (MTD) — from invoice cache
+  // Completed (MTD) — invoice cache, 1st of month through yesterday
   if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
     STATE.invoiceCache.invoices.forEach(function(inv) {
       var date = String(inv.InvoiceDate || '').substring(0, 10);
-      if (date < dSom || date > dToday) return;
+      if (date < dSom || date > dYest) return;
       var tech = inv.Tech;
       if (!tech) return;
       var r = row(tech);
@@ -1581,7 +1601,7 @@ function renderTechView_() {
     });
   }
 
-  // Forecast (Today/Tmrw/+2/+3) — from orders cache, exact date match
+  // Forecast (Today/Tmrw/+2/+3) — orders cache, exact date match
   if (STATE.rawCache && STATE.rawCache.orders) {
     STATE.rawCache.orders.forEach(function(o) {
       if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
@@ -1600,8 +1620,8 @@ function renderTechView_() {
     });
   }
 
-  // Resolve canonical role + branch per tech (winner of votes)
-  var grouped = { pest: {}, cgnwl: {} };
+  // Resolve canonical role + branch per tech (winner of votes), then bucket BY BRANCH ONLY
+  var byBranch = {};
   Object.keys(techRows).forEach(function(tech) {
     var r = techRows[tech];
     var role = (r.roleVotes.cgnwl > r.roleVotes.pest) ? 'cgnwl' : 'pest';
@@ -1609,11 +1629,11 @@ function renderTechView_() {
       return (!best || r.branchVotes[b] > r.branchVotes[best]) ? b : best;
     }, '');
     if (!branch) branch = '(no branch)';
-    if (!grouped[role][branch]) grouped[role][branch] = [];
-    grouped[role][branch].push({ tech: tech, data: r });
+    if (!byBranch[branch]) byBranch[branch] = [];
+    byBranch[branch].push({ tech: tech, role: role, data: r });
   });
 
-  // Score color helper — Pest only, daily revenue thresholds
+  // Score color (Pest rows only)
   function scoreClass(perDay) {
     if (perDay >= 1700) return 'score-green';
     if (perDay >= 1500) return 'score-yellow';
@@ -1622,81 +1642,78 @@ function renderTechView_() {
   function moneyCell(amt, perDay, showScore) {
     if (!amt && amt !== 0) amt = 0;
     var cls = (showScore && amt > 0) ? scoreClass(perDay) : '';
-    return '<td class="num ' + cls + '">' + (amt > 0 ? '$' + Math.round(amt).toLocaleString() : '<span style="color:var(--text-dim)">—</span>') + '</td>';
+    return '<td class="num ' + cls + '">' + (amt > 0
+      ? '$' + Math.round(amt).toLocaleString()
+      : '<span style="color:var(--text-dim)">—</span>') + '</td>';
   }
-
-  // Date column labels (e.g., "Thu 5/21")
   function dateLabel(n) {
     var d = new Date(todayD); d.setDate(d.getDate() + n);
     var wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
     return wd + ' ' + (d.getMonth() + 1) + '/' + d.getDate();
   }
 
-  // Render — Pest first (with scoring), then CG/NWL (no scoring)
-  var roles = [
-    { id: 'pest',  label: 'PEST',     pillClass: 'role-pest',  showScore: true  },
-    { id: 'cgnwl', label: 'CG / NWL', pillClass: 'role-cgnwl', showScore: false }
-  ];
+  var branchOrder = BRANCH_ALL.filter(function(b) { return byBranch[b]; });
+  Object.keys(byBranch).forEach(function(b) {
+    if (branchOrder.indexOf(b) === -1) branchOrder.push(b);
+  });
 
-  var html = roles.map(function(role) {
-    var branchOrder = BRANCH_ALL.filter(function(b) { return grouped[role.id][b]; });
-    Object.keys(grouped[role.id]).forEach(function(b) {
-      if (branchOrder.indexOf(b) === -1) branchOrder.push(b);
+  var html = branchOrder.map(function(b) {
+    var techs = byBranch[b].slice();
+    // Pest first, then CG/NWL. Within each group, by 4-day forecast desc.
+    techs.sort(function(a, c) {
+      if (a.role !== c.role) return (a.role === 'pest') ? -1 : 1;
+      var aF = a.data.today + a.data.tmrw + a.data.d2 + a.data.d3;
+      var cF = c.data.today + c.data.tmrw + c.data.d2 + c.data.d3;
+      return cF - aF;
     });
-    if (branchOrder.length === 0) return '';
 
-    return branchOrder.map(function(b) {
-      var techs = grouped[role.id][b].slice();
-      // Sort by combined 4-day forecast desc (CSRs care about who's loaded up)
-      techs.sort(function(a, c) {
-        var aF = a.data.today + a.data.tmrw + a.data.d2 + a.data.d3;
-        var cF = c.data.today + c.data.tmrw + c.data.d2 + c.data.d3;
-        return cF - aF;
-      });
-
-      var totals = { completed: 0, today: 0, tmrw: 0, d2: 0, d3: 0 };
-      var bodyRows = techs.map(function(item) {
-        var d = item.data;
-        totals.completed += d.completed;
-        totals.today     += d.today;
-        totals.tmrw      += d.tmrw;
-        totals.d2        += d.d2;
-        totals.d3        += d.d3;
-        return '<tr>' +
-          '<td>' + escapeHtml(item.tech) + '</td>' +
-          moneyCell(d.completed, d.completed / mtdDays, role.showScore) +
-          moneyCell(d.today, d.today, role.showScore) +
-          moneyCell(d.tmrw,  d.tmrw,  role.showScore) +
-          moneyCell(d.d2,    d.d2,    role.showScore) +
-          moneyCell(d.d3,    d.d3,    role.showScore) +
-        '</tr>';
-      }).join('');
-
-      // Branch total row — uses the same coloring rules
-      var totalRow = '<tr class="total-row">' +
-        '<td>Total</td>' +
-        moneyCell(totals.completed, totals.completed / mtdDays, role.showScore) +
-        moneyCell(totals.today, totals.today, role.showScore) +
-        moneyCell(totals.tmrw,  totals.tmrw,  role.showScore) +
-        moneyCell(totals.d2,    totals.d2,    role.showScore) +
-        moneyCell(totals.d3,    totals.d3,    role.showScore) +
+    var totals = { completed: 0, today: 0, tmrw: 0, d2: 0, d3: 0 };
+    var bodyRows = techs.map(function(item) {
+      var d = item.data;
+      var isPest = (item.role === 'pest');
+      totals.completed += d.completed;
+      totals.today     += d.today;
+      totals.tmrw      += d.tmrw;
+      totals.d2        += d.d2;
+      totals.d3        += d.d3;
+      var pillCls = isPest ? 'role-pest' : 'role-cgnwl';
+      var pillTxt = isPest ? 'PEST' : 'CG/NWL';
+      return '<tr>' +
+        '<td>' + escapeHtml(item.tech) + '</td>' +
+        '<td><span class="pill-role ' + pillCls + '">' + pillTxt + '</span></td>' +
+        moneyCell(d.completed, d.completed / mtdDays, isPest) +
+        moneyCell(d.today, d.today, isPest) +
+        moneyCell(d.tmrw,  d.tmrw,  isPest) +
+        moneyCell(d.d2,    d.d2,    isPest) +
+        moneyCell(d.d3,    d.d3,    isPest) +
       '</tr>';
-
-      return '<div class="group-block">' +
-        '<div class="group-block-header">' +
-          '<h3 class="group-block-title">' + (BRANCH_DISPLAY[b] || b).toUpperCase() +
-          '<span class="pill-role ' + role.pillClass + '">' + role.label + '</span></h3>' +
-          '<div class="group-block-meta">' + techs.length + ' techs</div>' +
-        '</div>' +
-        '<table class="tech-table"><thead><tr>' +
-          '<th>Tech</th>' +
-          '<th class="num">Completed<br><span style="font-weight:400;color:var(--text-dim)">MTD</span></th>' +
-          '<th class="num">Forecast Today<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span></th>' +
-          '<th class="num">Forecast Tomorrow<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span></th>' +
-          '<th class="num">Forecast +2<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span></th>' +
-          '<th class="num">Forecast +3<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span></th>' +
-        '</tr></thead><tbody>' + bodyRows + totalRow + '</tbody></table></div>';
     }).join('');
+
+    // Branch total — color always uses Pest thresholds (CSRs care about overall branch productivity)
+    var totalRow = '<tr class="total-row">' +
+      '<td>Total</td>' +
+      '<td></td>' +
+      moneyCell(totals.completed, totals.completed / mtdDays, true) +
+      moneyCell(totals.today, totals.today, true) +
+      moneyCell(totals.tmrw,  totals.tmrw,  true) +
+      moneyCell(totals.d2,    totals.d2,    true) +
+      moneyCell(totals.d3,    totals.d3,    true) +
+    '</tr>';
+
+    return '<div class="group-block">' +
+      '<div class="group-block-header">' +
+        '<h3 class="group-block-title">' + (BRANCH_DISPLAY[b] || b).toUpperCase() + '</h3>' +
+        '<div class="group-block-meta">' + techs.length + ' techs</div>' +
+      '</div>' +
+      '<table class="tech-table"><thead><tr>' +
+        '<th>Tech</th>' +
+        '<th>Class</th>' +
+        '<th class="num">Completed<br><span style="font-weight:400;color:var(--text-dim)">MTD</span></th>' +
+        '<th class="num">Today<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span></th>' +
+        '<th class="num">Tomorrow<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span></th>' +
+        '<th class="num">+2<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span></th>' +
+        '<th class="num">+3<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span></th>' +
+      '</tr></thead><tbody>' + bodyRows + totalRow + '</tbody></table></div>';
   }).join('');
 
   document.getElementById('techView').innerHTML = html;
