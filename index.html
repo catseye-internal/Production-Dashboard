@@ -293,7 +293,16 @@
     color: var(--text); font-size: 10px; padding: 3px 6px; border-radius: 4px;
     white-space: nowrap; z-index: 50;
   }
-  .text-truncate { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+  .text-truncate {
+    display: inline-block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+  }
+  /* Ensure td respects max-width and clips overflowing content */
+  table.list td { overflow: hidden; }
 
   /* PestPac deep-link */
   .pp-link {
