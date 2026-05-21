@@ -96,7 +96,7 @@ const COLOR = {
 // are joined from cache-locations.json at render time.
 const SERVICE_ORDERS_COLUMNS = [
   { key: 'WorkDate',          label: 'When',         type: 'datetime',         sortable: true, default: true,  width: 90 },
-  { key: 'Branch',            label: 'Branch',       type: 'branch',           sortable: true, default: true,  width: 60 },
+  { key: 'Branch',            label: 'Branch',       type: 'branch',           sortable: true, default: true,  width: 75 },
   { key: '_LocCodeLink',      label: 'Loc #',        type: 'pp-loc-link',      sortable: true, default: true,  width: 70 },
   { key: '_LocName',          label: 'Name',         type: 'text-truncate',    sortable: true, default: true,  width: 130 },
   { key: '_LocCity',          label: 'City',         type: 'text',             sortable: true, default: true,  width: 100 },
