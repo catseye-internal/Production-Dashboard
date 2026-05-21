@@ -301,8 +301,12 @@
     text-overflow: ellipsis;
     vertical-align: middle;
   }
-  /* Ensure td respects max-width and clips overflowing content */
-  table.list td { overflow: hidden; }
+  /* Ensure every td respects max-width and clips overflow with ellipsis */
+  table.list td {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
 
   /* PestPac deep-link */
   .pp-link {
