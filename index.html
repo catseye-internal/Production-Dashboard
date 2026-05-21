@@ -1093,7 +1093,8 @@ function render() {
     empty.style.display = 'none';
     body.innerHTML = sorted.map(function(r) {
       return '<tr>' + defaultCols.map(function(c) {
-        return '<td class="' + colClass(c.type) + '">' + fmt(r[c.key], c.type, r) + '</td>';
+        var widthStyle = c.width ? (' style="max-width:' + (c.width * 1.4) + 'px"') : '';
+        return '<td class="' + colClass(c.type) + '"' + widthStyle + '>' + fmt(r[c.key], c.type, r) + '</td>';
       }).join('') + '</tr>';
     }).join('');
   }

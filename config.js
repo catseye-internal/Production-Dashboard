@@ -98,7 +98,7 @@ const SERVICE_ORDERS_COLUMNS = [
   { key: 'WorkDate',          label: 'When',         type: 'datetime',         sortable: true, default: true,  width: 90 },
   { key: 'Branch',            label: 'Branch',       type: 'branch',           sortable: true, default: true,  width: 60 },
   { key: '_LocCodeLink',      label: 'Loc #',        type: 'pp-loc-link',      sortable: true, default: true,  width: 70 },
-  { key: '_LocName',          label: 'Name',         type: 'text-truncate',    sortable: true, default: true,  width: 140 },
+  { key: '_LocName',          label: 'Name',         type: 'text-truncate',    sortable: true, default: true,  width: 95 },
   { key: '_LocCity',          label: 'City',         type: 'text',             sortable: true, default: true,  width: 90 },
   { key: '_LocState',         label: 'State',        type: 'text',             sortable: true, default: true,  width: 40 },
   { key: 'OrderType',         label: 'Type',         type: 'badge-orderType',  sortable: true, default: true,  width: 80 },
