@@ -251,6 +251,53 @@
     padding: 48px 24px; text-align: center; color: var(--text-dim); font-size: 13px;
   }
 
+  /* ── Grouped views (Summary, Tech) ── */
+  .grouped-view {
+    padding: 0 32px 24px; display: flex; flex-direction: column; gap: 18px;
+  }
+  .group-block {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .group-block-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .group-block-title {
+    font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--text); margin: 0;
+  }
+  .group-block-title .pill-role {
+    display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 4px;
+    font-size: 10px; letter-spacing: 0.5px;
+  }
+  .group-block-meta { font-size: 11px; color: var(--text-dim); }
+  .summary-table, .tech-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+  }
+  .summary-table th, .tech-table th {
+    text-align: left; padding: 6px 10px; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+  .summary-table td, .tech-table td {
+    padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .summary-table tr:last-child td, .tech-table tr:last-child td { border-bottom: none; }
+  .summary-table .num, .tech-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .summary-table .total-row td, .tech-table .total-row td {
+    font-weight: 700; border-top: 2px solid var(--border); padding-top: 8px;
+    color: var(--text);
+  }
+  /* Role color treatment for Tech view headers */
+  .role-pest    { background: rgba(52,211,153,0.16); color: #34D399; }
+  .role-cgnwl   { background: rgba(167,139,250,0.18); color: #A78BFA; }
+  /* Score cell coloring (Pest techs only) */
+  .score-green  { background: rgba(52,211,153,0.18); color: #34D399; font-weight: 700; }
+  .score-yellow { background: rgba(251,191,36,0.20); color: #FBBF24; font-weight: 700; }
+  .score-red    { background: rgba(248,113,113,0.20); color: #F87171; font-weight: 700; }
+  .score-none   { color: var(--text-dim); }
+
   /* ── Footer status ── */
   .footer-status {
     display: flex; gap: 16px; align-items: center; padding: 10px 32px;
@@ -377,9 +424,11 @@
 <nav class="tabs" id="tabs">
   <button class="tab active" data-view="orders">Service Orders<span class="tab-count" id="tabCount-orders"></span></button>
   <button class="tab" data-view="invoices">Invoices<span class="tab-count" id="tabCount-invoices"></span></button>
+  <button class="tab" data-view="summary">Summary<span class="tab-count" id="tabCount-summary"></span></button>
+  <button class="tab" data-view="tech">Tech<span class="tab-count" id="tabCount-tech"></span></button>
 </nav>
 
-<!-- Sub-view selector (only shown when Invoices tab is active).
+<!-- Sub-view selector (only shown when Invoices or Summary tab is active).
      ALL = every type, PRODUCTION = IN+PR+CM (production accounting),
      REVENUE = IN+PI+CM (revenue accounting). -->
 <div class="sub-tabs" id="invoiceModeBar" style="display:none">
@@ -388,6 +437,16 @@
     <button class="sub-tab active" data-mode="all">All Invoices</button>
     <button class="sub-tab" data-mode="production">Production <span class="sub-tab-hint">IN · PR · CM</span></button>
     <button class="sub-tab" data-mode="revenue">Revenue <span class="sub-tab-hint">IN · PI · CM</span></button>
+  </div>
+</div>
+
+<!-- Tech sub-view selector — Forecast uses Service Orders (upcoming/future work),
+     Completed uses Invoices (already-posted work). -->
+<div class="sub-tabs" id="techModeBar" style="display:none">
+  <span class="sub-tabs-label">Tech view:</span>
+  <div class="sub-tab-group" id="techModeGroup">
+    <button class="sub-tab active" data-tech-mode="forecast">Forecast <span class="sub-tab-hint">Service Orders</span></button>
+    <button class="sub-tab" data-tech-mode="completed">Completed <span class="sub-tab-hint">Invoices</span></button>
   </div>
 </div>
 
@@ -489,8 +548,8 @@
     <div class="kpi-card"><div class="kpi-label">Techs Active</div><div class="kpi-value yellow" id="kpiTechs">—</div></div>
   </div>
 
-  <!-- ─────────── TABLE ─────────── -->
-  <div class="table-card">
+  <!-- ─────────── TABLE (Service Orders / Invoices views) ─────────── -->
+  <div class="table-card" id="tableCard">
     <div class="table-wrap">
       <table class="data-table" id="dataTable">
         <thead><tr id="tableHead"></tr></thead>
@@ -501,6 +560,12 @@
       </div>
     </div>
   </div>
+
+  <!-- ─────────── SUMMARY VIEW ─────────── -->
+  <div class="grouped-view" id="summaryView" style="display:none"></div>
+
+  <!-- ─────────── TECH VIEW ─────────── -->
+  <div class="grouped-view" id="techView" style="display:none"></div>
 </main>
 
 <footer class="footer-status">
@@ -522,13 +587,18 @@
 
 // Use var for globals (BDC "Never Show Zeros" rule §5.2 — avoid TDZ kills)
 var STATE = {
-  view: 'orders',          // 'orders' | 'invoices'
+  view: 'orders',          // 'orders' | 'invoices' | 'summary' | 'tech'
   invoiceMode: 'all',      // 'all' | 'production' | 'revenue'
+  techMode: 'forecast',    // 'forecast' (Service Orders) | 'completed' (Invoices)
   // Per-view date state — switching tabs preserves each tab's selection
-  ordersPeriod: 'tomorrow', // 'today' | 'tomorrow' | 'next7' | 'next14' | 'custom'
+  ordersPeriod: 'tomorrow', // 'today' | 'tomorrow' | 'next7' | 'custom'
   invoicesPeriod: 'mtd',   // 'today' | 'yesterday' | 'wk' | 'mtd' | 'ytd' | 'custom'
+  summaryPeriod: 'mtd',    // mirrors invoices period set
+  techPeriod: 'tomorrow',  // covers forecast (tomorrow/next7) and completed (yesterday/wk/mtd) modes
   ordersCustom:   { start: '', end: '' },
   invoicesCustom: { start: '', end: '' },
+  summaryCustom:  { start: '', end: '' },
+  techCustom:     { start: '', end: '' },
   // Common filters
   company: '',             // '' | 'catseye' | 'usx'
   division: '',            // '' | 'pest-resi' | 'pest-commerc' | 'cgnwl'
@@ -563,6 +633,26 @@ var PERIOD_BUTTONS = {
     { key: 'mtd',       label: 'MTD' },
     { key: 'ytd',       label: 'YTD' },
     { key: 'custom',    label: 'Custom' }
+  ],
+  // Summary view rolls up invoices — same period set as Invoices
+  summary: [
+    { key: 'today',     label: 'Today' },
+    { key: 'yesterday', label: 'Yesterday' },
+    { key: 'wk',        label: 'WK' },
+    { key: 'mtd',       label: 'MTD' },
+    { key: 'ytd',       label: 'YTD' },
+    { key: 'custom',    label: 'Custom' }
+  ],
+  // Tech view supports both Forecast (Service Orders, future-looking) and
+  // Completed (Invoices, past-looking) — keep both temporal directions.
+  tech: [
+    { key: 'today',     label: 'Today' },
+    { key: 'tomorrow',  label: 'Tomorrow' },
+    { key: 'yesterday', label: 'Yesterday' },
+    { key: 'next7',     label: '7-Day' },
+    { key: 'wk',        label: 'WK' },
+    { key: 'mtd',       label: 'MTD' },
+    { key: 'custom',    label: 'Custom' }
   ]
 };
 
@@ -582,8 +672,14 @@ function isUsxBranch(branch) {
 // Each tab is a pre-filtered slice of ServiceOrders. The OrderType filter is
 // only shown on the "All Orders" tab — the other tabs are inherently filtered.
 var VIEW_DEFS = {
-  orders:   { source: 'orders',   dateKey: 'WorkDate' },
+  orders:   { source: 'orders',   dateKey: 'WorkDate'    },
   invoices: { source: 'invoices', dateKey: 'InvoiceDate' },
+  // Summary view aggregates Invoices by branch + service class. Same date key
+  // and lens semantics as the regular Invoices view.
+  summary:  { source: 'invoices', dateKey: 'InvoiceDate', layout: 'summary' },
+  // Tech view source depends on STATE.techMode (forecast = orders, completed = invoices).
+  // dateKey resolved at render time.
+  tech:     { source: 'tech',     layout: 'tech' },
 };
 
 var isRefreshing = false;
@@ -612,24 +708,18 @@ function wireTabs() {
       document.querySelectorAll('#tabs .tab').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
       STATE.view = btn.dataset.view;
-      var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
-      // Locked filter is only meaningful for Service Orders
-      var lockedGroup = document.getElementById('lockedFilterGroup');
-      if (lockedGroup) lockedGroup.style.display = (def.source === 'orders') ? '' : 'none';
-      // Invoice lens selector is only meaningful for Invoices view
-      var invBar = document.getElementById('invoiceModeBar');
-      if (invBar) invBar.style.display = (def.source === 'invoices') ? '' : 'none';
-      // Re-render period buttons for the new view (Orders vs Invoices uses different button sets)
+      applyViewVisibility_();
       setupPeriodButtons();
-      // Hide custom date overlay when switching tabs
       document.getElementById('customDateRange').classList.remove('visible');
-      // Invoice-specific sort default
-      if (def.source === 'invoices' && STATE.sort.key === 'WorkDate') {
+      // Sort default sync (orders vs invoices keys)
+      if ((STATE.view === 'invoices' || STATE.view === 'summary') && STATE.sort.key === 'WorkDate') {
         STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
-      } else if (def.source === 'orders' && STATE.sort.key === 'InvoiceDate') {
+      } else if (STATE.view === 'orders' && STATE.sort.key === 'InvoiceDate') {
         STATE.sort = { key: 'WorkDate', dir: 'desc' };
       }
-      if (def.source === 'invoices' && !STATE.invoiceCache) {
+      var needsInvoices = (STATE.view === 'invoices' || STATE.view === 'summary' ||
+                           (STATE.view === 'tech' && STATE.techMode === 'completed'));
+      if (needsInvoices && !STATE.invoiceCache) {
         loadInvoiceCache().finally(render);
       } else {
         render();
@@ -637,7 +727,7 @@ function wireTabs() {
     });
   });
 
-  // Invoice lens (sub-tabs)
+  // Invoice lens (sub-tabs) — applies to both Invoices and Summary views
   document.querySelectorAll('#invoiceModeGroup .sub-tab').forEach(function(btn) {
     btn.addEventListener('click', function() {
       document.querySelectorAll('#invoiceModeGroup .sub-tab').forEach(function(b) { b.classList.remove('active'); });
@@ -646,6 +736,42 @@ function wireTabs() {
       render();
     });
   });
+
+  // Tech view mode (Forecast = Service Orders, Completed = Invoices)
+  document.querySelectorAll('#techModeGroup .sub-tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#techModeGroup .sub-tab').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      STATE.techMode = btn.dataset.techMode;
+      // Completed mode needs the invoice cache
+      if (STATE.techMode === 'completed' && !STATE.invoiceCache) {
+        loadInvoiceCache().finally(render);
+      } else {
+        render();
+      }
+    });
+  });
+}
+
+// Show/hide filter groups, sub-tab bars, and content containers for the active view
+function applyViewVisibility_() {
+  var view = STATE.view;
+  // Locked filter (Service Orders only)
+  var lockedGroup = document.getElementById('lockedFilterGroup');
+  if (lockedGroup) lockedGroup.style.display = (view === 'orders') ? '' : 'none';
+  // Invoice lens bar — shown for Invoices and Summary
+  var invBar = document.getElementById('invoiceModeBar');
+  if (invBar) invBar.style.display = (view === 'invoices' || view === 'summary') ? '' : 'none';
+  // Tech mode bar — Tech view only
+  var techBar = document.getElementById('techModeBar');
+  if (techBar) techBar.style.display = (view === 'tech') ? '' : 'none';
+  // Main containers — table for orders/invoices, grouped containers for summary/tech
+  var tableCard = document.getElementById('tableCard');
+  var summaryView = document.getElementById('summaryView');
+  var techView = document.getElementById('techView');
+  if (tableCard)   tableCard.style.display   = (view === 'orders' || view === 'invoices') ? '' : 'none';
+  if (summaryView) summaryView.style.display = (view === 'summary') ? '' : 'none';
+  if (techView)    techView.style.display    = (view === 'tech') ? '' : 'none';
 }
 
 function loadInvoiceCache() {
@@ -922,25 +1048,43 @@ function wireFilters() {
     var s = document.getElementById('customStart').value;
     var e = document.getElementById('customEnd').value;
     if (!s || !e) return;
-    var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
-    if (def.source === 'orders') {
-      STATE.ordersPeriod = 'custom';
-      STATE.ordersCustom = { start: s, end: e };
-    } else {
-      STATE.invoicesPeriod = 'custom';
-      STATE.invoicesCustom = { start: s, end: e };
-    }
+    setViewPeriod(STATE.view, 'custom', { start: s, end: e });
     document.getElementById('customDateRange').classList.remove('visible');
-    setupPeriodButtons();  // re-mark Custom as active
+    setupPeriodButtons();
     render();
   });
 }
 
+// Per-view period state accessors — keep each tab's selection independent
+function periodStateKeys(view) {
+  // Returns the STATE field names for this view's period + custom range
+  if (view === 'orders')   return { period: 'ordersPeriod',   custom: 'ordersCustom'   };
+  if (view === 'invoices') return { period: 'invoicesPeriod', custom: 'invoicesCustom' };
+  if (view === 'summary')  return { period: 'summaryPeriod',  custom: 'summaryCustom'  };
+  if (view === 'tech')     return { period: 'techPeriod',     custom: 'techCustom'     };
+  return { period: 'ordersPeriod', custom: 'ordersCustom' };
+}
+function getViewPeriod(view) {
+  var k = periodStateKeys(view);
+  return { period: STATE[k.period], custom: STATE[k.custom] };
+}
+function setViewPeriod(view, period, custom) {
+  var k = periodStateKeys(view);
+  STATE[k.period] = period;
+  if (custom) STATE[k.custom] = custom;
+}
+function periodButtonsForView(view) {
+  if (view === 'orders')   return PERIOD_BUTTONS.orders;
+  if (view === 'invoices') return PERIOD_BUTTONS.invoices;
+  if (view === 'summary')  return PERIOD_BUTTONS.summary;
+  if (view === 'tech')     return PERIOD_BUTTONS.tech;
+  return PERIOD_BUTTONS.orders;
+}
+
 // Render period buttons for the active view + wire click handlers
 function setupPeriodButtons() {
-  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
-  var buttons = (def.source === 'orders') ? PERIOD_BUTTONS.orders : PERIOD_BUTTONS.invoices;
-  var activePeriod = (def.source === 'orders') ? STATE.ordersPeriod : STATE.invoicesPeriod;
+  var buttons = periodButtonsForView(STATE.view);
+  var activePeriod = getViewPeriod(STATE.view).period;
   var groupEl = document.getElementById('periodGroup');
   groupEl.innerHTML = buttons.map(function(b) {
     return '<button class="period-btn ' + (b.key === activePeriod ? 'active' : '') +
@@ -953,10 +1097,8 @@ function setupPeriodButtons() {
         toggleCustomDateRange();
         return;
       }
-      // Hide custom overlay if open
       document.getElementById('customDateRange').classList.remove('visible');
-      if (def.source === 'orders') STATE.ordersPeriod = k;
-      else STATE.invoicesPeriod = k;
+      setViewPeriod(STATE.view, k);
       setupPeriodButtons();
       render();
     });
@@ -965,9 +1107,7 @@ function setupPeriodButtons() {
 
 function toggleCustomDateRange() {
   var overlay = document.getElementById('customDateRange');
-  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
-  var custom = (def.source === 'orders') ? STATE.ordersCustom : STATE.invoicesCustom;
-  // Pre-fill inputs with current custom range, or sensible defaults
+  var custom = getViewPeriod(STATE.view).custom;
   var today = new Date();
   var defaultEnd = fmtDate(today);
   var defaultStart = fmtDate(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -1023,6 +1163,16 @@ function renderHeader(stale) {
 
 function getRecordsForView() {
   var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
+  // Tech view: source depends on the Forecast/Completed sub-mode
+  if (def.source === 'tech') {
+    if (STATE.techMode === 'completed') {
+      return (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
+    }
+    if (!STATE.rawCache) return [];
+    return (STATE.rawCache.orders || []).filter(function(o) {
+      return ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) === -1;
+    });
+  }
   if (def.source === 'invoices') {
     return (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
   }
@@ -1046,6 +1196,21 @@ function updateTabCounts() {
     var orderCount = rawOrders.filter(function(o) { return dateInPeriod(o.WorkDate, ordersRange); }).length;
     var el = document.getElementById('tabCount-orders');
     if (el) el.textContent = orderCount.toLocaleString();
+
+    // Tech tab — count uses techMode + techPeriod
+    var techEl = document.getElementById('tabCount-tech');
+    if (techEl) {
+      var techRange = resolvePeriod(STATE.techPeriod, STATE.techCustom);
+      var techCount = 0;
+      if (STATE.techMode === 'completed') {
+        if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
+          techCount = STATE.invoiceCache.invoices.filter(function(r) { return dateInPeriod(r.InvoiceDate, techRange); }).length;
+        }
+      } else {
+        techCount = rawOrders.filter(function(o) { return dateInPeriod(o.WorkDate, techRange); }).length;
+      }
+      techEl.textContent = techCount.toLocaleString();
+    }
   }
   var invEl = document.getElementById('tabCount-invoices');
   if (invEl) {
@@ -1060,6 +1225,22 @@ function updateTabCounts() {
       invEl.textContent = invFiltered.length.toLocaleString();
     } else {
       invEl.textContent = '';
+    }
+  }
+  // Summary tab — same lens semantics as Invoices, but uses summaryPeriod
+  var sumEl = document.getElementById('tabCount-summary');
+  if (sumEl) {
+    if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
+      var sumRange = resolvePeriod(STATE.summaryPeriod, STATE.summaryCustom);
+      var sumLens = INVOICE_LENS[STATE.invoiceMode];
+      var sumFiltered = STATE.invoiceCache.invoices.filter(function(r) {
+        if (!dateInPeriod(r.InvoiceDate, sumRange)) return false;
+        if (sumLens && !sumLens.has(r.InvoiceType)) return false;
+        return true;
+      });
+      sumEl.textContent = sumFiltered.length.toLocaleString();
+    } else {
+      sumEl.textContent = '';
     }
   }
 }
@@ -1079,10 +1260,8 @@ function fmtDate(d) {
 
 // Resolve the active period for the current view into a {start, end} string range
 function getActiveDateRange() {
-  var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
-  var period = (def.source === 'orders') ? STATE.ordersPeriod : STATE.invoicesPeriod;
-  var custom = (def.source === 'orders') ? STATE.ordersCustom : STATE.invoicesCustom;
-  return resolvePeriod(period, custom);
+  var p = getViewPeriod(STATE.view);
+  return resolvePeriod(p.period, p.custom);
 }
 
 function resolvePeriod(period, custom) {
@@ -1148,9 +1327,18 @@ function dateInPeriod(dateStr, periodOrRange) {
 
 function applyFilters(records, columns) {
   var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.orders;
-  var dateKey = def.dateKey || 'WorkDate';
-  var isInvoices = def.source === 'invoices';
-  var invoiceLens = isInvoices ? INVOICE_LENS[STATE.invoiceMode] : null;
+  // dateKey: most views set it directly; Tech view switches based on its mode
+  var dateKey = def.dateKey;
+  if (!dateKey) {
+    dateKey = (STATE.view === 'tech' && STATE.techMode === 'completed') ? 'InvoiceDate' : 'WorkDate';
+  }
+  // Apply the invoice lens ONLY for the views where the user can see/change it
+  // (Invoices and Summary). Tech view's Completed mode draws from invoices but
+  // shouldn't silently inherit whatever lens was last picked on another tab.
+  var applyInvoiceLens = (def.source === 'invoices') &&
+                         (STATE.view === 'invoices' || STATE.view === 'summary');
+  var invoiceLens = applyInvoiceLens ? INVOICE_LENS[STATE.invoiceMode] : null;
+  var isInvoices = applyInvoiceLens;
   var range = getActiveDateRange();
   // Join location data onto records before filtering (cheap O(1) Map lookup per record).
   // Applies to BOTH orders AND invoices — both have LocationID and benefit from Loc #/Address/etc.
@@ -1180,8 +1368,9 @@ function applyFilters(records, columns) {
     var isCallback = (ot === 'CallBack') || (inv === 'CB');
     if (STATE.callbacks === 'only'    && !isCallback) return false;
     if (STATE.callbacks === 'exclude' &&  isCallback) return false;
-    // Locked filter is orders-only
-    if (!isInvoices) {
+    // Locked filter is orders-tab-only (UI is hidden everywhere else; don't apply
+    // stale state to other views' records that lack the Locked field).
+    if (STATE.view === 'orders') {
       if (STATE.locked === 'true'  && r.Locked !== true) return false;
       if (STATE.locked === 'false' && r.Locked === true) return false;
     }
@@ -1209,6 +1398,12 @@ function applySort(records) {
 function render() {
   renderHeader();
   updateTabCounts();
+  applyViewVisibility_();  // make sure the right containers are visible after any state change
+
+  // Dispatch to the grouped-layout renderers when applicable
+  if (STATE.view === 'summary') return renderSummaryView_();
+  if (STATE.view === 'tech')    return renderTechView_();
+
   var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.all;
   var columns = (def.source === 'invoices') ? INVOICES_COLUMNS : SERVICE_ORDERS_COLUMNS;
   var defaultCols = columns.filter(function(c) { return c.default; });
@@ -1296,6 +1491,249 @@ function colClass(type) {
   if (type === 'money' || type === 'number') return 'col-num';
   if (type === 'date'  || type === 'datetime' || type === 'time') return 'col-date';
   return 'col-text';
+}
+
+/* ─────────── SUMMARY VIEW (Invoice rollups by branch + service class) ─────────── */
+function renderSummaryView_() {
+  // Source = invoices, filtered by the current filter bar + invoice lens
+  var raw = (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
+  var filtered = applyFilters(raw, []);
+
+  // Aggregate: count + subtotal by ServiceClass, grouped per branch bucket
+  // Bucket order: Catseye total, USX total, Catseye branches, USX branches
+  var bucketOrder = [
+    { id: 'cat-total', label: 'CATSEYE TOTAL',   include: function(b) { return !isUsxBranch(b); } },
+    { id: 'usx-total', label: 'USX PEST TOTAL',  include: function(b) { return  isUsxBranch(b); } },
+  ];
+  BRANCH_CATSEYE.forEach(function(b) {
+    bucketOrder.push({ id: 'cat-' + b, label: 'CATSEYE — ' + (BRANCH_DISPLAY[b] || b).toUpperCase(),
+                       include: function(branch) { return branch === b; } });
+  });
+  BRANCH_USX.forEach(function(b) {
+    bucketOrder.push({ id: 'usx-' + b, label: 'USX — ' + (BRANCH_DISPLAY[b] || b.replace(/^USX[^A-Za-z]*/, '')).toUpperCase(),
+                       include: function(branch) { return branch === b; } });
+  });
+
+  var summary = {};
+  bucketOrder.forEach(function(bucket) { summary[bucket.id] = {}; });
+
+  filtered.forEach(function(r) {
+    var cls = String(r.ServiceClass || '(none)').toUpperCase().trim() || '(none)';
+    var amt = Number(r.SubTotal) || 0;
+    bucketOrder.forEach(function(bucket) {
+      if (!bucket.include(r.Branch)) return;
+      var b = summary[bucket.id];
+      if (!b[cls]) b[cls] = { count: 0, subtotal: 0 };
+      b[cls].count    += 1;
+      b[cls].subtotal += amt;
+    });
+  });
+
+  var html = bucketOrder.map(function(bucket) {
+    var rows = summary[bucket.id];
+    var classes = Object.keys(rows).sort(function(a, b) { return rows[b].subtotal - rows[a].subtotal; });
+    if (classes.length === 0) {
+      return '<div class="group-block">' +
+             '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
+             '<div class="group-block-meta">No invoices in period</div></div></div>';
+    }
+    var totalCount = 0, totalSubtotal = 0;
+    var bodyRows = classes.map(function(c) {
+      totalCount    += rows[c].count;
+      totalSubtotal += rows[c].subtotal;
+      return '<tr>' +
+        '<td>' + escapeHtml(c) + '</td>' +
+        '<td class="num">' + rows[c].count.toLocaleString() + '</td>' +
+        '<td class="num">$' + Math.round(rows[c].subtotal).toLocaleString() + '</td>' +
+      '</tr>';
+    }).join('');
+    var totalRow = '<tr class="total-row">' +
+        '<td>Total</td>' +
+        '<td class="num">' + totalCount.toLocaleString() + '</td>' +
+        '<td class="num">$' + Math.round(totalSubtotal).toLocaleString() + '</td>' +
+      '</tr>';
+    return '<div class="group-block">' +
+      '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
+      '<div class="group-block-meta">' + totalCount.toLocaleString() + ' invoices · $' + Math.round(totalSubtotal).toLocaleString() + '</div></div>' +
+      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Count</th><th class="num">Subtotal</th></tr></thead>' +
+      '<tbody>' + bodyRows + totalRow + '</tbody></table></div>';
+  }).join('');
+
+  document.getElementById('summaryView').innerHTML = html;
+  // KPI strip — mirror Invoices view metrics on the filtered records
+  document.getElementById('kpiCount').textContent = filtered.length.toLocaleString();
+  var grandTotal = filtered.reduce(function(s, r) { return s + (Number(r.Total) || 0); }, 0);
+  document.getElementById('kpiTotal').textContent = '$' + Math.round(grandTotal).toLocaleString();
+  var balanceSum = filtered.reduce(function(s, r) { return s + (Number(r.Balance) || 0); }, 0);
+  document.getElementById('kpiConfirmed').textContent = '$' + Math.round(balanceSum).toLocaleString();
+  document.querySelector('.kpi-card:nth-child(3) .kpi-label').textContent = 'Outstanding';
+  document.getElementById('kpiConfirmedRate').textContent = '';
+  document.getElementById('kpiTechs').textContent = bucketOrder.length;
+  document.querySelector('.kpi-card:nth-child(4) .kpi-label').textContent = 'Buckets';
+  document.getElementById('footerCount').textContent = filtered.length.toLocaleString();
+}
+
+/* ─────────── TECH VIEW (per-tech rollups grouped by Role + Branch) ─────────── */
+function renderTechView_() {
+  var isCompleted = (STATE.techMode === 'completed');
+  var raw = getRecordsForView();
+  var filtered = applyFilters(raw, []);
+  var revenueLabel = isCompleted ? 'Completed' : 'Forecast';
+
+  // Bucket by role (Pest vs CG/NWL), then by Branch, then by Tech code
+  // Each record gets a tech identifier — invoices use `Tech`, orders use `Tech1`
+  function techOf(r) { return r.Tech || r.Tech1 || ''; }
+  function roleOf(r) {
+    var d = classifyDivision(r);
+    return (d === 'cg' || d === 'nwl') ? 'cgnwl' : 'pest';
+  }
+
+  // Build the bucket structure
+  var buckets = { pest: {}, cgnwl: {} };
+  filtered.forEach(function(r) {
+    var t = techOf(r); if (!t) return;
+    var role = roleOf(r);
+    var branch = r.Branch || '(no branch)';
+    if (!buckets[role][branch]) buckets[role][branch] = {};
+    if (!buckets[role][branch][t]) buckets[role][branch][t] = { count: 0, subtotal: 0, points: [] };
+    var cell = buckets[role][branch][t];
+    cell.count    += 1;
+    cell.subtotal += Number(r.SubTotal) || 0;
+    if (r._LocLatitude && r._LocLongitude) {
+      cell.points.push({
+        lat: Number(r._LocLatitude),
+        lng: Number(r._LocLongitude),
+        ts:  String(r.EarliestTime || r.WorkDate || ''),
+        day: String(r.WorkDate || r.InvoiceDate || '').substring(0, 10)
+      });
+    }
+  });
+
+  // Period day count for daily-revenue scoring (Pest only)
+  var range = getActiveDateRange();
+  var dayCount = dayCountInRange_(range);
+
+  // Render — Pest first, then CG/NWL. Within each role, Catseye branches before USX.
+  var roles = [
+    { id: 'pest',  label: 'PEST',    pillClass: 'role-pest',  showScore: true },
+    { id: 'cgnwl', label: 'CG / NWL', pillClass: 'role-cgnwl', showScore: false }
+  ];
+  var html = roles.map(function(role) {
+    var branchOrder = BRANCH_ALL.filter(function(b) { return buckets[role.id][b]; });
+    // Append any unrecognized branches at the bottom (defensive)
+    Object.keys(buckets[role.id]).forEach(function(b) {
+      if (branchOrder.indexOf(b) === -1) branchOrder.push(b);
+    });
+    if (branchOrder.length === 0) {
+      return '<div class="group-block">' +
+        '<div class="group-block-header"><h3 class="group-block-title">' + role.label +
+        '<span class="pill-role ' + role.pillClass + '">' + role.label + '</span></h3>' +
+        '<div class="group-block-meta">No techs in period</div></div></div>';
+    }
+    return branchOrder.map(function(b) {
+      var techMap = buckets[role.id][b];
+      var techCodes = Object.keys(techMap).sort(function(a, c) { return techMap[c].subtotal - techMap[a].subtotal; });
+      var branchTotalCount = 0, branchTotalSubtotal = 0, branchTotalMiles = 0;
+      var rows = techCodes.map(function(tc) {
+        var cell = techMap[tc];
+        var miles = computeDistanceMiles_(cell.points);
+        branchTotalCount    += cell.count;
+        branchTotalSubtotal += cell.subtotal;
+        branchTotalMiles    += miles;
+        // Score (Pest only): daily revenue = subtotal / dayCount
+        var scoreHtml = '<td class="num score-none">—</td>';
+        if (role.showScore && dayCount > 0) {
+          var dailyRev = cell.subtotal / dayCount;
+          var cls = (dailyRev >= 1700) ? 'score-green' : (dailyRev >= 1500 ? 'score-yellow' : 'score-red');
+          scoreHtml = '<td class="num ' + cls + '">$' + Math.round(dailyRev).toLocaleString() + (dayCount > 1 ? '/day' : '') + '</td>';
+        }
+        return '<tr>' +
+          '<td>' + escapeHtml(tc) + '</td>' +
+          '<td class="num">' + cell.count + '</td>' +
+          '<td class="num">$' + Math.round(cell.subtotal).toLocaleString() + '</td>' +
+          '<td class="num">' + (miles > 0 ? miles.toFixed(1) + ' mi' : '—') + '</td>' +
+          scoreHtml +
+        '</tr>';
+      }).join('');
+      var totalDailyRev = (role.showScore && dayCount > 0) ? branchTotalSubtotal / dayCount : 0;
+      var totalScoreHtml = '<td class="num score-none">—</td>';
+      if (role.showScore && dayCount > 0) {
+        var tcls = (totalDailyRev >= 1700) ? 'score-green' : (totalDailyRev >= 1500 ? 'score-yellow' : 'score-red');
+        totalScoreHtml = '<td class="num ' + tcls + '">$' + Math.round(totalDailyRev).toLocaleString() + (dayCount > 1 ? '/day' : '') + '</td>';
+      }
+      var totalRow = '<tr class="total-row">' +
+        '<td>Total</td>' +
+        '<td class="num">' + branchTotalCount + '</td>' +
+        '<td class="num">$' + Math.round(branchTotalSubtotal).toLocaleString() + '</td>' +
+        '<td class="num">' + (branchTotalMiles > 0 ? branchTotalMiles.toFixed(1) + ' mi' : '—') + '</td>' +
+        totalScoreHtml +
+      '</tr>';
+      return '<div class="group-block">' +
+        '<div class="group-block-header"><h3 class="group-block-title">' + (BRANCH_DISPLAY[b] || b).toUpperCase() +
+        '<span class="pill-role ' + role.pillClass + '">' + role.label + '</span></h3>' +
+        '<div class="group-block-meta">' + branchTotalCount + ' orders · $' + Math.round(branchTotalSubtotal).toLocaleString() + ' ' + revenueLabel + '</div></div>' +
+        '<table class="tech-table"><thead><tr>' +
+          '<th>Tech</th><th class="num">Orders</th>' +
+          '<th class="num">' + revenueLabel + ' Revenue</th>' +
+          '<th class="num">Distance</th>' +
+          '<th class="num">' + (role.showScore ? 'Score' : '—') + '</th>' +
+        '</tr></thead><tbody>' + rows + totalRow + '</tbody></table></div>';
+    }).join('');
+  }).join('');
+
+  document.getElementById('techView').innerHTML = html;
+  // KPI strip
+  document.getElementById('kpiCount').textContent = filtered.length.toLocaleString();
+  var grandTotal = filtered.reduce(function(s, r) { return s + (Number(r.SubTotal) || 0); }, 0);
+  document.getElementById('kpiTotal').textContent = '$' + Math.round(grandTotal).toLocaleString();
+  document.querySelector('.kpi-card:nth-child(2) .kpi-label').textContent = revenueLabel + ' $';
+  var uniqueTechs = new Set(filtered.map(techOf).filter(Boolean)).size;
+  document.getElementById('kpiConfirmed').textContent = uniqueTechs;
+  document.querySelector('.kpi-card:nth-child(3) .kpi-label').textContent = 'Techs Active';
+  document.getElementById('kpiConfirmedRate').textContent = '';
+  document.getElementById('kpiTechs').textContent = (dayCount + 'd');
+  document.querySelector('.kpi-card:nth-child(4) .kpi-label').textContent = 'Days in period';
+  document.getElementById('footerCount').textContent = filtered.length.toLocaleString();
+}
+
+// Days in the active range (used as denominator for Tech daily-revenue score)
+function dayCountInRange_(range) {
+  if (!range || !range.start || !range.end) return 1;
+  var s = new Date(range.start + 'T00:00:00');
+  var e = new Date(range.end   + 'T00:00:00');
+  var d = Math.round((e - s) / 86400000) + 1;
+  return d > 0 ? d : 1;
+}
+
+// Haversine straight-line distance between consecutive jobs (per day, in order
+// of EarliestTime) × 1.4 road factor. Returns total miles for the tech.
+function computeDistanceMiles_(points) {
+  if (!points || points.length < 2) return 0;
+  // Group by day; within each day, order by EarliestTime ascending
+  var byDay = {};
+  points.forEach(function(p) {
+    if (!p.day) return;
+    if (!byDay[p.day]) byDay[p.day] = [];
+    byDay[p.day].push(p);
+  });
+  var total = 0;
+  Object.keys(byDay).forEach(function(d) {
+    var stops = byDay[d].slice().sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
+    for (var i = 1; i < stops.length; i++) {
+      total += haversineMiles_(stops[i - 1].lat, stops[i - 1].lng, stops[i].lat, stops[i].lng);
+    }
+  });
+  return total * 1.4;  // straight-line → road approximation
+}
+function haversineMiles_(lat1, lng1, lat2, lng2) {
+  var R = 3958.8;  // Earth radius in miles
+  var toRad = function(d) { return d * Math.PI / 180; };
+  var dLat = toRad(lat2 - lat1);
+  var dLng = toRad(lng2 - lng1);
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+          Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function fmt(v, type, record) {
