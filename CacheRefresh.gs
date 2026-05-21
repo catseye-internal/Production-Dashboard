@@ -247,17 +247,19 @@ function enrichNearTermOrders_(token, orders) {
         var slimOrderType = slice[k].OrderType;
         Object.keys(full).forEach(function(key) { slice[k][key] = full[key]; });
         if (!slice[k].OrderType && slimOrderType) slice[k].OrderType = slimOrderType;
-        // Extract Tech2/TechID2 from the Technicians array (4 fixed positions,
-        // Tech 2 = first populated entry after Position 1).
-        if (Array.isArray(full.Technicians)) {
-          for (var t = 1; t < full.Technicians.length; t++) {
-            var tech = full.Technicians[t];
-            if (tech && tech.Code) {
-              slice[k].Tech2 = tech.Code;
-              slice[k].TechID2 = tech.TechID;
-              tech2Count++;
-              break;
-            }
+        // Extract Tech2/TechID2 STRICTLY from Position 2 of the Technicians array.
+        // PestPac's 4-position convention (verified 2026-05-20 with Joe):
+        //   Position 1 = primary field tech (Tech 1)
+        //   Position 2 = secondary field tech (Tech 2) — only populated on real 2-tech jobs
+        //   Position 3-4 = sales/CSR/entered-by slots — NOT field techs
+        // Earlier logic grabbed the second populated entry regardless of position,
+        // which incorrectly pulled in sales people (BAG, VXR) and CSRs (MRS) from Position 4.
+        if (Array.isArray(full.Technicians) && full.Technicians.length >= 2) {
+          var pos2 = full.Technicians[1];  // array index 1 = Position 2
+          if (pos2 && pos2.Code) {
+            slice[k].Tech2 = pos2.Code;
+            slice[k].TechID2 = pos2.TechID;
+            tech2Count++;
           }
         }
         enrichedCount++;
