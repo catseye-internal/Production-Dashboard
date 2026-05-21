@@ -149,6 +149,34 @@ function test6_rawFetchShape() {
   }
 }
 
+// TEST 9 — Inspect /Locations/{id} response to plan the locations cache.
+// Picks 3 LocationIDs from cache.json and dumps the full response shape.
+function test9_locationsShape() {
+  Logger.log('🧪 TEST 9 — /Locations/{id} shape');
+  var token = ppToken_();
+  // Grab a few LocationIDs from the live cache
+  var resp = UrlFetchApp.fetch('https://catseye-internal.github.io/Production-Dashboard/cache.json', { muteHttpExceptions: true });
+  if (resp.getResponseCode() !== 200) { Logger.log('  cache.json fetch failed'); return; }
+  var d = JSON.parse(resp.getContentText());
+  var seen = {};
+  var samples = [];
+  for (var i = 0; i < (d.orders || []).length && samples.length < 3; i++) {
+    var lid = d.orders[i].LocationID;
+    if (lid && !seen[lid]) { seen[lid] = true; samples.push(lid); }
+  }
+  Logger.log('  Testing LocationIDs: ' + samples.join(', '));
+  samples.forEach(function(lid) {
+    var r = ppGet_(token, '/Locations/' + lid);
+    Logger.log('\n  /Locations/' + lid + ' → HTTP ' + r.code);
+    if (r.code !== 200) { Logger.log('  Body: ' + r.text.substring(0, 300)); return; }
+    var loc = JSON.parse(r.text);
+    var keys = Object.keys(loc).sort();
+    Logger.log('    Keys (' + keys.length + '): ' + keys.join(', '));
+    Logger.log('    JSON: ' + JSON.stringify(loc).substring(0, 1200));
+    Utilities.sleep(200);
+  });
+}
+
 // TEST 8 — Inspect the Technicians array shape from /ServiceOrders/{id}.
 // Needed to write Tech2 extraction logic correctly.
 function test8_techniciansShape() {

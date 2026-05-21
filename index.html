@@ -552,6 +552,8 @@ document.addEventListener('DOMContentLoaded', function() {
   renderHeader();
   populateFilterOptions();  // populate from config even before cache lands
   render();                  // show structure immediately
+  // Load locations cache in parallel with main cache — locations are joined at render time
+  loadLocationsCache();
   loadCache().finally(function() { scheduleRefresh(); });
 });
 
@@ -608,6 +610,51 @@ function loadInvoiceCache() {
     })
     .catch(function(err) { console.warn('invoice cache load failed:', err); });
   return STATE.invoiceLoadPromise;
+}
+
+// Loads cache-locations.json and builds a LocationID → location Map for fast lookup.
+// Joined onto service-order records at render time via joinLocationData().
+function loadLocationsCache() {
+  if (STATE.locationsLoadPromise) return STATE.locationsLoadPromise;
+  STATE.locationsLoadPromise = fetch('./cache-locations.json', { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(data) {
+      STATE.locationsCache = data;
+      STATE.locationsMap = {};
+      (data.locations || []).forEach(function(l) {
+        if (l.LocationID != null) STATE.locationsMap[String(l.LocationID)] = l;
+      });
+      // Re-render to pick up the joined fields
+      try { render(); } catch (e) { /* render might not be ready yet */ }
+    })
+    .catch(function(err) {
+      console.warn('locations cache load failed (this is OK if cache-locations.json doesn\'t exist yet):', err);
+      STATE.locationsMap = {};
+    });
+  return STATE.locationsLoadPromise;
+}
+
+// Augment a service-order record with location fields under "_Loc*" keys
+// so they don't collide with order-side keys. Returns the same object.
+function joinLocationData(r) {
+  if (!r || !STATE.locationsMap) return r;
+  var loc = STATE.locationsMap[String(r.LocationID || '')];
+  if (!loc) return r;
+  // Derived "Name" field — Company for commercial, FirstName + LastName for residential
+  var name = (loc.Company && loc.Company.trim())
+    ? loc.Company.trim()
+    : ((loc.FirstName || '') + ' ' + (loc.LastName || '')).trim();
+  r._LocName        = name || null;
+  r._LocAddress     = loc.Address || null;
+  r._LocCity        = loc.City || null;
+  r._LocState       = loc.State || null;
+  r._LocZip         = loc.Zip || null;
+  r._LocCounty      = loc.County || null;
+  r._LocEnteredDate = loc.EnteredDate || null;
+  r._LocLatitude    = loc.Latitude || null;
+  r._LocLongitude   = loc.Longitude || null;
+  r._LocAccountType = loc.AccountType || null;
+  return r;
 }
 
 function wireFilters() {
@@ -899,6 +946,11 @@ function applyFilters(records, columns) {
   var isInvoices = def.source === 'invoices';
   var invoiceLens = isInvoices ? INVOICE_LENS[STATE.invoiceMode] : null;
   var range = getActiveDateRange();
+  // Join location data onto orders before filtering (cheap O(1) Map lookup per record).
+  // Invoices already carry CustomerName/City/State from their source export.
+  if (!isInvoices && STATE.locationsMap) {
+    records = records.map(joinLocationData);
+  }
   return records.filter(function(r) {
     if (!dateInPeriod(r[dateKey], range)) return false;
     // Invoice lens — restrict to the types the current mode includes

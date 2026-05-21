@@ -44,8 +44,9 @@ const PP_API_BASE      = 'https://api.workwave.com/pestpac/v1';
 const GH_OWNER  = 'catseye-internal';
 const GH_REPO   = 'Production-Dashboard';
 const GH_BRANCH = 'main';
-const GH_PATH_CURATED = 'cache.json';
-const GH_PATH_RAW     = 'cache-raw.json';
+const GH_PATH_CURATED   = 'cache.json';
+const GH_PATH_RAW       = 'cache-raw.json';
+const GH_PATH_LOCATIONS = 'cache-locations.json';
 
 // ── Raw refresh cadence ──
 const RAW_REFRESH_MIN_HOURS = 20;          // ≥ this many hours since last raw write → write again
@@ -93,6 +94,32 @@ const CURATED_FIELDS_INVOICE = [
   'CustomerID', 'LocationID', 'OrderID',
   'Total', 'Subtotal', 'TaxTotal', 'BalanceDue',
   'Status',
+];
+
+// Curated Location whitelist — what survives into cache-locations.json
+// Captured from /Locations/{id} 2026-05-20 (60-field response). Excludes
+// Fax/Title/Salutation/UserDefinedFields etc. that don't aid the dashboard.
+const CURATED_FIELDS_LOCATION = [
+  // Identity
+  'LocationID', 'LocationCode', 'BillToID',
+  // Customer name (residential vs commercial)
+  'Company', 'FirstName', 'LastName',
+  // Address
+  'Address', 'Address2', 'City', 'State', 'Zip', 'County', 'Country',
+  // Contact
+  'Phone', 'MobilePhone', 'EMail',
+  // Geocoding (for future drive-time analysis)
+  'Latitude', 'Longitude', 'RooftopLatitude', 'RooftopLongitude',
+  // Classification
+  'AccountType', 'Type', 'Source',
+  // Status
+  'Active', 'Prospect',
+  // Branch
+  'Branch', 'BranchID',
+  // Tax
+  'TaxCode', 'TaxRate',
+  // Audit
+  'EnteredDate', 'ContactDate'
 ];
 
 // TechnicianComment can be a paragraph — cap to keep cache.json under control.
@@ -406,6 +433,132 @@ function refreshProductionCache() {
 function forceRawSnapshot() {
   PropertiesService.getScriptProperties().deleteProperty(RAW_REFRESH_KEY);
   refreshProductionCache();
+}
+
+// ══════════════════════════════════════════════════════════════
+// LOCATIONS CACHE — separate file, incremental fetch
+// ══════════════════════════════════════════════════════════════
+// Lives at cache-locations.json on GitHub Pages. Keyed by LocationID.
+// The dashboard joins service orders → locations at render time.
+//
+// First call = full backfill of all unique LocationIDs in cache.json (~2 min).
+// Subsequent calls = incremental — only fetches LocationIDs not yet in the
+// cache (typically 0–10 new per refresh).
+//
+// Recommend a daily time-driven trigger on this function (e.g., 4am ET)
+// to pick up new customers and refresh stale records over time.
+function refreshLocationsCache() {
+  var t0 = new Date();
+  Logger.log('🏠 Locations cache refresh — ' + t0.toISOString());
+  try {
+    var token = ppToken_();
+
+    // Pull existing locations cache from GitHub Pages
+    var existing = readLocationsCache_();
+    var existingMap = {};
+    (existing.locations || []).forEach(function(l) {
+      if (l.LocationID) existingMap[l.LocationID] = l;
+    });
+    Logger.log('  Existing cache: ' + Object.keys(existingMap).length + ' locations');
+
+    // Pull live cache.json to find which LocationIDs we currently need
+    var ordersResp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (ordersResp.getResponseCode() !== 200) {
+      throw new Error('cache.json fetch HTTP ' + ordersResp.getResponseCode());
+    }
+    var ordersData = JSON.parse(ordersResp.getContentText());
+    var seen = {};
+    (ordersData.orders || []).forEach(function(o) {
+      if (o.LocationID) seen[o.LocationID] = true;
+    });
+    var allLocIds = Object.keys(seen);
+    Logger.log('  Unique LocationIDs in cache.json: ' + allLocIds.length);
+
+    // Determine which to fetch (any LocationID not yet in the existing cache)
+    var newLocIds = allLocIds.filter(function(lid) { return !existingMap[lid]; });
+    Logger.log('  New LocationIDs to fetch: ' + newLocIds.length);
+
+    if (newLocIds.length > 0) {
+      var fetched = fetchLocations_(token, newLocIds);
+      Logger.log('  Successfully fetched ' + fetched.length + ' new locations');
+      fetched.forEach(function(loc) {
+        if (loc.LocationID) existingMap[loc.LocationID] = loc;
+      });
+    } else {
+      Logger.log('  ✓ Cache up to date — no new fetches needed');
+    }
+
+    // Build final array (sorted by LocationID for deterministic ordering)
+    var allLocs = [];
+    Object.keys(existingMap).forEach(function(k) { allLocs.push(existingMap[k]); });
+    allLocs.sort(function(a, b) { return Number(a.LocationID) - Number(b.LocationID); });
+
+    var cache = {
+      updated: new Date().toISOString(),
+      recordCount: allLocs.length,
+      locations: allLocs
+    };
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('  cache-locations.json: ' + jsonStr.length + ' chars (' + Math.round(jsonStr.length / 1024) + ' KB, ' + allLocs.length + ' records)');
+
+    var ok = pushToGitHub_(jsonStr, GH_PATH_LOCATIONS, 'Locations cache refresh ' + new Date().toISOString());
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('✅ Locations refresh complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Locations refresh error: ' + err.message + '\n' + err.stack);
+  }
+}
+
+// Parallel-fetch /Locations/{id} for a list of IDs. Returns curated records.
+function fetchLocations_(token, locIds) {
+  var out = [];
+  var BATCH = 30;
+  var headers = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+  for (var i = 0; i < locIds.length; i += BATCH) {
+    var slice = locIds.slice(i, i + BATCH);
+    var requests = slice.map(function(lid) {
+      return {
+        url: PP_API_BASE + '/Locations/' + lid,
+        method: 'get',
+        headers: headers,
+        muteHttpExceptions: true
+      };
+    });
+    try {
+      var responses = UrlFetchApp.fetchAll(requests);
+      for (var k = 0; k < responses.length; k++) {
+        if (responses[k].getResponseCode() !== 200) continue;
+        try {
+          var loc = JSON.parse(responses[k].getContentText());
+          out.push(curate_(loc, CURATED_FIELDS_LOCATION));
+        } catch (e) { /* skip parse error */ }
+      }
+    } catch (e) {
+      Logger.log('    Locations batch starting at ' + i + ' failed: ' + e.message);
+    }
+    if (i + BATCH < locIds.length) Utilities.sleep(200);
+  }
+  return out;
+}
+
+function readLocationsCache_() {
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache-locations.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (resp.getResponseCode() !== 200) return { locations: [] };
+    return JSON.parse(resp.getContentText());
+  } catch (e) {
+    return { locations: [] };
+  }
 }
 
 // ══════════════════════════════════════════════════════════════

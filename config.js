@@ -92,26 +92,43 @@ const COLOR = {
 // ── List view column defs ──
 // Confirmed against live API. Type 'badge-orderType' renders the colored OrderType pill.
 // Type 'status-flags' renders InProgress/Locked/Posted as little colored dots.
+// Location fields (Name, Address, City, State, Zip, County, Lat, Long, EnteredDate, AccountType)
+// are joined from cache-locations.json at render time.
 const SERVICE_ORDERS_COLUMNS = [
-  { key: 'WorkDate',     label: 'When',         type: 'datetime',         sortable: true, default: true },
-  { key: 'Branch',       label: 'Branch',       type: 'branch',           sortable: true, default: true },
-  { key: 'OrderType',    label: 'Type',         type: 'badge-orderType',  sortable: true, default: true },
-  { key: 'Tech1',        label: 'Tech',         type: 'text',             sortable: true, default: true },
-  { key: 'Tech2',        label: 'Tech 2',       type: 'text',             sortable: true, default: true },
-  { key: 'ServiceCode',  label: 'Service',      type: 'text',             sortable: true, default: true },
-  { key: 'Description',  label: 'Description',  type: 'text-truncate',    sortable: false, default: true },
-  { key: 'Duration',     label: 'Min',          type: 'number',           sortable: true, default: true },
-  { key: 'Route',        label: 'Route',        type: 'text',             sortable: true, default: true },
-  { key: 'Locked',       label: 'Confirmed?',   type: 'confirmation',     sortable: true,  default: true },
-  { key: '_status',      label: 'Status',       type: 'status-flags',     sortable: false, default: true },
-  { key: 'Total',        label: 'Total',        type: 'money',            sortable: true, default: true },
-  { key: 'OrderNumber',  label: 'Order #',      type: 'text',             sortable: true, default: false },
-  { key: 'OrderID',      label: 'Order ID',     type: 'number',           sortable: true, default: false },
-  { key: 'LocationID',   label: 'Loc ID',       type: 'number',           sortable: true, default: false },
-  { key: 'Origin',       label: 'Origin',       type: 'text',             sortable: true, default: false },
-  { key: 'EarliestTime', label: 'Earliest',     type: 'time',             sortable: true, default: false },
-  { key: 'LatestTime',   label: 'Latest',       type: 'time',             sortable: true, default: false },
-  { key: 'ParentOrderID', label: 'Parent #',    type: 'number',           sortable: true, default: false },
+  { key: 'WorkDate',         label: 'When',         type: 'datetime',         sortable: true, default: true },
+  { key: 'Branch',           label: 'Branch',       type: 'branch',           sortable: true, default: true },
+  { key: 'OrderType',        label: 'Type',         type: 'badge-orderType',  sortable: true, default: true },
+  { key: 'Tech1',            label: 'Tech',         type: 'text',             sortable: true, default: true },
+  { key: 'Tech2',            label: 'Tech 2',       type: 'text',             sortable: true, default: true },
+  { key: 'ServiceCode',      label: 'Service',      type: 'text',             sortable: true, default: true },
+  { key: 'ServiceClass',     label: 'Class',        type: 'text',             sortable: true, default: true },
+  { key: 'Description',      label: 'Description',  type: 'text-truncate',    sortable: false, default: true },
+  { key: 'Duration',         label: 'Min',          type: 'number',           sortable: true, default: true },
+  { key: 'TimeRange',        label: 'Time Range',   type: 'text',             sortable: true, default: true },
+  { key: 'Route',            label: 'Route',        type: 'text',             sortable: true, default: true },
+  { key: 'Locked',           label: 'Confirmed?',   type: 'confirmation',     sortable: true, default: true },
+  { key: '_status',          label: 'Status',       type: 'status-flags',     sortable: false, default: true },
+  { key: 'SubTotal',         label: 'Subtotal',     type: 'money',            sortable: true, default: true },
+  // Location join (populated by joinLocationData at load time)
+  { key: 'LocationID',       label: 'Loc ID',       type: 'number',           sortable: true, default: true },
+  { key: '_LocName',          label: 'Name',         type: 'text-truncate',    sortable: true, default: true },
+  { key: '_LocAddress',       label: 'Address',      type: 'text-truncate',    sortable: true, default: true },
+  { key: '_LocCity',          label: 'City',         type: 'text',             sortable: true, default: true },
+  { key: '_LocState',         label: 'State',        type: 'text',             sortable: true, default: true },
+  { key: '_LocZip',           label: 'Zip',          type: 'text',             sortable: true, default: true },
+  { key: '_LocCounty',        label: 'County',       type: 'text',             sortable: true, default: true },
+  { key: '_LocEnteredDate',   label: 'Entered',      type: 'date',             sortable: true, default: true },
+  // Non-default columns (still curated, available via column picker if added later)
+  { key: 'Total',            label: 'Total (incl tax)', type: 'money',         sortable: true, default: false },
+  { key: 'OrderNumber',      label: 'Order #',      type: 'text',             sortable: true, default: false },
+  { key: 'OrderID',          label: 'Order ID',     type: 'number',           sortable: true, default: false },
+  { key: 'Origin',           label: 'Origin',       type: 'text',             sortable: true, default: false },
+  { key: 'EarliestTime',     label: 'Earliest',     type: 'time',             sortable: true, default: false },
+  { key: 'LatestTime',       label: 'Latest',       type: 'time',             sortable: true, default: false },
+  { key: 'ParentOrderID',    label: 'Parent #',     type: 'number',           sortable: true, default: false },
+  { key: '_LocAccountType',   label: 'Account Type', type: 'text',             sortable: true, default: false },
+  { key: '_LocLatitude',      label: 'Lat',          type: 'number',           sortable: true, default: false },
+  { key: '_LocLongitude',     label: 'Long',         type: 'number',           sortable: true, default: false },
 ];
 
 // ── Invoices columns — confirmed against real PestPac report (30,008 records YTD) ──
