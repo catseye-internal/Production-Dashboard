@@ -272,6 +272,19 @@
     margin-left: auto;
     margin-right: auto;
   }
+  /* Brand-colored card headers — orange for Catseye, blue for USX */
+  .group-block.brand-catseye .group-block-header {
+    background: rgba(244,123,32,0.10);
+    border-bottom-color: rgba(244,123,32,0.45);
+    margin: -10px -12px 6px; padding: 8px 12px;  /* extend header bg to card edges */
+  }
+  .group-block.brand-catseye .group-block-title { color: #F47B20; }
+  .group-block.brand-usx .group-block-header {
+    background: rgba(96,165,250,0.10);
+    border-bottom-color: rgba(96,165,250,0.45);
+    margin: -10px -12px 6px; padding: 8px 12px;
+  }
+  .group-block.brand-usx .group-block-title { color: #60A5FA; }
   .group-block {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
     padding: 10px 12px; min-width: 0;
@@ -1481,21 +1494,20 @@ function renderSummaryView_() {
   // Aggregate: count + subtotal by ServiceClass, grouped per branch bucket
   // Bucket order: Catseye total, USX total, Catseye branches, USX branches
   var bucketOrder = [
-    { id: 'cat-total', label: 'CATSEYE TOTAL',  cls: '', include: function(b) { return !isUsxBranch(b); } },
-    { id: 'usx-total', label: 'USX PEST TOTAL', cls: '', include: function(b) { return  isUsxBranch(b); } },
+    { id: 'cat-total', label: 'CATSEYE TOTAL',  cls: 'brand-catseye',
+      include: function(b) { return !isUsxBranch(b); } },
+    { id: 'usx-total', label: 'USX PEST TOTAL', cls: 'brand-usx',
+      include: function(b) { return  isUsxBranch(b); } },
   ];
   BRANCH_CATSEYE.forEach(function(b, i) {
-    // Last Catseye card centers if Catseye branch count is odd (RI alone case).
-    // We have 2 totals on top row already, so Catseye branches start at row 2;
-    // odd count → last one alone, centered.
     var isLast = (i === BRANCH_CATSEYE.length - 1);
-    var cls = (isLast && (BRANCH_CATSEYE.length % 2 === 1)) ? 'lone-center' : '';
-    bucketOrder.push({ id: 'cat-' + b, cls: cls,
+    var layout = (isLast && (BRANCH_CATSEYE.length % 2 === 1)) ? ' lone-center' : '';
+    bucketOrder.push({ id: 'cat-' + b, cls: 'brand-catseye' + layout,
       label: 'CATSEYE — ' + (BRANCH_DISPLAY[b] || b).toUpperCase(),
       include: function(branch) { return branch === b; } });
   });
   BRANCH_USX.forEach(function(b, i) {
-    bucketOrder.push({ id: 'usx-' + b, cls: (i === 0 ? 'usx-first' : ''),
+    bucketOrder.push({ id: 'usx-' + b, cls: 'brand-usx' + (i === 0 ? ' usx-first' : ''),
       label: 'USX — ' + (BRANCH_DISPLAY[b] || b.replace(/^USX[^A-Za-z]*/, '')).toUpperCase(),
       include: function(branch) { return branch === b; } });
   });
@@ -1696,12 +1708,12 @@ function renderTechView_() {
   var branchEntries = [];
   catseyeBranches.forEach(function(b, i) {
     // Center the last Catseye card when count is odd (would otherwise sit alone in col 1)
-    var cls = (i === catseyeBranches.length - 1 && catseyeBranches.length % 2 === 1)
-      ? 'lone-center' : '';
-    branchEntries.push({ b: b, cls: cls });
+    var layout = (i === catseyeBranches.length - 1 && catseyeBranches.length % 2 === 1)
+      ? ' lone-center' : '';
+    branchEntries.push({ b: b, cls: 'brand-catseye' + layout });
   });
   usxBranches.forEach(function(b, i) {
-    branchEntries.push({ b: b, cls: (i === 0 ? 'usx-first' : '') });
+    branchEntries.push({ b: b, cls: 'brand-usx' + (i === 0 ? ' usx-first' : '') });
   });
   orphanBranches.forEach(function(b) { branchEntries.push({ b: b, cls: '' }); });
 
