@@ -714,9 +714,9 @@ function joinLocationData(r) {
     r._LocCity  = r.City || null;
     r._LocState = r.State || null;
     r._LocZip5  = r.Zip ? String(r.Zip).substring(0, 5) : null;
-    // Loc # without a link (no LocationID available)
+    // Loc # link using LocationCode (PestPac accepts LocationCode as a URL param too)
     r._LocCodeLink = r.LocationCode
-      ? { text: r.LocationCode, href: null }
+      ? { text: r.LocationCode, href: 'https://app.pestpac.com/location/edit.asp?Mode=Detail&LocationCode=' + encodeURIComponent(r.LocationCode) }
       : null;
   }
   // Class — derived from invoice cache code→class lookup
