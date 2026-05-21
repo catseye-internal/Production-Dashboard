@@ -1021,9 +1021,9 @@ function applyFilters(records, columns) {
   var isInvoices = def.source === 'invoices';
   var invoiceLens = isInvoices ? INVOICE_LENS[STATE.invoiceMode] : null;
   var range = getActiveDateRange();
-  // Join location data onto orders before filtering (cheap O(1) Map lookup per record).
-  // Invoices already carry CustomerName/City/State from their source export.
-  if (!isInvoices && STATE.locationsMap) {
+  // Join location data onto records before filtering (cheap O(1) Map lookup per record).
+  // Applies to BOTH orders AND invoices — both have LocationID and benefit from Loc #/Address/etc.
+  if (STATE.locationsMap) {
     records = records.map(joinLocationData);
   }
   return records.filter(function(r) {

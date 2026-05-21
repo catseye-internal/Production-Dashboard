@@ -130,28 +130,41 @@ const SERVICE_ORDERS_COLUMNS = [
 ];
 
 // ── Invoices columns — confirmed against real PestPac report (30,008 records YTD) ──
+// Column structure mirrors SERVICE_ORDERS_COLUMNS where data overlaps; invoice-specific
+// columns (Balance, Aging) sit after Subtotal. Location fields (_LocName, _LocCity, etc.)
+// come from cache-locations.json via joinLocationData — invoices have LocationID too.
 const INVOICES_COLUMNS = [
   { key: 'InvoiceDate',        label: 'Invoice Date',  type: 'date',           sortable: true, default: true,  width: 95 },
-  { key: 'InvoiceNumber',      label: 'Invoice #',     type: 'text',           sortable: true, default: true,  width: 85 },
-  { key: 'InvoiceType',        label: 'Type',          type: 'invoiceType',    sortable: true, default: true,  width: 80 },
-  { key: 'Branch',             label: 'Branch',        type: 'branch',         sortable: true, default: true,  width: 60 },
-  { key: 'CustomerName',       label: 'Customer',      type: 'text-truncate',  sortable: true, default: true,  width: 130 },
+  { key: 'Branch',             label: 'Branch',        type: 'branch',         sortable: true, default: true,  width: 75 },
+  { key: '_LocCodeLink',       label: 'Loc #',         type: 'pp-loc-link',    sortable: true, default: true,  width: 70 },
+  { key: 'CustomerName',       label: 'Name',          type: 'text-truncate',  sortable: true, default: true,  width: 130 },
+  { key: '_LocCity',           label: 'City',          type: 'text',           sortable: true, default: true,  width: 100 },
+  { key: '_LocState',          label: 'State',         type: 'text',           sortable: true, default: true,  width: 45 },
+  { key: 'InvoiceType',        label: 'Type',          type: 'invoiceType',    sortable: true, default: true,  width: 95 },
   { key: 'Tech',               label: 'Tech',          type: 'text',           sortable: true, default: true,  width: 55 },
-  { key: 'Tech2',              label: 'Tech 2',        type: 'text',           sortable: true, default: true,  width: 55 },
-  { key: 'ServiceDescription', label: 'Service',       type: 'text-truncate',  sortable: true, default: true,  width: 180 },
-  { key: 'Total',              label: 'Total',         type: 'money',          sortable: true, default: true,  width: 80 },
+  { key: 'Tech2',              label: 'Tech 2',        type: 'text',           sortable: true, default: true,  width: 60 },
+  { key: 'ServiceCode',        label: 'Service',       type: 'text',           sortable: true, default: true,  width: 140 },
+  { key: 'SubTotal',           label: 'Subtotal',      type: 'money',          sortable: true, default: true,  width: 80 },
   { key: 'Balance',            label: 'Balance',       type: 'balance',        sortable: true, default: true,  width: 80 },
   { key: 'AgingDays',          label: 'Aging',         type: 'aging',          sortable: true, default: true,  width: 70 },
+  { key: 'Route',              label: 'Route',         type: 'text',           sortable: true, default: true,  width: 95 },
+  { key: '_LocAddress',        label: 'Address',       type: 'text-truncate',  sortable: true, default: true,  width: 160 },
+  { key: '_LocZip5',           label: 'Zip',           type: 'text',           sortable: true, default: true,  width: 60 },
+  { key: 'ServiceClass',       label: 'Class',         type: 'text',           sortable: true, default: true,  width: 105 },
+  { key: 'ServiceDescription', label: 'Description',   type: 'text-truncate',  sortable: true, default: true,  width: 210 },
+  // Non-default
+  { key: 'Total',              label: 'Total (incl tax)', type: 'money',       sortable: true, default: false },
+  { key: 'Tax',                label: 'Tax',           type: 'money',          sortable: true, default: false },
+  { key: 'InvoiceNumber',      label: 'Invoice #',     type: 'text',           sortable: true, default: false },
   { key: 'OrderNumber',        label: 'Order #',       type: 'text',           sortable: true, default: false },
   { key: 'Sales',              label: 'Sales',         type: 'text',           sortable: true, default: false },
-  { key: 'ServiceClass',       label: 'Class',         type: 'text',           sortable: true, default: false },
-  { key: 'SubTotal',           label: 'Subtotal',      type: 'money',          sortable: true, default: false },
-  { key: 'Tax',                label: 'Tax',           type: 'money',          sortable: true, default: false },
   { key: 'SaleValue',          label: 'Sale Value',    type: 'money',          sortable: true, default: false },
   { key: 'ProductionValue',    label: 'Production $',  type: 'money',          sortable: true, default: false },
   { key: 'Origin',             label: 'Origin',        type: 'text',           sortable: true, default: false },
   { key: 'PostedBy',           label: 'Posted By',     type: 'text',           sortable: true, default: false },
+  { key: 'EnteredBy',          label: 'Entered By',    type: 'text',           sortable: true, default: false },
   { key: 'WorkDate',           label: 'Work Date',     type: 'date',           sortable: true, default: false },
+  { key: 'LocationID',         label: 'Loc ID (raw)',  type: 'number',         sortable: true, default: false },
 ];
 
 // ── Division classification (Pest vs CG vs NWL, Resi vs Commercial) ──
