@@ -679,14 +679,19 @@ function loadLocationsCache() {
 }
 
 // Augment a record (service order OR invoice) with location fields under "_Loc*" keys.
-// Service orders join by LocationID; invoices join by LocationCode (the YTD export doesn't carry LocationID).
+// Service orders join by LocationID; invoices join by LocationCode.
+// When the locations cache doesn't have a match (e.g., historical invoice for a
+// customer who isn't in the current 14-day Service Orders window), fall back to
+// the record's own City/State/Zip — invoices carry these directly from the export.
 function joinLocationData(r) {
-  if (!r || !STATE.locationsMap) return r;
+  if (!r) return r;
   var loc = null;
-  if (r.LocationID != null) loc = STATE.locationsMap[String(r.LocationID)];
-  if (!loc && r.LocationCode != null && STATE.locationsByCode) loc = STATE.locationsByCode[String(r.LocationCode)];
+  if (STATE.locationsMap) {
+    if (r.LocationID != null) loc = STATE.locationsMap[String(r.LocationID)];
+    if (!loc && r.LocationCode != null && STATE.locationsByCode) loc = STATE.locationsByCode[String(r.LocationCode)];
+  }
   if (loc) {
-    // Derived "Name" — Company for commercial, FirstName + LastName for residential
+    // Full join from locations cache — we have everything
     var name = (loc.Company && loc.Company.trim())
       ? loc.Company.trim()
       : ((loc.FirstName || '') + ' ' + (loc.LastName || '')).trim();
@@ -694,16 +699,24 @@ function joinLocationData(r) {
     r._LocAddress     = loc.Address || null;
     r._LocCity        = loc.City || null;
     r._LocState       = loc.State || null;
-    // First 5 digits of zip (PestPac stores Zip+4 like "06716-2540")
     r._LocZip5        = loc.Zip ? String(loc.Zip).substring(0, 5) : null;
     r._LocCounty      = loc.County || null;
     r._LocEnteredDate = loc.EnteredDate || null;
     r._LocLatitude    = loc.Latitude || null;
     r._LocLongitude   = loc.Longitude || null;
     r._LocAccountType = loc.AccountType || null;
-    // Loc # — display LocationCode (e.g., "227943"), link to PestPac via LocationID
     r._LocCodeLink    = loc.LocationCode
       ? { text: loc.LocationCode, href: 'https://app.pestpac.com/location/edit.asp?Mode=Detail&LocationID=' + loc.LocationID }
+      : null;
+  } else {
+    // No location-cache match — use whatever the record has on its own
+    // (invoices carry CustomerName, City, State, Zip directly; address/county/lat/long not available)
+    r._LocCity  = r.City || null;
+    r._LocState = r.State || null;
+    r._LocZip5  = r.Zip ? String(r.Zip).substring(0, 5) : null;
+    // Loc # without a link (no LocationID available)
+    r._LocCodeLink = r.LocationCode
+      ? { text: r.LocationCode, href: null }
       : null;
   }
   // Class — derived from invoice cache code→class lookup
@@ -1190,9 +1203,10 @@ function fmt(v, type, record) {
   if (type === 'balance')         return renderBalance(Number(v) || 0);
   if (type === 'aging')           return renderAging(Number(v) || 0);
   if (type === 'pp-loc-link') {
-    // v is {text, href} from joinLocationData
-    if (!v || !v.href) return '<span class="muted">—</span>';
-    return '<a href="' + v.href + '" target="_blank" rel="noopener" class="pp-link">' + escapeHtml(String(v.text || '')) + '</a>';
+    // v is {text, href} from joinLocationData. href may be null (LocationCode but no LocationID).
+    if (!v || !v.text) return '<span class="muted">—</span>';
+    if (!v.href)       return '<span>' + escapeHtml(String(v.text)) + '</span>';
+    return '<a href="' + v.href + '" target="_blank" rel="noopener" class="pp-link">' + escapeHtml(String(v.text)) + '</a>';
   }
   return escapeHtml(String(v));
 }
