@@ -149,6 +149,33 @@ function test6_rawFetchShape() {
   }
 }
 
+// TEST 8 — Inspect the Technicians array shape from /ServiceOrders/{id}.
+// Needed to write Tech2 extraction logic correctly.
+function test8_techniciansShape() {
+  Logger.log('🧪 TEST 8 — /ServiceOrders/{id} Technicians shape');
+  var token = ppToken_();
+  var now = new Date();
+  var s = new Date(now); s.setDate(s.getDate() - 1);
+  var e = new Date(s);   e.setDate(e.getDate() + 13);
+  var orders = fetchServiceOrdersRaw_(token, fmt_(s), fmt_(e));
+  Logger.log('  Searching ' + orders.length + ' orders for one with multiple techs...');
+  var found = 0;
+  for (var i = 0; i < orders.length && found < 5; i++) {
+    var detail = ppGet_(token, '/ServiceOrders/' + orders[i].OrderID);
+    if (detail.code !== 200) continue;
+    var d = JSON.parse(detail.text);
+    var techs = d.Technicians;
+    if (!techs || !techs.length) continue;
+    Logger.log('  OrderID ' + d.OrderID + ' — Technicians (' + techs.length + '): ' + JSON.stringify(techs));
+    found++;
+    if (techs.length > 1) {
+      Logger.log('    ☝️ MULTI-TECH ORDER (good sample)');
+    }
+    Utilities.sleep(200);
+  }
+  if (found === 0) Logger.log('  No orders with Technicians populated in this window');
+}
+
 // TEST 7 — Trace fetch → curate → output path step-by-step.
 // Catches any discrepancy between what fetchServiceOrdersRaw_ returns and what
 // curate_ keeps. Also logs CURATED_FIELDS_ORDER so we can verify the constant

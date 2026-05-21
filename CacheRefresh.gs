@@ -74,8 +74,8 @@ const CURATED_FIELDS_ORDER = [
   'ServiceCode', 'Description',
   // Money
   'SubTotal', 'Tax', 'Total',
-  // Status & technician
-  'Tech1', 'TechID1', 'InProgress', 'Locked', 'Posted',
+  // Status & technicians (Tech2/TechID2 populated via enrichment from /id Technicians array)
+  'Tech1', 'TechID1', 'Tech2', 'TechID2', 'InProgress', 'Locked', 'Posted',
   // Notes — truncated below to avoid blowing up the cache
   'TechnicianComment'
 ];
@@ -229,6 +229,20 @@ function enrichNearTermOrders_(token, orders) {
       var slimOrderType = candidates[j].OrderType;
       Object.keys(full).forEach(function(k) { candidates[j][k] = full[k]; });
       if (!candidates[j].OrderType && slimOrderType) candidates[j].OrderType = slimOrderType;
+      // Extract Tech2/TechID2 from the Technicians array.
+      // Array shape: [{Position:1,Code:"GAM",TechID:443,...}, {Position:2,Code:null,...}, ...]
+      // PestPac uses 4 fixed positions; Position 1 is always primary. Tech 2 = the SECOND
+      // populated entry (any position) — matches the convention used by Invoice exports.
+      if (Array.isArray(full.Technicians)) {
+        for (var t = 1; t < full.Technicians.length; t++) {
+          var tech = full.Technicians[t];
+          if (tech && tech.Code) {
+            candidates[j].Tech2 = tech.Code;
+            candidates[j].TechID2 = tech.TechID;
+            break;
+          }
+        }
+      }
       enrichedCount++;
     } catch (e) {
       failedCount++;
@@ -319,11 +333,10 @@ function refreshProductionCache() {
     });
     Logger.log('  → ' + rawOrders.length + ' orders');
 
-    // Enrichment removed 2026-05-20: 14-day list chunks return full 45-field
-    // records, so per-record /ServiceOrders/{id} lookups are no longer needed.
-    // The enrichNearTermOrders_ function below is dead code but kept for
-    // potential future use (e.g., fetching Applications/LineItems/Materials
-    // for a drill-down view).
+    // Re-enabled 2026-05-20: enrichment fetches /ServiceOrders/{id} for near-term
+    // orders to extract Tech2/TechID2 from the Technicians array (the list endpoint
+    // doesn't return secondary techs). Capped at 350 orders × 14 days.
+    enrichNearTermOrders_(token, rawOrders);
 
     // Invoices intentionally skipped — PestPac /Invoices is keyed-lookup only.
     // Billing signal arrives via webhooks (InvoiceWebhookHandler.gs).
