@@ -12,7 +12,9 @@ const CACHE_JSON_URL    = './cache.json';
 const CACHE_ORDERS_URL  = './cache-orders.json';   // optional split — see brief §6.2
 const CACHE_INVOICES_URL = './cache-invoices.json';
 const CACHE_REFRESH_MS  = 60_000;  // dashboard auto-refresh cadence (60s)
-const CACHE_STALE_MS    = 11 * 60 * 1000;  // 11 min — show "stale" badge past this
+const CACHE_STALE_MS    = 16 * 60 * 1000;  // 16 min — show "stale" badge past this
+                                            // (bumped from 11 → 16 on 2026-05-21 when Apps Script
+                                            // trigger cadence moved from 10min → 15min for quota relief)
 
 // ── Branch constants — match PestPac & Sales Center exactly ──
 const BRANCH_CATSEYE = ['Eastern Mass', 'Connecticut', 'Rhode Island'];
