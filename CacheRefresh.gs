@@ -84,9 +84,9 @@ const CURATED_FIELDS_ORDER = [
 // /ServiceOrders/{id} lookups for their complete field set. Past this horizon,
 // records stay slim (smaller cache, faster refresh).
 const ENRICH_WINDOW_DAYS = 14;
-const ENRICH_MAX_RECORDS = 350;    // safety cap to keep within Apps Script time limit
-const ENRICH_BATCH_SIZE  = 10;     // calls per batch
-const ENRICH_BATCH_PAUSE_MS = 500; // pause between batches (rate-limit friendly)
+const ENRICH_MAX_RECORDS = 3000;   // safety cap — large enough to cover all 14-day candidates
+const ENRICH_BATCH_SIZE  = 30;     // PARALLEL calls per batch via UrlFetchApp.fetchAll
+const ENRICH_BATCH_PAUSE_MS = 200; // small pause between batches (rate-limit friendly)
 // Invoices: still pending /Invoices endpoint discovery — placeholders only.
 const CURATED_FIELDS_INVOICE = [
   'InvoiceNumber', 'InvoiceDate', 'Branch',
@@ -211,45 +211,64 @@ function enrichNearTermOrders_(token, orders) {
     Logger.log('  Enrichment capped: ' + candidates.length + ' candidates → ' + ENRICH_MAX_RECORDS);
     candidates = candidates.slice(0, ENRICH_MAX_RECORDS);
   }
-  Logger.log('  Enriching ' + candidates.length + ' near-term orders (next ' + ENRICH_WINDOW_DAYS + ' days)...');
+  Logger.log('  Enriching ' + candidates.length + ' near-term orders (next ' + ENRICH_WINDOW_DAYS + ' days) via parallel fetchAll batches of ' + ENRICH_BATCH_SIZE + '...');
   var enrichedCount = 0;
   var failedCount = 0;
+  var tech2Count = 0;
   var t0 = Date.now();
-  for (var j = 0; j < candidates.length; j++) {
-    if (j > 0 && j % ENRICH_BATCH_SIZE === 0) Utilities.sleep(ENRICH_BATCH_PAUSE_MS);
-    var r = ppGet_(token, '/ServiceOrders/' + candidates[j].OrderID);
-    if (r.code !== 200) {
-      failedCount++;
+  var commonHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+  for (var i = 0; i < candidates.length; i += ENRICH_BATCH_SIZE) {
+    var slice = candidates.slice(i, i + ENRICH_BATCH_SIZE);
+    var requests = slice.map(function(c) {
+      return {
+        url: PP_API_BASE + '/ServiceOrders/' + c.OrderID,
+        method: 'get',
+        headers: commonHeaders,
+        muteHttpExceptions: true
+      };
+    });
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      Logger.log('    Batch ' + i + ' failed entirely: ' + e.message);
+      failedCount += slice.length;
       continue;
     }
-    try {
-      var full = JSON.parse(r.text);
-      // Merge full fields onto the slim record (slim's stamped OrderType wins
-      // only if PestPac left OrderType blank in the detail response)
-      var slimOrderType = candidates[j].OrderType;
-      Object.keys(full).forEach(function(k) { candidates[j][k] = full[k]; });
-      if (!candidates[j].OrderType && slimOrderType) candidates[j].OrderType = slimOrderType;
-      // Extract Tech2/TechID2 from the Technicians array.
-      // Array shape: [{Position:1,Code:"GAM",TechID:443,...}, {Position:2,Code:null,...}, ...]
-      // PestPac uses 4 fixed positions; Position 1 is always primary. Tech 2 = the SECOND
-      // populated entry (any position) — matches the convention used by Invoice exports.
-      if (Array.isArray(full.Technicians)) {
-        for (var t = 1; t < full.Technicians.length; t++) {
-          var tech = full.Technicians[t];
-          if (tech && tech.Code) {
-            candidates[j].Tech2 = tech.Code;
-            candidates[j].TechID2 = tech.TechID;
-            break;
+    for (var k = 0; k < responses.length; k++) {
+      var resp = responses[k];
+      if (resp.getResponseCode() !== 200) { failedCount++; continue; }
+      try {
+        var full = JSON.parse(resp.getContentText());
+        var slimOrderType = slice[k].OrderType;
+        Object.keys(full).forEach(function(key) { slice[k][key] = full[key]; });
+        if (!slice[k].OrderType && slimOrderType) slice[k].OrderType = slimOrderType;
+        // Extract Tech2/TechID2 from the Technicians array (4 fixed positions,
+        // Tech 2 = first populated entry after Position 1).
+        if (Array.isArray(full.Technicians)) {
+          for (var t = 1; t < full.Technicians.length; t++) {
+            var tech = full.Technicians[t];
+            if (tech && tech.Code) {
+              slice[k].Tech2 = tech.Code;
+              slice[k].TechID2 = tech.TechID;
+              tech2Count++;
+              break;
+            }
           }
         }
+        enrichedCount++;
+      } catch (e) {
+        failedCount++;
       }
-      enrichedCount++;
-    } catch (e) {
-      failedCount++;
     }
+    if (i + ENRICH_BATCH_SIZE < candidates.length) Utilities.sleep(ENRICH_BATCH_PAUSE_MS);
   }
   var elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  Logger.log('  ✓ Enriched ' + enrichedCount + ' (' + failedCount + ' failed) in ' + elapsed + 's');
+  Logger.log('  ✓ Enriched ' + enrichedCount + ' (' + failedCount + ' failed) in ' + elapsed + 's | Tech 2 found on ' + tech2Count + ' orders');
 }
 
 // Chunks the date range into 14-day windows. Confirmed via test1_windowSize
