@@ -422,10 +422,10 @@
 <!-- Two views: pre-service ("work to be completed") and post-service ("work completed").
      Callbacks live as a filter on both, not a separate tab. -->
 <nav class="tabs" id="tabs">
-  <button class="tab active" data-view="orders">Forecast</button>
+  <button class="tab active" data-view="tech">Tech</button>
+  <button class="tab" data-view="orders">Forecast</button>
   <button class="tab" data-view="invoices">Completed</button>
   <button class="tab" data-view="summary">Summary</button>
-  <button class="tab" data-view="tech">Tech</button>
 </nav>
 
 <!-- Sub-view selector (only shown when Invoices or Summary tab is active).
@@ -440,15 +440,6 @@
   </div>
 </div>
 
-<!-- Tech sub-view selector — Forecast uses Service Orders (upcoming/future work),
-     Completed uses Invoices (already-posted work). -->
-<div class="sub-tabs" id="techModeBar" style="display:none">
-  <span class="sub-tabs-label">Tech view:</span>
-  <div class="sub-tab-group" id="techModeGroup">
-    <button class="sub-tab active" data-tech-mode="forecast">Forecast <span class="sub-tab-hint">Service Orders</span></button>
-    <button class="sub-tab" data-tech-mode="completed">Completed <span class="sub-tab-hint">Invoices</span></button>
-  </div>
-</div>
 
 <main class="main">
   <!-- ─────────── FILTER BAR ─────────── -->
@@ -587,18 +578,15 @@
 
 // Use var for globals (BDC "Never Show Zeros" rule §5.2 — avoid TDZ kills)
 var STATE = {
-  view: 'orders',          // 'orders' | 'invoices' | 'summary' | 'tech'
+  view: 'tech',            // 'tech' | 'orders' | 'invoices' | 'summary'
   invoiceMode: 'all',      // 'all' | 'production' | 'revenue'
-  techMode: 'forecast',    // 'forecast' (Service Orders) | 'completed' (Invoices)
   // Per-view date state — switching tabs preserves each tab's selection
   ordersPeriod: 'tomorrow', // 'today' | 'tomorrow' | 'next7' | 'custom'
   invoicesPeriod: 'mtd',   // 'today' | 'yesterday' | 'wk' | 'mtd' | 'ytd' | 'custom'
   summaryPeriod: 'mtd',    // mirrors invoices period set
-  techPeriod: 'tomorrow',  // covers forecast (tomorrow/next7) and completed (yesterday/wk/mtd) modes
   ordersCustom:   { start: '', end: '' },
   invoicesCustom: { start: '', end: '' },
   summaryCustom:  { start: '', end: '' },
-  techCustom:     { start: '', end: '' },
   // Common filters
   company: '',             // '' | 'catseye' | 'usx'
   division: '',            // '' | 'pest-resi' | 'pest-commerc' | 'cgnwl'
@@ -642,18 +630,9 @@ var PERIOD_BUTTONS = {
     { key: 'mtd',       label: 'MTD' },
     { key: 'ytd',       label: 'YTD' },
     { key: 'custom',    label: 'Custom' }
-  ],
-  // Tech view supports both Forecast (Service Orders, future-looking) and
-  // Completed (Invoices, past-looking) — keep both temporal directions.
-  tech: [
-    { key: 'today',     label: 'Today' },
-    { key: 'tomorrow',  label: 'Tomorrow' },
-    { key: 'yesterday', label: 'Yesterday' },
-    { key: 'next7',     label: '7-Day' },
-    { key: 'wk',        label: 'WK' },
-    { key: 'mtd',       label: 'MTD' },
-    { key: 'custom',    label: 'Custom' }
   ]
+  // Note: Tech view has fixed periods baked into the view itself
+  // (Today/Tmrw/+2/+3 forecast + MTD completed) — no period buttons needed.
 };
 
 // Invoice lens definitions — which Invoice Types are visible in each mode
@@ -717,8 +696,8 @@ function wireTabs() {
       } else if (STATE.view === 'orders' && STATE.sort.key === 'InvoiceDate') {
         STATE.sort = { key: 'WorkDate', dir: 'desc' };
       }
-      var needsInvoices = (STATE.view === 'invoices' || STATE.view === 'summary' ||
-                           (STATE.view === 'tech' && STATE.techMode === 'completed'));
+      // Tech view always needs invoices (for MTD completed column); Invoices and Summary need them too
+      var needsInvoices = (STATE.view === 'invoices' || STATE.view === 'summary' || STATE.view === 'tech');
       if (needsInvoices && !STATE.invoiceCache) {
         loadInvoiceCache().finally(render);
       } else {
@@ -736,35 +715,23 @@ function wireTabs() {
       render();
     });
   });
-
-  // Tech view mode (Forecast = Service Orders, Completed = Invoices)
-  document.querySelectorAll('#techModeGroup .sub-tab').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('#techModeGroup .sub-tab').forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      STATE.techMode = btn.dataset.techMode;
-      // Completed mode needs the invoice cache
-      if (STATE.techMode === 'completed' && !STATE.invoiceCache) {
-        loadInvoiceCache().finally(render);
-      } else {
-        render();
-      }
-    });
-  });
 }
 
 // Show/hide filter groups, sub-tab bars, and content containers for the active view
 function applyViewVisibility_() {
   var view = STATE.view;
+  // Tech view has its own fixed periods (MTD + today + next 3 days) and no
+  // user-configurable filters. Hide the entire filter bar + KPI strip on Tech.
+  var filterBar = document.querySelector('.filter-bar');
+  if (filterBar) filterBar.style.display = (view === 'tech') ? 'none' : '';
+  var kpiStrip = document.getElementById('kpiStrip');
+  if (kpiStrip) kpiStrip.style.display = (view === 'tech') ? 'none' : '';
   // Locked filter (Service Orders only)
   var lockedGroup = document.getElementById('lockedFilterGroup');
   if (lockedGroup) lockedGroup.style.display = (view === 'orders') ? '' : 'none';
-  // Invoice lens bar — shown for Invoices and Summary
+  // Invoice lens bar — shown for Invoices and Summary only
   var invBar = document.getElementById('invoiceModeBar');
   if (invBar) invBar.style.display = (view === 'invoices' || view === 'summary') ? '' : 'none';
-  // Tech mode bar — Tech view only
-  var techBar = document.getElementById('techModeBar');
-  if (techBar) techBar.style.display = (view === 'tech') ? '' : 'none';
   // Main containers — table for orders/invoices, grouped containers for summary/tech
   var tableCard = document.getElementById('tableCard');
   var summaryView = document.getElementById('summaryView');
@@ -1057,11 +1024,11 @@ function wireFilters() {
 
 // Per-view period state accessors — keep each tab's selection independent
 function periodStateKeys(view) {
-  // Returns the STATE field names for this view's period + custom range
+  // Returns the STATE field names for this view's period + custom range.
+  // Tech view has fixed periods (no user override) so it isn't in this map.
   if (view === 'orders')   return { period: 'ordersPeriod',   custom: 'ordersCustom'   };
   if (view === 'invoices') return { period: 'invoicesPeriod', custom: 'invoicesCustom' };
   if (view === 'summary')  return { period: 'summaryPeriod',  custom: 'summaryCustom'  };
-  if (view === 'tech')     return { period: 'techPeriod',     custom: 'techCustom'     };
   return { period: 'ordersPeriod', custom: 'ordersCustom' };
 }
 function getViewPeriod(view) {
@@ -1077,7 +1044,6 @@ function periodButtonsForView(view) {
   if (view === 'orders')   return PERIOD_BUTTONS.orders;
   if (view === 'invoices') return PERIOD_BUTTONS.invoices;
   if (view === 'summary')  return PERIOD_BUTTONS.summary;
-  if (view === 'tech')     return PERIOD_BUTTONS.tech;
   return PERIOD_BUTTONS.orders;
 }
 
@@ -1197,20 +1163,7 @@ function updateTabCounts() {
     var el = document.getElementById('tabCount-orders');
     if (el) el.textContent = orderCount.toLocaleString();
 
-    // Tech tab — count uses techMode + techPeriod
-    var techEl = document.getElementById('tabCount-tech');
-    if (techEl) {
-      var techRange = resolvePeriod(STATE.techPeriod, STATE.techCustom);
-      var techCount = 0;
-      if (STATE.techMode === 'completed') {
-        if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
-          techCount = STATE.invoiceCache.invoices.filter(function(r) { return dateInPeriod(r.InvoiceDate, techRange); }).length;
-        }
-      } else {
-        techCount = rawOrders.filter(function(o) { return dateInPeriod(o.WorkDate, techRange); }).length;
-      }
-      techEl.textContent = techCount.toLocaleString();
-    }
+    // (No tab-count badge for Tech tab — fixed-period view, count badge removed.)
   }
   var invEl = document.getElementById('tabCount-invoices');
   if (invEl) {
@@ -1573,167 +1526,181 @@ function renderSummaryView_() {
   document.getElementById('footerCount').textContent = filtered.length.toLocaleString();
 }
 
-/* ─────────── TECH VIEW (per-tech rollups grouped by Role + Branch) ─────────── */
+/* ─────────── TECH VIEW (fixed periods — no filters) ───────────
+ * Columns per tech: Completed (MTD invoices) | Forecast Today | Tomorrow | +2 | +3
+ * Grouped by Role (Pest vs CG/NWL) → Branch.
+ * Score color (Pest only): daily revenue ≥$1700 green / ≥$1500 yellow / else red.
+ * Completed column uses MTD daily average for color.
+ */
 function renderTechView_() {
-  var isCompleted = (STATE.techMode === 'completed');
-  var raw = getRecordsForView();
-  var filtered = applyFilters(raw, []);
-  var revenueLabel = isCompleted ? 'Completed' : 'Forecast';
+  // Compute the 5 fixed period anchors
+  var todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+  function offsetYmd(n) {
+    var d = new Date(todayD); d.setDate(d.getDate() + n);
+    return fmtDate(d);
+  }
+  var dToday = offsetYmd(0);
+  var dTmrw  = offsetYmd(1);
+  var dPlus2 = offsetYmd(2);
+  var dPlus3 = offsetYmd(3);
+  var somDate = new Date(todayD.getFullYear(), todayD.getMonth(), 1);
+  var dSom = fmtDate(somDate);
+  var mtdDays = Math.round((todayD - somDate) / 86400000) + 1;
+  if (mtdDays < 1) mtdDays = 1;
 
-  // Bucket by role (Pest vs CG/NWL), then by Branch, then by Tech code
-  // Each record gets a tech identifier — invoices use `Tech`, orders use `Tech1`
-  function techOf(r) { return r.Tech || r.Tech1 || ''; }
-  function roleOf(r) {
-    var d = classifyDivision(r);
+  // techRows: techCode → { branchVotes, roleVotes, completed, today, tmrw, d2, d3 }
+  var techRows = {};
+  function row(tech) {
+    if (!techRows[tech]) {
+      techRows[tech] = {
+        branchVotes: {}, roleVotes: { pest: 0, cgnwl: 0 },
+        completed: 0, today: 0, tmrw: 0, d2: 0, d3: 0
+      };
+    }
+    return techRows[tech];
+  }
+  function roleOf(rec) {
+    var d = classifyDivision(rec);
     return (d === 'cg' || d === 'nwl') ? 'cgnwl' : 'pest';
   }
+  function noteBranchRole(r, branch, role) {
+    if (branch) r.branchVotes[branch] = (r.branchVotes[branch] || 0) + 1;
+    if (role)   r.roleVotes[role]     = (r.roleVotes[role] || 0) + 1;
+  }
 
-  // Build the bucket structure
-  var buckets = { pest: {}, cgnwl: {} };
-  filtered.forEach(function(r) {
-    var t = techOf(r); if (!t) return;
-    var role = roleOf(r);
-    var branch = r.Branch || '(no branch)';
-    if (!buckets[role][branch]) buckets[role][branch] = {};
-    if (!buckets[role][branch][t]) buckets[role][branch][t] = { count: 0, subtotal: 0, points: [] };
-    var cell = buckets[role][branch][t];
-    cell.count    += 1;
-    cell.subtotal += Number(r.SubTotal) || 0;
-    if (r._LocLatitude && r._LocLongitude) {
-      cell.points.push({
-        lat: Number(r._LocLatitude),
-        lng: Number(r._LocLongitude),
-        ts:  String(r.EarliestTime || r.WorkDate || ''),
-        day: String(r.WorkDate || r.InvoiceDate || '').substring(0, 10)
-      });
-    }
+  // Completed (MTD) — from invoice cache
+  if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
+    STATE.invoiceCache.invoices.forEach(function(inv) {
+      var date = String(inv.InvoiceDate || '').substring(0, 10);
+      if (date < dSom || date > dToday) return;
+      var tech = inv.Tech;
+      if (!tech) return;
+      var r = row(tech);
+      noteBranchRole(r, inv.Branch, roleOf(inv));
+      r.completed += Number(inv.SubTotal) || 0;
+    });
+  }
+
+  // Forecast (Today/Tmrw/+2/+3) — from orders cache, exact date match
+  if (STATE.rawCache && STATE.rawCache.orders) {
+    STATE.rawCache.orders.forEach(function(o) {
+      if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
+      var date = String(o.WorkDate || '').substring(0, 10);
+      var bucket = null;
+      if      (date === dToday) bucket = 'today';
+      else if (date === dTmrw)  bucket = 'tmrw';
+      else if (date === dPlus2) bucket = 'd2';
+      else if (date === dPlus3) bucket = 'd3';
+      if (!bucket) return;
+      var tech = o.Tech1;
+      if (!tech) return;
+      var r = row(tech);
+      noteBranchRole(r, o.Branch, roleOf(o));
+      r[bucket] += Number(o.SubTotal) || 0;
+    });
+  }
+
+  // Resolve canonical role + branch per tech (winner of votes)
+  var grouped = { pest: {}, cgnwl: {} };
+  Object.keys(techRows).forEach(function(tech) {
+    var r = techRows[tech];
+    var role = (r.roleVotes.cgnwl > r.roleVotes.pest) ? 'cgnwl' : 'pest';
+    var branch = Object.keys(r.branchVotes).reduce(function(best, b) {
+      return (!best || r.branchVotes[b] > r.branchVotes[best]) ? b : best;
+    }, '');
+    if (!branch) branch = '(no branch)';
+    if (!grouped[role][branch]) grouped[role][branch] = [];
+    grouped[role][branch].push({ tech: tech, data: r });
   });
 
-  // Period day count for daily-revenue scoring (Pest only)
-  var range = getActiveDateRange();
-  var dayCount = dayCountInRange_(range);
+  // Score color helper — Pest only, daily revenue thresholds
+  function scoreClass(perDay) {
+    if (perDay >= 1700) return 'score-green';
+    if (perDay >= 1500) return 'score-yellow';
+    return 'score-red';
+  }
+  function moneyCell(amt, perDay, showScore) {
+    if (!amt && amt !== 0) amt = 0;
+    var cls = (showScore && amt > 0) ? scoreClass(perDay) : '';
+    return '<td class="num ' + cls + '">' + (amt > 0 ? '$' + Math.round(amt).toLocaleString() : '<span style="color:var(--text-dim)">—</span>') + '</td>';
+  }
 
-  // Render — Pest first, then CG/NWL. Within each role, Catseye branches before USX.
+  // Date column labels (e.g., "Thu 5/21")
+  function dateLabel(n) {
+    var d = new Date(todayD); d.setDate(d.getDate() + n);
+    var wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+    return wd + ' ' + (d.getMonth() + 1) + '/' + d.getDate();
+  }
+
+  // Render — Pest first (with scoring), then CG/NWL (no scoring)
   var roles = [
-    { id: 'pest',  label: 'PEST',    pillClass: 'role-pest',  showScore: true },
+    { id: 'pest',  label: 'PEST',     pillClass: 'role-pest',  showScore: true  },
     { id: 'cgnwl', label: 'CG / NWL', pillClass: 'role-cgnwl', showScore: false }
   ];
+
   var html = roles.map(function(role) {
-    var branchOrder = BRANCH_ALL.filter(function(b) { return buckets[role.id][b]; });
-    // Append any unrecognized branches at the bottom (defensive)
-    Object.keys(buckets[role.id]).forEach(function(b) {
+    var branchOrder = BRANCH_ALL.filter(function(b) { return grouped[role.id][b]; });
+    Object.keys(grouped[role.id]).forEach(function(b) {
       if (branchOrder.indexOf(b) === -1) branchOrder.push(b);
     });
-    if (branchOrder.length === 0) {
-      return '<div class="group-block">' +
-        '<div class="group-block-header"><h3 class="group-block-title">' + role.label +
-        '<span class="pill-role ' + role.pillClass + '">' + role.label + '</span></h3>' +
-        '<div class="group-block-meta">No techs in period</div></div></div>';
-    }
+    if (branchOrder.length === 0) return '';
+
     return branchOrder.map(function(b) {
-      var techMap = buckets[role.id][b];
-      var techCodes = Object.keys(techMap).sort(function(a, c) { return techMap[c].subtotal - techMap[a].subtotal; });
-      var branchTotalCount = 0, branchTotalSubtotal = 0, branchTotalMiles = 0;
-      var rows = techCodes.map(function(tc) {
-        var cell = techMap[tc];
-        var miles = computeDistanceMiles_(cell.points);
-        branchTotalCount    += cell.count;
-        branchTotalSubtotal += cell.subtotal;
-        branchTotalMiles    += miles;
-        // Score (Pest only): daily revenue = subtotal / dayCount
-        var scoreHtml = '<td class="num score-none">—</td>';
-        if (role.showScore && dayCount > 0) {
-          var dailyRev = cell.subtotal / dayCount;
-          var cls = (dailyRev >= 1700) ? 'score-green' : (dailyRev >= 1500 ? 'score-yellow' : 'score-red');
-          scoreHtml = '<td class="num ' + cls + '">$' + Math.round(dailyRev).toLocaleString() + (dayCount > 1 ? '/day' : '') + '</td>';
-        }
+      var techs = grouped[role.id][b].slice();
+      // Sort by combined 4-day forecast desc (CSRs care about who's loaded up)
+      techs.sort(function(a, c) {
+        var aF = a.data.today + a.data.tmrw + a.data.d2 + a.data.d3;
+        var cF = c.data.today + c.data.tmrw + c.data.d2 + c.data.d3;
+        return cF - aF;
+      });
+
+      var totals = { completed: 0, today: 0, tmrw: 0, d2: 0, d3: 0 };
+      var bodyRows = techs.map(function(item) {
+        var d = item.data;
+        totals.completed += d.completed;
+        totals.today     += d.today;
+        totals.tmrw      += d.tmrw;
+        totals.d2        += d.d2;
+        totals.d3        += d.d3;
         return '<tr>' +
-          '<td>' + escapeHtml(tc) + '</td>' +
-          '<td class="num">' + cell.count + '</td>' +
-          '<td class="num">$' + Math.round(cell.subtotal).toLocaleString() + '</td>' +
-          '<td class="num">' + (miles > 0 ? miles.toFixed(1) + ' mi' : '—') + '</td>' +
-          scoreHtml +
+          '<td>' + escapeHtml(item.tech) + '</td>' +
+          moneyCell(d.completed, d.completed / mtdDays, role.showScore) +
+          moneyCell(d.today, d.today, role.showScore) +
+          moneyCell(d.tmrw,  d.tmrw,  role.showScore) +
+          moneyCell(d.d2,    d.d2,    role.showScore) +
+          moneyCell(d.d3,    d.d3,    role.showScore) +
         '</tr>';
       }).join('');
-      var totalDailyRev = (role.showScore && dayCount > 0) ? branchTotalSubtotal / dayCount : 0;
-      var totalScoreHtml = '<td class="num score-none">—</td>';
-      if (role.showScore && dayCount > 0) {
-        var tcls = (totalDailyRev >= 1700) ? 'score-green' : (totalDailyRev >= 1500 ? 'score-yellow' : 'score-red');
-        totalScoreHtml = '<td class="num ' + tcls + '">$' + Math.round(totalDailyRev).toLocaleString() + (dayCount > 1 ? '/day' : '') + '</td>';
-      }
+
+      // Branch total row — uses the same coloring rules
       var totalRow = '<tr class="total-row">' +
         '<td>Total</td>' +
-        '<td class="num">' + branchTotalCount + '</td>' +
-        '<td class="num">$' + Math.round(branchTotalSubtotal).toLocaleString() + '</td>' +
-        '<td class="num">' + (branchTotalMiles > 0 ? branchTotalMiles.toFixed(1) + ' mi' : '—') + '</td>' +
-        totalScoreHtml +
+        moneyCell(totals.completed, totals.completed / mtdDays, role.showScore) +
+        moneyCell(totals.today, totals.today, role.showScore) +
+        moneyCell(totals.tmrw,  totals.tmrw,  role.showScore) +
+        moneyCell(totals.d2,    totals.d2,    role.showScore) +
+        moneyCell(totals.d3,    totals.d3,    role.showScore) +
       '</tr>';
+
       return '<div class="group-block">' +
-        '<div class="group-block-header"><h3 class="group-block-title">' + (BRANCH_DISPLAY[b] || b).toUpperCase() +
-        '<span class="pill-role ' + role.pillClass + '">' + role.label + '</span></h3>' +
-        '<div class="group-block-meta">' + branchTotalCount + ' orders · $' + Math.round(branchTotalSubtotal).toLocaleString() + ' ' + revenueLabel + '</div></div>' +
+        '<div class="group-block-header">' +
+          '<h3 class="group-block-title">' + (BRANCH_DISPLAY[b] || b).toUpperCase() +
+          '<span class="pill-role ' + role.pillClass + '">' + role.label + '</span></h3>' +
+          '<div class="group-block-meta">' + techs.length + ' techs</div>' +
+        '</div>' +
         '<table class="tech-table"><thead><tr>' +
-          '<th>Tech</th><th class="num">Orders</th>' +
-          '<th class="num">' + revenueLabel + ' Revenue</th>' +
-          '<th class="num">Distance</th>' +
-          '<th class="num">' + (role.showScore ? 'Score' : '—') + '</th>' +
-        '</tr></thead><tbody>' + rows + totalRow + '</tbody></table></div>';
+          '<th>Tech</th>' +
+          '<th class="num">Completed<br><span style="font-weight:400;color:var(--text-dim)">MTD</span></th>' +
+          '<th class="num">Forecast Today<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span></th>' +
+          '<th class="num">Forecast Tomorrow<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span></th>' +
+          '<th class="num">Forecast +2<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span></th>' +
+          '<th class="num">Forecast +3<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span></th>' +
+        '</tr></thead><tbody>' + bodyRows + totalRow + '</tbody></table></div>';
     }).join('');
   }).join('');
 
   document.getElementById('techView').innerHTML = html;
-  // KPI strip
-  document.getElementById('kpiCount').textContent = filtered.length.toLocaleString();
-  var grandTotal = filtered.reduce(function(s, r) { return s + (Number(r.SubTotal) || 0); }, 0);
-  document.getElementById('kpiTotal').textContent = '$' + Math.round(grandTotal).toLocaleString();
-  document.querySelector('.kpi-card:nth-child(2) .kpi-label').textContent = revenueLabel + ' $';
-  var uniqueTechs = new Set(filtered.map(techOf).filter(Boolean)).size;
-  document.getElementById('kpiConfirmed').textContent = uniqueTechs;
-  document.querySelector('.kpi-card:nth-child(3) .kpi-label').textContent = 'Techs Active';
-  document.getElementById('kpiConfirmedRate').textContent = '';
-  document.getElementById('kpiTechs').textContent = (dayCount + 'd');
-  document.querySelector('.kpi-card:nth-child(4) .kpi-label').textContent = 'Days in period';
-  document.getElementById('footerCount').textContent = filtered.length.toLocaleString();
-}
-
-// Days in the active range (used as denominator for Tech daily-revenue score)
-function dayCountInRange_(range) {
-  if (!range || !range.start || !range.end) return 1;
-  var s = new Date(range.start + 'T00:00:00');
-  var e = new Date(range.end   + 'T00:00:00');
-  var d = Math.round((e - s) / 86400000) + 1;
-  return d > 0 ? d : 1;
-}
-
-// Haversine straight-line distance between consecutive jobs (per day, in order
-// of EarliestTime) × 1.4 road factor. Returns total miles for the tech.
-function computeDistanceMiles_(points) {
-  if (!points || points.length < 2) return 0;
-  // Group by day; within each day, order by EarliestTime ascending
-  var byDay = {};
-  points.forEach(function(p) {
-    if (!p.day) return;
-    if (!byDay[p.day]) byDay[p.day] = [];
-    byDay[p.day].push(p);
-  });
-  var total = 0;
-  Object.keys(byDay).forEach(function(d) {
-    var stops = byDay[d].slice().sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
-    for (var i = 1; i < stops.length; i++) {
-      total += haversineMiles_(stops[i - 1].lat, stops[i - 1].lng, stops[i].lat, stops[i].lng);
-    }
-  });
-  return total * 1.4;  // straight-line → road approximation
-}
-function haversineMiles_(lat1, lng1, lat2, lng2) {
-  var R = 3958.8;  // Earth radius in miles
-  var toRad = function(d) { return d * Math.PI / 180; };
-  var dLat = toRad(lat2 - lat1);
-  var dLng = toRad(lng2 - lng1);
-  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-          Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  document.getElementById('footerCount').textContent = Object.keys(techRows).length.toLocaleString();
 }
 
 function fmt(v, type, record) {
