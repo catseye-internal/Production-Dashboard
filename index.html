@@ -295,6 +295,21 @@
   }
   .text-truncate { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
 
+  /* PestPac deep-link */
+  .pp-link {
+    color: var(--orange);
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(244, 123, 32, 0.4);
+  }
+  .pp-link:hover { color: #fff; border-bottom-color: var(--orange); }
+
+  /* Compact table — tighter padding for many-column views */
+  table.list td, table.list th {
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+  table.list th { font-size: 10px; letter-spacing: 0.04em; }
+
   /* ── Mobile ── */
   @media (max-width: 768px) {
     .main { padding: 12px 16px; }
@@ -554,6 +569,9 @@ document.addEventListener('DOMContentLoaded', function() {
   render();                  // show structure immediately
   // Load locations cache in parallel with main cache — locations are joined at render time
   loadLocationsCache();
+  // Load invoice cache eagerly (non-blocking) so the Class column populates on Service Orders
+  // without waiting for the user to switch to the Invoices tab. ~24 MB but cached after first load.
+  loadInvoiceCache();
   loadCache().finally(function() { scheduleRefresh(); });
 });
 
@@ -607,6 +625,10 @@ function loadInvoiceCache() {
       STATE.invoiceCache = data;
       // Re-populate the tech dropdown now that invoice tech codes are available
       populateFilterOptions();
+      // Build the ServiceCode→ServiceClass map for the Class column on Service Orders
+      buildCodeToClassMap();
+      // Re-render to pick up the now-populated Class column
+      try { render(); } catch (e) {}
     })
     .catch(function(err) { console.warn('invoice cache load failed:', err); });
   return STATE.invoiceLoadPromise;
@@ -639,22 +661,58 @@ function loadLocationsCache() {
 function joinLocationData(r) {
   if (!r || !STATE.locationsMap) return r;
   var loc = STATE.locationsMap[String(r.LocationID || '')];
-  if (!loc) return r;
-  // Derived "Name" field — Company for commercial, FirstName + LastName for residential
-  var name = (loc.Company && loc.Company.trim())
-    ? loc.Company.trim()
-    : ((loc.FirstName || '') + ' ' + (loc.LastName || '')).trim();
-  r._LocName        = name || null;
-  r._LocAddress     = loc.Address || null;
-  r._LocCity        = loc.City || null;
-  r._LocState       = loc.State || null;
-  r._LocZip         = loc.Zip || null;
-  r._LocCounty      = loc.County || null;
-  r._LocEnteredDate = loc.EnteredDate || null;
-  r._LocLatitude    = loc.Latitude || null;
-  r._LocLongitude   = loc.Longitude || null;
-  r._LocAccountType = loc.AccountType || null;
+  if (loc) {
+    // Derived "Name" — Company for commercial, FirstName + LastName for residential
+    var name = (loc.Company && loc.Company.trim())
+      ? loc.Company.trim()
+      : ((loc.FirstName || '') + ' ' + (loc.LastName || '')).trim();
+    r._LocName        = name || null;
+    r._LocAddress     = loc.Address || null;
+    r._LocCity        = loc.City || null;
+    r._LocState       = loc.State || null;
+    // First 5 digits of zip (PestPac stores Zip+4 like "06716-2540")
+    r._LocZip5        = loc.Zip ? String(loc.Zip).substring(0, 5) : null;
+    r._LocCounty      = loc.County || null;
+    r._LocEnteredDate = loc.EnteredDate || null;
+    r._LocLatitude    = loc.Latitude || null;
+    r._LocLongitude   = loc.Longitude || null;
+    r._LocAccountType = loc.AccountType || null;
+    // Loc # — display LocationCode (e.g., "227943"), link to PestPac via LocationID
+    r._LocCodeLink    = loc.LocationCode
+      ? { text: loc.LocationCode, href: 'https://app.pestpac.com/location/edit.asp?Mode=Detail&LocationID=' + loc.LocationID }
+      : null;
+  }
+  // Class — derived from invoice cache code→class lookup
+  if (STATE.codeToClassMap && r.ServiceCode) {
+    r._Class = STATE.codeToClassMap[String(r.ServiceCode).toUpperCase()] || null;
+  }
   return r;
+}
+
+// Build a ServiceCode → ServiceClass lookup from cache-invoices.json. Each ServiceCode
+// typically maps to one ServiceClass consistently across invoices. We pick the most
+// common pairing per code. Called once after invoice cache loads.
+function buildCodeToClassMap() {
+  if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return;
+  var counts = {};
+  STATE.invoiceCache.invoices.forEach(function(inv) {
+    var code = inv.ServiceCode;
+    var cls  = inv.ServiceClass;
+    if (!code || !cls) return;
+    var key = String(code).toUpperCase();
+    if (!counts[key]) counts[key] = {};
+    counts[key][cls] = (counts[key][cls] || 0) + 1;
+  });
+  var map = {};
+  Object.keys(counts).forEach(function(code) {
+    // Pick the most common class for this code
+    var best = null, bestCount = 0;
+    Object.keys(counts[code]).forEach(function(cls) {
+      if (counts[code][cls] > bestCount) { best = cls; bestCount = counts[code][cls]; }
+    });
+    if (best) map[code] = best;
+  });
+  STATE.codeToClassMap = map;
 }
 
 function wireFilters() {
@@ -1008,7 +1066,8 @@ function render() {
   var thead = document.getElementById('tableHead');
   thead.innerHTML = defaultCols.map(function(c) {
     var sortCls = (STATE.sort.key === c.key) ? ('sort-' + STATE.sort.dir) : '';
-    return '<th class="' + sortCls + '" data-key="' + c.key + '">' +
+    var widthStyle = c.width ? (' style="min-width:' + c.width + 'px;max-width:' + (c.width * 1.4) + 'px"') : '';
+    return '<th class="' + sortCls + '" data-key="' + c.key + '"' + widthStyle + '>' +
              c.label + '<span class="sort-arrow">▾</span></th>';
   }).join('');
   thead.querySelectorAll('th').forEach(function(th) {
@@ -1103,6 +1162,11 @@ function fmt(v, type, record) {
   if (type === 'invoiceType')     return renderInvoiceType(String(v));
   if (type === 'balance')         return renderBalance(Number(v) || 0);
   if (type === 'aging')           return renderAging(Number(v) || 0);
+  if (type === 'pp-loc-link') {
+    // v is {text, href} from joinLocationData
+    if (!v || !v.href) return '<span class="muted">—</span>';
+    return '<a href="' + v.href + '" target="_blank" rel="noopener" class="pp-link">' + escapeHtml(String(v.text || '')) + '</a>';
+  }
   return escapeHtml(String(v));
 }
 
