@@ -299,14 +299,17 @@
     font-weight: 700; border-top: 2px solid var(--border); padding-top: 5px;
     color: var(--text);
   }
-  /* Role color treatment for Tech view headers */
+  /* Role color treatment for Tech view headers + Class column pill */
   .role-pest    { background: rgba(52,211,153,0.16); color: #34D399; }
   .role-cgnwl   { background: rgba(167,139,250,0.18); color: #A78BFA; }
-  /* Score cell coloring (Pest techs only) */
-  .score-green  { background: rgba(52,211,153,0.18); color: #34D399; font-weight: 700; }
-  .score-yellow { background: rgba(251,191,36,0.20); color: #FBBF24; font-weight: 700; }
-  .score-red    { background: rgba(248,113,113,0.20); color: #F87171; font-weight: 700; }
-  .score-none   { color: var(--text-dim); }
+  /* Score bubble — wraps just the number, not the whole cell */
+  .score-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .score-pill.score-green  { background: rgba(52,211,153,0.18);  color: #34D399; }
+  .score-pill.score-yellow { background: rgba(251,191,36,0.22);  color: #FBBF24; }
+  .score-pill.score-red    { background: rgba(248,113,113,0.22); color: #F87171; }
 
   /* ── Footer status ── */
   .footer-status {
@@ -1641,10 +1644,15 @@ function renderTechView_() {
   }
   function moneyCell(amt, perDay, showScore) {
     if (!amt && amt !== 0) amt = 0;
-    var cls = (showScore && amt > 0) ? scoreClass(perDay) : '';
-    return '<td class="num ' + cls + '">' + (amt > 0
-      ? '$' + Math.round(amt).toLocaleString()
-      : '<span style="color:var(--text-dim)">—</span>') + '</td>';
+    if (amt === 0) {
+      return '<td class="num"><span style="color:var(--text-dim)">—</span></td>';
+    }
+    var amountStr = '$' + Math.round(amt).toLocaleString();
+    if (!showScore) {
+      return '<td class="num">' + amountStr + '</td>';
+    }
+    var cls = scoreClass(perDay);
+    return '<td class="num"><span class="score-pill ' + cls + '">' + amountStr + '</span></td>';
   }
   function dateLabel(n) {
     var d = new Date(todayD); d.setDate(d.getDate() + n);
