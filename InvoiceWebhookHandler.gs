@@ -172,10 +172,47 @@ function curateInvoice_(rec) {
 
 // ──────────────────────────────────────────────────────────────
 // Cache upsert — read cache-invoices.json from GitHub, mutate, write back
+//
+// CONCURRENCY: PestPac fires Invoice.Create and Invoice.Update at nearly the
+// same moment when an invoice is posted (and Credit Memo / Payment events can
+// pile on top of those). Without serialization, parallel doPost executions
+// both read the same SHA, both PUT back, and one gets HTTP 409 silently
+// dropped — which is what caused the 5/20 yesterday-undercount (30 of 273).
+//
+// Fixes:
+//   1. LockService.getScriptLock() serializes ALL concurrent webhook upserts
+//      across the script. Wait up to 90s (PestPac retries are 15s spaced).
+//   2. Retry on HTTP 409 (3 attempts, exponential backoff). Catches the rare
+//      race against CacheRefresh.gs writes which use a different code path.
 // ──────────────────────────────────────────────────────────────
 function upsertInvoice_(curated) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(90000);
+  } catch (e) {
+    Logger.log('  ⚠️ Lock timeout — could not serialize upsert for ' + curated.InvoiceNumber);
+    return;
+  }
+  try {
+    var ok = upsertInvoiceOnce_(curated, 1);
+    var attempt = 2;
+    while (!ok && attempt <= 3) {
+      Utilities.sleep(400 * attempt);
+      ok = upsertInvoiceOnce_(curated, attempt);
+      attempt++;
+    }
+    if (!ok) Logger.log('  ⚠️ Gave up on invoice ' + curated.InvoiceNumber + ' after ' + (attempt - 1) + ' attempts');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Single upsert attempt. Returns true if cache write succeeded, false on 409
+// (caller will retry). Other HTTP failures also return false — those aren't
+// worth retrying on but the bool keeps the contract simple.
+function upsertInvoiceOnce_(curated, attempt) {
   var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
-  if (!token) { Logger.log('  ⚠️ GITHUB_TOKEN missing'); return; }
+  if (!token) { Logger.log('  ⚠️ GITHUB_TOKEN missing'); return false; }
   var apiBase = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
   var headers = { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' };
 
@@ -185,7 +222,7 @@ function upsertInvoice_(curated) {
   });
   if (getResp.getResponseCode() !== 200) {
     Logger.log('  Cache read HTTP ' + getResp.getResponseCode());
-    return;
+    return false;
   }
   var meta = JSON.parse(getResp.getContentText());
   var jsonStr = Utilities.newBlob(Utilities.base64Decode(meta.content), 'application/json').getDataAsString();
@@ -200,10 +237,10 @@ function upsertInvoice_(curated) {
   }
   if (idx >= 0) {
     invs[idx] = curated;
-    Logger.log('  Updated invoice ' + key);
+    Logger.log('  Updated invoice ' + key + (attempt > 1 ? ' (retry ' + attempt + ')' : ''));
   } else {
     invs.push(curated);
-    Logger.log('  Added invoice ' + key);
+    Logger.log('  Added invoice ' + key + (attempt > 1 ? ' (retry ' + attempt + ')' : ''));
   }
   cache.invoices = invs;
   cache.updated = new Date().toISOString();
@@ -222,15 +259,34 @@ function upsertInvoice_(curated) {
     }),
     muteHttpExceptions: true
   });
-  if (putResp.getResponseCode() !== 200 && putResp.getResponseCode() !== 201) {
-    Logger.log('  Cache write HTTP ' + putResp.getResponseCode() + ': ' + putResp.getContentText().substring(0, 300));
-  } else {
+  var code = putResp.getResponseCode();
+  if (code === 200 || code === 201) {
     Logger.log('  ✅ Cache updated');
+    return true;
+  }
+  if (code === 409) {
+    Logger.log('  ⏪ 409 conflict — will retry with fresh SHA');
+    return false;
+  }
+  Logger.log('  Cache write HTTP ' + code + ': ' + putResp.getContentText().substring(0, 300));
+  return false;
+}
+
+// Mark an invoice voided in the cache (kept for audit). Same lock as upsert.
+function markInvoiceVoided_(invoiceId) {
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(90000); } catch (e) {
+    Logger.log('  ⚠️ Lock timeout — could not mark voided invoice ID ' + invoiceId);
+    return;
+  }
+  try {
+    _markInvoiceVoidedInner_(invoiceId);
+  } finally {
+    lock.releaseLock();
   }
 }
 
-// Mark an invoice voided in the cache (kept for audit)
-function markInvoiceVoided_(invoiceId) {
+function _markInvoiceVoidedInner_(invoiceId) {
   // For void events we don't get InvoiceNumber directly — use InvoiceID lookup.
   // Read cache, find by InvoiceID, set Voided=true.
   var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');

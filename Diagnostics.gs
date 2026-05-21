@@ -177,6 +177,36 @@ function test9_locationsShape() {
   });
 }
 
+// TEST 10 — Inspect /ServiceSetups/{id} response to plan the setups cache.
+// Pulls 3 SetupIDs from cache.json and dumps the full response shape so we
+// can confirm CURATED_FIELDS_SETUP matches reality before running the full
+// refreshSetupsCache (which fetches ~2,700 setups).
+function test10_setupsShape() {
+  Logger.log('🧪 TEST 10 — /ServiceSetups/{id} shape');
+  var token = ppToken_();
+  var resp = UrlFetchApp.fetch('https://catseye-internal.github.io/Production-Dashboard/cache.json', { muteHttpExceptions: true });
+  if (resp.getResponseCode() !== 200) { Logger.log('  cache.json fetch failed'); return; }
+  var d = JSON.parse(resp.getContentText());
+  var seen = {};
+  var samples = [];
+  for (var i = 0; i < (d.orders || []).length && samples.length < 3; i++) {
+    var sid = d.orders[i].SetupID;
+    if (sid && !seen[sid]) { seen[sid] = true; samples.push(sid); }
+  }
+  Logger.log('  Testing SetupIDs: ' + samples.join(', '));
+  samples.forEach(function(sid) {
+    var r = ppGet_(token, '/ServiceSetups/' + sid);
+    Logger.log('\n  /ServiceSetups/' + sid + ' → HTTP ' + r.code);
+    if (r.code !== 200) { Logger.log('  Body: ' + r.text.substring(0, 300)); return; }
+    var setup = JSON.parse(r.text);
+    var keys = Object.keys(setup).sort();
+    Logger.log('    Keys (' + keys.length + '): ' + keys.join(', '));
+    Logger.log('    Schedule=' + setup.Schedule + ' Frequency=' + setup.Frequency);
+    Logger.log('    JSON: ' + JSON.stringify(setup).substring(0, 1500));
+    Utilities.sleep(200);
+  });
+}
+
 // TEST 8 — Inspect the Technicians array shape from /ServiceOrders/{id}.
 // Needed to write Tech2 extraction logic correctly.
 function test8_techniciansShape() {

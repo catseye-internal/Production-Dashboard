@@ -47,6 +47,7 @@ const GH_BRANCH = 'main';
 const GH_PATH_CURATED   = 'cache.json';
 const GH_PATH_RAW       = 'cache-raw.json';
 const GH_PATH_LOCATIONS = 'cache-locations.json';
+const GH_PATH_SETUPS    = 'cache-setups.json';
 
 // ── Raw refresh cadence ──
 const RAW_REFRESH_MIN_HOURS = 20;          // ≥ this many hours since last raw write → write again
@@ -84,8 +85,13 @@ const CURATED_FIELDS_ORDER = [
 // Enrichment window — orders within this many days from today get full
 // /ServiceOrders/{id} lookups for their complete field set. Past this horizon,
 // records stay slim (smaller cache, faster refresh).
-const ENRICH_WINDOW_DAYS = 14;
-const ENRICH_MAX_RECORDS = 3000;   // safety cap — large enough to cover all 14-day candidates
+//
+// Cut from 14 → 7 on 2026-05-21 to stay under the Apps Script 100K/day
+// premium urlfetch quota. Joe confirmed 7-day is the high-leverage window
+// for CSR ops; 14-day was secondary. Tradeoff: Tech 2 / SubTotal / full
+// enrichment only populate for orders 0-7 days out, not 0-14.
+const ENRICH_WINDOW_DAYS = 7;
+const ENRICH_MAX_RECORDS = 1500;   // safety cap — large enough to cover all 7-day candidates
 const ENRICH_BATCH_SIZE  = 30;     // PARALLEL calls per batch via UrlFetchApp.fetchAll
 const ENRICH_BATCH_PAUSE_MS = 200; // small pause between batches (rate-limit friendly)
 // Invoices: still pending /Invoices endpoint discovery — placeholders only.
@@ -120,6 +126,32 @@ const CURATED_FIELDS_LOCATION = [
   'TaxCode', 'TaxRate',
   // Audit
   'EnteredDate', 'ContactDate'
+];
+
+// Curated ServiceSetup whitelist — what survives into cache-setups.json
+// Field names CONFIRMED via test10/refreshSetupsCache log on 2026-05-21:
+//   Schedule              = "BM2MO" (the schedule code itself, not an ID)
+//   FrequencyCode         = "BI-MONTHLY" (machine-friendly)
+//   FrequencyDescription  = "Bi-Monthly Services" (user-friendly)
+//   Description           = "Platinum Service" (PestPac uses "Description", not "ServiceDescription")
+// Earlier whitelist used wrong names and silently dropped the frequency data.
+const CURATED_FIELDS_SETUP = [
+  // Identity & links
+  'SetupID', 'LocationID', 'BillToID',
+  // What this setup covers
+  'ServiceCode', 'Description', 'SetupType',
+  // The two fields we care about most for the dashboard
+  'Schedule', 'FrequencyCode', 'FrequencyDescription',
+  // Billing variants (sometimes diverge from service Schedule/Frequency)
+  'BillingFrequencyCode', 'BillingFrequencyDescription', 'BillingSchedule', 'BillingAmount',
+  // Status & lifecycle
+  'Active', 'Locked', 'StartDate', 'CancelDate', 'ExpirationDate', 'RenewalDate',
+  // Branch & route
+  'Branch', 'BranchID', 'Route',
+  // Money
+  'SubTotal', 'Total', 'AnnualValue',
+  // Billing
+  'AutoBill', 'AutoBillThroughDate', 'CardOnFile'
 ];
 
 // TechnicianComment can be a paragraph — cap to keep cache.json under control.
@@ -220,7 +252,42 @@ function fetchInvoiceForOrder_(token, orderId) {
 // ──────────────────────────────────────────────────────────────
 // Enrichment — list endpoint returns slim records; fetch each near-term
 // order individually via /ServiceOrders/{id} to get full 45-field detail.
+//
+// DIFFERENTIAL ENRICHMENT (added 2026-05-21 for quota relief):
+// The list endpoint already returns most fields (WorkDate, Tech1, Locked,
+// Posted, Duration, ServiceCode, SubTotal, etc.). The ONLY thing the per-id
+// enrichment adds is Tech2/TechID2 extracted from the Technicians array
+// (Position 2). Tech2 is set when the order is created and rarely changes —
+// re-fetching every 15 min for 600+ orders was burning ~57K calls/day.
+//
+// New approach: load the previous cache.json. For each candidate, only fetch
+// /ServiceOrders/{id} if the order is NEW (no previous record) OR if any of
+// the slim-list key fields changed (WorkDate, Tech1, Locked, Posted,
+// ServiceCode, Duration). Otherwise, copy Tech2/TechID2 forward from the
+// previous record. Expected fetches per refresh: ~5-30 instead of ~600.
 // ──────────────────────────────────────────────────────────────
+
+// Read the live cache.json from GitHub Pages — used for differential
+// enrichment to identify which orders actually need re-fetching.
+function readOrdersCache_() {
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (resp.getResponseCode() !== 200) return { orders: [] };
+    return JSON.parse(resp.getContentText());
+  } catch (e) {
+    return { orders: [] };
+  }
+}
+
+// Fields whose change signals "re-enrich this order". Anything not in this
+// set (TechnicianComment, EarliestTime, etc.) is allowed to change without
+// triggering a fresh /id fetch — the slim list already carries those values
+// every refresh anyway.
+var DIFF_ENRICH_KEY_FIELDS = ['WorkDate', 'Tech1', 'Locked', 'Posted', 'ServiceCode', 'Duration'];
+
 function enrichNearTermOrders_(token, orders) {
   var today = new Date(); today.setHours(0, 0, 0, 0);
   var cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + ENRICH_WINDOW_DAYS);
@@ -233,12 +300,66 @@ function enrichNearTermOrders_(token, orders) {
     if (isNaN(wd.getTime())) continue;
     if (wd >= today && wd <= cutoff && orders[i].OrderID) candidates.push(orders[i]);
   }
-  // Cap to keep refresh under the Apps Script execution limit
-  if (candidates.length > ENRICH_MAX_RECORDS) {
-    Logger.log('  Enrichment capped: ' + candidates.length + ' candidates → ' + ENRICH_MAX_RECORDS);
-    candidates = candidates.slice(0, ENRICH_MAX_RECORDS);
+
+  // Load previous cache to identify what actually needs re-fetching
+  var previousMap = {};
+  var previousLoadedCount = 0;
+  try {
+    var previousCache = readOrdersCache_();
+    (previousCache.orders || []).forEach(function(o) {
+      if (o.OrderID != null) {
+        previousMap[String(o.OrderID)] = o;
+        previousLoadedCount++;
+      }
+    });
+  } catch (e) {
+    Logger.log('  Previous cache load failed (' + e.message + ') — will full-enrich');
   }
-  Logger.log('  Enriching ' + candidates.length + ' near-term orders (next ' + ENRICH_WINDOW_DAYS + ' days) via parallel fetchAll batches of ' + ENRICH_BATCH_SIZE + '...');
+  Logger.log('  Previous cache: ' + previousLoadedCount + ' orders | candidates in window: ' + candidates.length);
+
+  // Partition candidates: needs-enrichment vs copy-forward
+  var needsEnrichment = [];
+  var copiedCount = 0;
+  var copiedWithTech2 = 0;
+  candidates.forEach(function(c) {
+    var prev = previousMap[String(c.OrderID)];
+    if (!prev) {
+      // Brand-new order — must enrich to capture Tech2
+      needsEnrichment.push(c);
+      return;
+    }
+    // Compare slim-list key fields against prior cached values
+    var changed = false;
+    for (var k = 0; k < DIFF_ENRICH_KEY_FIELDS.length; k++) {
+      var f = DIFF_ENRICH_KEY_FIELDS[k];
+      var a = (typeof prev[f] === 'boolean') ? Boolean(prev[f]) : String(prev[f] == null ? '' : prev[f]);
+      var b = (typeof c[f]    === 'boolean') ? Boolean(c[f])    : String(c[f]    == null ? '' : c[f]);
+      if (a !== b) { changed = true; break; }
+    }
+    if (changed) {
+      needsEnrichment.push(c);
+      return;
+    }
+    // Unchanged — copy Tech2/TechID2 forward (the only fields enrichment adds)
+    if (prev.Tech2)               { c.Tech2 = prev.Tech2; copiedWithTech2++; }
+    if (prev.TechID2 != null)     c.TechID2 = prev.TechID2;
+    copiedCount++;
+  });
+
+  Logger.log('  Differential: ' + needsEnrichment.length + ' to fetch, ' + copiedCount + ' copied forward (Tech2 carried on ' + copiedWithTech2 + ')');
+
+  // Safety cap for cold-start refreshes (e.g., first run after a deploy when
+  // the previous cache is empty and every candidate needs enrichment)
+  if (needsEnrichment.length > ENRICH_MAX_RECORDS) {
+    Logger.log('  Enrichment capped: ' + needsEnrichment.length + ' → ' + ENRICH_MAX_RECORDS);
+    needsEnrichment = needsEnrichment.slice(0, ENRICH_MAX_RECORDS);
+  }
+  if (needsEnrichment.length === 0) {
+    Logger.log('  ✓ No new/changed orders this cycle — skipping /ServiceOrders/{id} entirely');
+    return;
+  }
+
+  Logger.log('  Enriching ' + needsEnrichment.length + ' orders via parallel fetchAll batches of ' + ENRICH_BATCH_SIZE + '...');
   var enrichedCount = 0;
   var failedCount = 0;
   var tech2Count = 0;
@@ -248,8 +369,8 @@ function enrichNearTermOrders_(token, orders) {
     'apikey': PP_API_KEY,
     'tenant-id': PP_TENANT_ID
   };
-  for (var i = 0; i < candidates.length; i += ENRICH_BATCH_SIZE) {
-    var slice = candidates.slice(i, i + ENRICH_BATCH_SIZE);
+  for (var i = 0; i < needsEnrichment.length; i += ENRICH_BATCH_SIZE) {
+    var slice = needsEnrichment.slice(i, i + ENRICH_BATCH_SIZE);
     var requests = slice.map(function(c) {
       return {
         url: PP_API_BASE + '/ServiceOrders/' + c.OrderID,
@@ -294,7 +415,7 @@ function enrichNearTermOrders_(token, orders) {
         failedCount++;
       }
     }
-    if (i + ENRICH_BATCH_SIZE < candidates.length) Utilities.sleep(ENRICH_BATCH_PAUSE_MS);
+    if (i + ENRICH_BATCH_SIZE < needsEnrichment.length) Utilities.sleep(ENRICH_BATCH_PAUSE_MS);
   }
   var elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   Logger.log('  ✓ Enriched ' + enrichedCount + ' (' + failedCount + ' failed) in ' + elapsed + 's | Tech 2 found on ' + tech2Count + ' orders');
@@ -558,6 +679,350 @@ function readLocationsCache_() {
     return JSON.parse(resp.getContentText());
   } catch (e) {
     return { locations: [] };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Setups cache refresh — fetch /ServiceSetups/{id} for every unique
+// SetupID referenced by orders in cache.json. Powers the Schedule +
+// Frequency columns on both Service Orders and Invoices views.
+//
+// Strategy mirrors refreshLocationsCache: read the existing cache,
+// only fetch SetupIDs we don't already have. Run as a separate trigger
+// every 30–60 min (much less volatile than service orders).
+// ──────────────────────────────────────────────────────────────
+// Public entry — incremental refresh (only fetches SetupIDs not already cached).
+// Use this as the regular trigger.
+function refreshSetupsCache() { return refreshSetupsCacheImpl_(false); }
+
+// Public entry — force full rebuild (re-fetches every SetupID, ignoring cache).
+// Use this when the whitelist changes or when you suspect stale curated fields.
+function rebuildSetupsCache() { return refreshSetupsCacheImpl_(true); }
+
+function refreshSetupsCacheImpl_(forceFull) {
+  var t0 = new Date();
+  Logger.log('📋 Setups cache ' + (forceFull ? 'REBUILD (force full)' : 'refresh') + ' — ' + t0.toISOString());
+  try {
+    var token = ppToken_();
+
+    // Existing setups cache — empty map when forcing full rebuild
+    var existingMap = {};
+    if (!forceFull) {
+      var existing = readSetupsCache_();
+      (existing.setups || []).forEach(function(s) {
+        if (s.SetupID != null) existingMap[String(s.SetupID)] = s;
+      });
+    }
+    Logger.log('  Existing cache: ' + Object.keys(existingMap).length + ' setups' + (forceFull ? ' (ignored — forcing rebuild)' : ''));
+
+    // Pull live orders to find which SetupIDs we currently need
+    var ordersResp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (ordersResp.getResponseCode() !== 200) {
+      throw new Error('cache.json fetch HTTP ' + ordersResp.getResponseCode());
+    }
+    var ordersData = JSON.parse(ordersResp.getContentText());
+    var seen = {};
+    (ordersData.orders || []).forEach(function(o) {
+      if (o.SetupID) seen[String(o.SetupID)] = true;
+    });
+    var allSetupIds = Object.keys(seen);
+    Logger.log('  Unique SetupIDs in cache.json: ' + allSetupIds.length);
+
+    // Only fetch SetupIDs we don't already have
+    var newSetupIds = allSetupIds.filter(function(sid) { return !existingMap[sid]; });
+    Logger.log('  New SetupIDs to fetch: ' + newSetupIds.length);
+
+    if (newSetupIds.length > 0) {
+      var fetched = fetchSetups_(token, newSetupIds);
+      Logger.log('  Successfully fetched ' + fetched.length + ' new setups');
+      fetched.forEach(function(s) {
+        if (s.SetupID != null) existingMap[String(s.SetupID)] = s;
+      });
+    } else {
+      Logger.log('  ✓ Cache up to date — no new fetches needed');
+    }
+
+    // Build final array, sorted by SetupID
+    var allSetups = [];
+    Object.keys(existingMap).forEach(function(k) { allSetups.push(existingMap[k]); });
+    allSetups.sort(function(a, b) { return Number(a.SetupID) - Number(b.SetupID); });
+
+    var cache = {
+      updated: new Date().toISOString(),
+      recordCount: allSetups.length,
+      setups: allSetups
+    };
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('  cache-setups.json: ' + jsonStr.length + ' chars (' + Math.round(jsonStr.length / 1024) + ' KB, ' + allSetups.length + ' records)');
+
+    var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS, 'Setups cache refresh ' + new Date().toISOString());
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('✅ Setups refresh complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Setups refresh error: ' + err.message + '\n' + err.stack);
+  }
+}
+
+// Parallel-fetch /ServiceSetups/{id} for a list of IDs. Returns curated records.
+// Dumps the first successful response's keys to the log so we can adjust
+// CURATED_FIELDS_SETUP if PestPac returns unexpected field names.
+function fetchSetups_(token, setupIds) {
+  var out = [];
+  var BATCH = 30;
+  var headers = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+  var loggedShape = false;
+  for (var i = 0; i < setupIds.length; i += BATCH) {
+    var slice = setupIds.slice(i, i + BATCH);
+    var requests = slice.map(function(sid) {
+      return {
+        url: PP_API_BASE + '/ServiceSetups/' + sid,
+        method: 'get',
+        headers: headers,
+        muteHttpExceptions: true
+      };
+    });
+    try {
+      var responses = UrlFetchApp.fetchAll(requests);
+      for (var k = 0; k < responses.length; k++) {
+        if (responses[k].getResponseCode() !== 200) continue;
+        try {
+          var setup = JSON.parse(responses[k].getContentText());
+          if (!loggedShape) {
+            Logger.log('    /ServiceSetups/{id} response keys (' + Object.keys(setup).length + '): ' + Object.keys(setup).sort().join(', '));
+            Logger.log('    Sample JSON: ' + JSON.stringify(setup).substring(0, 800));
+            loggedShape = true;
+          }
+          out.push(curate_(setup, CURATED_FIELDS_SETUP));
+        } catch (e) { /* skip parse error */ }
+      }
+    } catch (e) {
+      Logger.log('    Setups batch starting at ' + i + ' failed: ' + e.message);
+    }
+    if (i + BATCH < setupIds.length) Utilities.sleep(200);
+  }
+  return out;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Invoice backfill — fix gaps left by webhook race-condition drops.
+//
+// Strategy: for every Service Order in the date window that's marked Posted
+// (or that has SubTotal > 0), check if the cache has an invoice matching
+// that OrderNumber. If not, fetch /Invoices?orderNumber={OrderNumber} and
+// upsert into the cache. Also catches callbacks (OrderType='CallBack' →
+// CB-typed invoices).
+//
+// USAGE:
+//   backfillInvoicesForDays(1)   — yesterday only
+//   backfillInvoicesForDays(7)   — last 7 days
+//   backfillInvoicesForDays(30)  — last 30 days (safer for catch-up)
+// ──────────────────────────────────────────────────────────────
+function backfillInvoicesForYesterday() { return backfillInvoicesForDays(1); }
+function backfillInvoicesForWeek()      { return backfillInvoicesForDays(7); }
+function backfillInvoicesForMonth()     { return backfillInvoicesForDays(30); }
+
+function backfillInvoicesForDays(daysBack) {
+  var t0 = new Date();
+  Logger.log('🩹 Invoice backfill — last ' + daysBack + ' day(s) — ' + t0.toISOString());
+  try {
+    var token = ppToken_();
+    var end = new Date(); end.setHours(0, 0, 0, 0);
+    var start = new Date(end); start.setDate(start.getDate() - daysBack);
+    // Service orders for the window (chunked 14d under the hood)
+    Logger.log('  Window: ' + fmt_(start) + ' → ' + fmt_(end));
+    var orders = [];
+    chunked14_(start, end, function(s, e) {
+      var page = fetchServiceOrdersRaw_(token, s, e);
+      for (var i = 0; i < page.length; i++) orders.push(page[i]);
+      return [];
+    });
+    Logger.log('  Service orders in window: ' + orders.length);
+
+    // Don't filter by Posted/SubTotal — the slim service-order records returned
+    // by the list endpoint don't reliably populate those fields. Just keep every
+    // order with an OrderID and let the missing-from-cache check below do the
+    // filtering. (We use OrderID, not OrderNumber, because the existing
+    // fetchInvoiceForOrder_ helper proved orderId is the working query param.)
+    var candidates = orders.filter(function(o) { return o.OrderID; });
+    Logger.log('  Candidates with OrderID: ' + candidates.length);
+
+    // Read existing cache. Index by BOTH OrderID and OrderNumber so we don't
+    // re-fetch invoices we already have under either key.
+    var cache = readInvoicesCacheDirect_();
+    var haveOrderID = {}, haveOrderNumber = {};
+    (cache.invoices || []).forEach(function(inv) {
+      if (inv.OrderID != null)     haveOrderID[String(inv.OrderID)]         = true;
+      if (inv.OrderNumber != null) haveOrderNumber[String(inv.OrderNumber)] = true;
+    });
+    Logger.log('  Invoices already in cache: ' + (cache.invoices || []).length);
+
+    // Missing orders (no invoice yet in cache under either key)
+    var missing = candidates.filter(function(o) {
+      if (o.OrderID != null     && haveOrderID[String(o.OrderID)])         return false;
+      if (o.OrderNumber != null && haveOrderNumber[String(o.OrderNumber)]) return false;
+      return true;
+    });
+    Logger.log('  Missing orders to fetch: ' + missing.length);
+    if (missing.length === 0) {
+      Logger.log('✅ Nothing to backfill');
+      return;
+    }
+
+    // Fetch each /Invoices?orderId=X in parallel batches of 30
+    var headers = {
+      'Authorization': 'Bearer ' + token,
+      'apikey': PP_API_KEY,
+      'tenant-id': PP_TENANT_ID
+    };
+    var BATCH = 30;
+    var fetched = [];
+    var statsByCode = {};
+    var samples = { ok: [], notFound: [], error: [] };
+    for (var i = 0; i < missing.length; i += BATCH) {
+      var slice = missing.slice(i, i + BATCH);
+      var requests = slice.map(function(o) {
+        return {
+          url: PP_API_BASE + '/Invoices?orderId=' + encodeURIComponent(o.OrderID),
+          method: 'get',
+          headers: headers,
+          muteHttpExceptions: true
+        };
+      });
+      var responses;
+      try { responses = UrlFetchApp.fetchAll(requests); }
+      catch (e) { Logger.log('    batch ' + i + ' failed: ' + e.message); continue; }
+      for (var k = 0; k < responses.length; k++) {
+        var resp = responses[k];
+        var code = resp.getResponseCode();
+        var body = resp.getContentText() || '';
+        statsByCode[code] = (statsByCode[code] || 0) + 1;
+        if (code !== 200) {
+          if (samples.error.length < 3) samples.error.push({ orderId: slice[k].OrderID, code: code, body: body.substring(0, 200) });
+          continue;
+        }
+        var inv = null;
+        try {
+          var parsed = JSON.parse(body);
+          // PestPac may return a single object OR a 1-element array — handle both
+          if (Array.isArray(parsed)) {
+            if (parsed.length > 0 && parsed[0] && parsed[0].InvoiceNumber) inv = parsed[0];
+          } else if (parsed && parsed.InvoiceNumber) {
+            inv = parsed;
+          }
+        } catch (e) {
+          if (samples.error.length < 3) samples.error.push({ orderId: slice[k].OrderID, code: code, body: 'PARSE ERR: ' + body.substring(0, 200) });
+        }
+        if (inv) {
+          fetched.push(inv);
+          if (samples.ok.length < 2) samples.ok.push({ orderId: slice[k].OrderID, invNum: inv.InvoiceNumber, keyCount: Object.keys(inv).length });
+        } else {
+          if (samples.notFound.length < 3) samples.notFound.push({ orderId: slice[k].OrderID, code: code, body: body.substring(0, 200) });
+        }
+      }
+      if (i + BATCH < missing.length) Utilities.sleep(200);
+    }
+    Logger.log('  HTTP status breakdown: ' + JSON.stringify(statsByCode));
+    if (samples.ok.length)       Logger.log('  Sample SUCCESS: ' + JSON.stringify(samples.ok));
+    if (samples.notFound.length) Logger.log('  Sample NOT-FOUND (200 but no InvoiceNumber): ' + JSON.stringify(samples.notFound));
+    if (samples.error.length)    Logger.log('  Sample ERRORS: ' + JSON.stringify(samples.error));
+    Logger.log('  Fetched ' + fetched.length + ' invoice records from PestPac');
+
+    if (fetched.length === 0) {
+      Logger.log('✅ No invoices returned (orders may not be posted yet)');
+      return;
+    }
+
+    // Curate and merge — same shape as webhook-delivered records
+    var curated = fetched.map(curateInvoiceForBackfill_);
+
+    // Single batched write to cache-invoices.json via pushToGitHub_
+    var byKey = {};
+    (cache.invoices || []).forEach(function(inv) {
+      if (inv.InvoiceNumber) byKey[String(inv.InvoiceNumber)] = inv;
+    });
+    var added = 0, updated = 0;
+    curated.forEach(function(inv) {
+      var k = String(inv.InvoiceNumber);
+      if (byKey[k]) { byKey[k] = inv; updated++; }
+      else          { byKey[k] = inv; added++; }
+    });
+    var merged = [];
+    Object.keys(byKey).forEach(function(k) { merged.push(byKey[k]); });
+
+    cache.invoices = merged;
+    cache.updated = new Date().toISOString();
+    cache.recordCount = merged.length;
+    cache.lastBackfill = new Date().toISOString();
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('  Writing cache-invoices.json: ' + Math.round(jsonStr.length / 1024) + ' KB | added ' + added + ', updated ' + updated);
+
+    var ok = pushToGitHub_(jsonStr, GH_PATH_INVOICES_FOR_BACKFILL, 'Invoice backfill ' + daysBack + 'd ' + new Date().toISOString());
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('✅ Backfill complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Backfill error: ' + err.message + '\n' + err.stack);
+  }
+}
+
+// Read cache-invoices.json directly from GitHub Pages (raw mirror is the same)
+function readInvoicesCacheDirect_() {
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache-invoices.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (resp.getResponseCode() !== 200) return { invoices: [] };
+    return JSON.parse(resp.getContentText());
+  } catch (e) {
+    return { invoices: [] };
+  }
+}
+
+// Curate to the same shape webhook upserts produce. Mirrors CURATED_INV_KEYS
+// in InvoiceWebhookHandler.gs. Inlined here so backfill doesn't depend on
+// load order of the two files (Apps Script global namespace is single-bin).
+const BACKFILL_INV_KEYS = [
+  'InvoiceNumber', 'InvoiceType', 'OrderNumber', 'OrderID', 'InvoiceID',
+  'InvoiceDate', 'WorkDate', 'OrderDate',
+  'Branch', 'BranchID', 'LocationID', 'BillToID',
+  'ServiceClass', 'ServiceDescription', 'ServiceCode', 'Route',
+  'Tech', 'Tech2', 'Sales', 'EnteredBy',
+  'SubTotal', 'Tax', 'Total', 'Balance', 'AgingDays', 'NetDays',
+  'SaleValue', 'ProductionValue', 'TaxableAmount', 'TaxRate',
+  'Source', 'Origin', 'PostedBy',
+  'Voided'
+];
+function curateInvoiceForBackfill_(rec) {
+  var out = {};
+  for (var i = 0; i < BACKFILL_INV_KEYS.length; i++) {
+    var k = BACKFILL_INV_KEYS[i];
+    var v = rec[k];
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'string' && v === '') continue;
+    if (typeof v === 'number' && v === 0 && k !== 'Total') continue;
+    out[k] = v;
+  }
+  return out;
+}
+const GH_PATH_INVOICES_FOR_BACKFILL = 'cache-invoices.json';
+
+function readSetupsCache_() {
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache-setups.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (resp.getResponseCode() !== 200) return { setups: [] };
+    return JSON.parse(resp.getContentText());
+  } catch (e) {
+    return { setups: [] };
   }
 }
 
