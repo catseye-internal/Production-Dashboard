@@ -302,7 +302,7 @@
     vertical-align: middle;
   }
   /* Ensure every td respects max-width and clips overflow with ellipsis */
-  table.list td {
+  table.data-table td {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -317,11 +317,15 @@
   .pp-link:hover { color: #fff; border-bottom-color: var(--orange); }
 
   /* Compact table — tighter padding for many-column views */
-  table.list td, table.list th {
+  table.data-table {
+    table-layout: fixed;  /* enforce explicit column widths */
+    width: 100%;
+  }
+  table.data-table td, table.data-table th {
     padding: 7px 8px;
     font-size: 12px;
   }
-  table.list th { font-size: 10px; letter-spacing: 0.04em; }
+  table.data-table th { font-size: 10px; letter-spacing: 0.04em; }
 
   /* ── Mobile ── */
   @media (max-width: 768px) {
@@ -1079,7 +1083,9 @@ function render() {
   var thead = document.getElementById('tableHead');
   thead.innerHTML = defaultCols.map(function(c) {
     var sortCls = (STATE.sort.key === c.key) ? ('sort-' + STATE.sort.dir) : '';
-    var widthStyle = c.width ? (' style="min-width:' + c.width + 'px;max-width:' + (c.width * 1.4) + 'px"') : '';
+    // With table-layout:fixed, the browser uses the width on first-row cells
+    // to determine each column's width. Setting width directly enforces it.
+    var widthStyle = c.width ? (' style="width:' + c.width + 'px"') : '';
     return '<th class="' + sortCls + '" data-key="' + c.key + '"' + widthStyle + '>' +
              c.label + '<span class="sort-arrow">▾</span></th>';
   }).join('');
@@ -1106,8 +1112,8 @@ function render() {
     empty.style.display = 'none';
     body.innerHTML = sorted.map(function(r) {
       return '<tr>' + defaultCols.map(function(c) {
-        var widthStyle = c.width ? (' style="max-width:' + (c.width * 1.4) + 'px"') : '';
-        return '<td class="' + colClass(c.type) + '"' + widthStyle + '>' + fmt(r[c.key], c.type, r) + '</td>';
+        // No per-cell width needed — table-layout:fixed inherits column widths from the th row
+        return '<td class="' + colClass(c.type) + '">' + fmt(r[c.key], c.type, r) + '</td>';
       }).join('') + '</tr>';
     }).join('');
   }
