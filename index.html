@@ -889,7 +889,9 @@ function techDisplayName(code) {
   if (!emp) return String(code);
   var first = (emp.FirstName || '').trim();
   var last  = (emp.LastName  || '').trim();
-  if (first || last) return (first + ' ' + last).trim();
+  if (last && first) return last + ', ' + first;
+  if (last)          return last;
+  if (first)         return first;
   if (emp.FullName)    return String(emp.FullName).trim();
   if (emp.DisplayName) return String(emp.DisplayName).trim();
   if (emp.Name)        return String(emp.Name).trim();
