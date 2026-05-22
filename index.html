@@ -60,20 +60,20 @@
   .last-updated { font-size: 12px; color: var(--text-dim); }
   .last-updated.stale { color: var(--orange); }
 
-  /* ── Tabs ── */
+  /* ── Tabs (now inside header, BDC-style) ── */
   .tabs {
-    display: flex; gap: 4px; padding: 12px 32px 0;
-    border-bottom: 1px solid var(--border); background: var(--bg-card);
+    display: flex; gap: 4px; padding: 0;
+    flex: 1; justify-content: center;
   }
   .tab {
     font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.8px;
-    padding: 10px 18px; border: 1px solid var(--border); border-bottom: none;
+    padding: 8px 16px; border: 1px solid var(--border);
     background: transparent; color: var(--text-muted); cursor: pointer;
-    border-radius: 8px 8px 0 0; transition: all 0.15s;
+    border-radius: 6px; transition: all 0.15s;
   }
-  .tab:hover { color: var(--text); }
-  .tab.active { background: var(--bg); color: var(--orange); border-color: var(--orange); border-bottom-color: var(--bg); }
+  .tab:hover { color: var(--text); border-color: var(--text-dim); }
+  .tab.active { background: rgba(244,123,32,0.1); color: var(--orange); border-color: var(--orange); }
   .tab-count {
     display: inline-block; margin-left: 6px; padding: 1px 6px;
     border-radius: 8px; background: rgba(244,123,32,0.15); color: var(--orange);
@@ -498,8 +498,10 @@
   /* ── Mobile ── */
   @media (max-width: 768px) {
     .main { padding: 12px 16px; }
-    .header { padding: 12px 16px; }
-    .tabs { padding: 8px 16px 0; }
+    .header { padding: 10px 16px; flex-wrap: wrap; gap: 8px; }
+    .header-left, .header-right { gap: 8px; }
+    .tabs { padding: 0; flex-basis: 100%; justify-content: flex-start; order: 3; flex-wrap: wrap; }
+    .tab { padding: 6px 12px; font-size: 11px; }
     .kpi-strip { grid-template-columns: repeat(2, 1fr); }
     .filter-bar { gap: 8px; }
     .filter-bar select, .filter-bar input { min-width: 100px; font-size: 12px; }
@@ -566,30 +568,22 @@
 </head>
 <body>
 
-<!-- ─────────── HEADER ─────────── -->
+<!-- ─────────── HEADER (title + tabs + status, all on one row a la BDC) ─────────── -->
 <header class="header">
   <div class="header-left">
     <div class="header-title">Production <span>Dashboard</span></div>
   </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="tech">Tech</button>
+    <button class="tab" data-view="orders">Forecast</button>
+    <button class="tab" data-view="invoices">Completed</button>
+    <button class="tab" data-view="summary">Summary</button>
+  </nav>
   <div class="header-right">
     <div class="refresh-indicator"><div class="refresh-dot"></div><span>Live</span></div>
     <div class="last-updated" id="lastUpdated">—</div>
   </div>
 </header>
-
-<!-- ─────────── TABS ─────────── -->
-<!-- Each tab is a pre-filtered slice of the same ServiceOrders data.
-     A standalone Invoices list view doesn't make sense — PestPac's /Invoices
-     endpoint is keyed lookup only (no date-range list). When billing detail is
-     needed it becomes a per-order drill-down. -->
-<!-- Two views: pre-service ("work to be completed") and post-service ("work completed").
-     Callbacks live as a filter on both, not a separate tab. -->
-<nav class="tabs" id="tabs">
-  <button class="tab active" data-view="tech">Tech</button>
-  <button class="tab" data-view="orders">Forecast</button>
-  <button class="tab" data-view="invoices">Completed</button>
-  <button class="tab" data-view="summary">Summary</button>
-</nav>
 
 <!-- Sub-view selector (only shown when Invoices or Summary tab is active).
      ALL = every type, PRODUCTION = IN+PR+CM (production accounting),
