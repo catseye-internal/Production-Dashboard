@@ -2760,12 +2760,17 @@ function renderTechView_() {
       });
     });
 
-    // MTD service orders for this tech — lookup customer + city via location
+    // Service orders for this tech — MTD (completed work) PLUS the 4 forecast
+    // days (Today/Tomorrow/+2/+3) so the drill-down matches the full scope of
+    // the master card row above it. Customer + city looked up via location.
     if (STATE.rawCache && STATE.rawCache.orders) {
       STATE.rawCache.orders.forEach(function(o) {
         if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
         var d = String(o.WorkDate || '').substring(0, 10);
-        if (d < dSom || d > dYest) return;
+        // Accept records that fall in MTD OR in any of the 4 forecast days
+        var inMtd      = (d >= dSom && d <= dYest);
+        var inForecast = (d === dToday || d === dTmrw || d === dPlus2 || d === dPlus3);
+        if (!inMtd && !inForecast) return;
         var t1 = String(o.Tech1 || '').toUpperCase();
         var t2 = String(o.Tech2 || '').toUpperCase();
         if (t1 !== techCode && t2 !== techCode) return;
@@ -2795,7 +2800,7 @@ function renderTechView_() {
     });
 
     if (records.length === 0) {
-      return '<tr class="drill-row"><td colspan="' + colspan + '"><div class="drill-empty">No MTD activity for this tech.</div></td></tr>';
+      return '<tr class="drill-row"><td colspan="' + colspan + '"><div class="drill-empty">No MTD or forecast activity for this tech.</div></td></tr>';
     }
 
     // Summary line: total $, count of INV vs SO
@@ -2803,7 +2808,7 @@ function renderTechView_() {
     var invCount = records.filter(function(r) { return r.kind === 'INV'; }).length;
     var soCount  = records.length - invCount;
     var summary = '<div class="drill-summary">' +
-      '<strong>' + records.length + '</strong> MTD records · ' +
+      '<strong>' + records.length + '</strong> records (MTD + next 4 days) · ' +
       '<strong>' + invCount + '</strong> invoices · ' +
       '<strong>' + soCount + '</strong> service orders · ' +
       'subtotal <strong>$' + Math.round(totalAmt).toLocaleString() + '</strong>' +
