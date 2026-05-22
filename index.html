@@ -1959,7 +1959,8 @@ function renderTechView_() {
         tmrw: 0,           tmrwCount: 0,           tmrwCallbacks: 0,
         d2: 0,             d2Count: 0,             d2Callbacks: 0,
         d3: 0,             d3Count: 0,             d3Callbacks: 0,
-        forecastPoints: []  // {lat, lng, ts, day} for each scheduled stop (used for drive dist)
+        forecastPoints: [], // {lat, lng, ts, day} per scheduled stop in next 4 days
+        mtdPoints: []       // {lat, lng, ts, day} per MTD invoice stop (for MTD drive dist)
       };
     }
     return techRows[tech];
@@ -2011,11 +2012,26 @@ function renderTechView_() {
     if (date < dSom || date > dYest) return;
     var role = roleOf(inv);
     attribute('completed', inv.Branch, role, Number(inv.SubTotal) || 0, inv.Tech, inv.Tech2);
+    var t1 = inv.Tech, t2 = inv.Tech2;
     // MTD callback count per tech
     if ((inv.InvoiceType || '') === 'CB') {
-      var t1 = inv.Tech, t2 = inv.Tech2;
       if (t1) { row(t1).completedCallbacks = (row(t1).completedCallbacks || 0) + 1; }
       if (t2 && t2 !== t1) { row(t2).completedCallbacks = (row(t2).completedCallbacks || 0) + 1; }
+    }
+    // MTD drive point (lat/lng) — bucketed by WorkDate (when the stop happened)
+    if (STATE.locationsByCode && inv.LocationCode != null) {
+      var loc = STATE.locationsByCode[String(inv.LocationCode)];
+      if (loc && loc.Latitude && loc.Longitude) {
+        var workDay = String(inv.WorkDate || inv.InvoiceDate || '').substring(0, 10);
+        var pt = {
+          lat: Number(loc.Latitude),
+          lng: Number(loc.Longitude),
+          ts:  String(inv.WorkDate || inv.InvoiceDate || ''),
+          day: workDay
+        };
+        if (t1) { row(t1).mtdPoints.push(pt); }
+        if (t2 && t2 !== t1) { row(t2).mtdPoints.push(pt); }
+      }
     }
   });
 
@@ -2210,11 +2226,26 @@ function renderTechView_() {
     if (techs.length === 0) return '';
     var cardId = 'master-' + companyKey;
 
-    // Precompute drive distance + time per tech so they're sortable
+    // Precompute per-period drive distance + time so they're sortable.
+    // MTD drive miles uses computeDriveMiles_ which groups by day internally
+    // and sums daily distances across all MTD days.
+    // Forecast periods filter to that specific day.
+    function pointsForDay(arr, day) {
+      return (arr || []).filter(function(p) { return p.day === day; });
+    }
     techs.forEach(function(item) {
-      var miles = computeDriveMiles_(item.data.forecastPoints || []);
-      item.data.driveDist = miles;
-      item.data.driveTime = miles > 0 ? miles / 30 : 0;  // 30 mph rough estimate
+      var d = item.data;
+      d.driveDistMtd   = computeDriveMiles_(d.mtdPoints || []);
+      d.driveDistToday = computeDriveMiles_(pointsForDay(d.forecastPoints, dToday));
+      d.driveDistTmrw  = computeDriveMiles_(pointsForDay(d.forecastPoints, dTmrw));
+      d.driveDistD2    = computeDriveMiles_(pointsForDay(d.forecastPoints, dPlus2));
+      d.driveDistD3    = computeDriveMiles_(pointsForDay(d.forecastPoints, dPlus3));
+      // Estimated drive time at 30 mph (Google Distance Matrix later for accuracy)
+      d.driveTimeMtd   = d.driveDistMtd   > 0 ? d.driveDistMtd   / 30 : 0;
+      d.driveTimeToday = d.driveDistToday > 0 ? d.driveDistToday / 30 : 0;
+      d.driveTimeTmrw  = d.driveDistTmrw  > 0 ? d.driveDistTmrw  / 30 : 0;
+      d.driveTimeD2    = d.driveDistD2    > 0 ? d.driveDistD2    / 30 : 0;
+      d.driveTimeD3    = d.driveDistD3    > 0 ? d.driveDistD3    / 30 : 0;
     });
 
     // Default sort: Branch A→Z, then Class Z→A (Joe directive 2026-05-22)
@@ -2228,7 +2259,11 @@ function renderTechView_() {
       tmrw: 0,  tmrwCount: 0,  tmrwCallbacks: 0,
       d2: 0,    d2Count: 0,    d2Callbacks: 0,
       d3: 0,    d3Count: 0,    d3Callbacks: 0,
-      driveDist: 0, driveTime: 0
+      driveDistMtd: 0,   driveTimeMtd: 0,
+      driveDistToday: 0, driveTimeToday: 0,
+      driveDistTmrw: 0,  driveTimeTmrw: 0,
+      driveDistD2: 0,    driveTimeD2: 0,
+      driveDistD3: 0,    driveTimeD3: 0
     };
     var bodyRows = techs.map(function(item) {
       var d = item.data;
@@ -2248,8 +2283,16 @@ function renderTechView_() {
       totals.d3                 += d.d3;
       totals.d3Count            += d.d3Count;
       totals.d3Callbacks        += (d.d3Callbacks || 0);
-      totals.driveDist          += (d.driveDist || 0);
-      totals.driveTime          += (d.driveTime || 0);
+      totals.driveDistMtd       += (d.driveDistMtd   || 0);
+      totals.driveTimeMtd       += (d.driveTimeMtd   || 0);
+      totals.driveDistToday     += (d.driveDistToday || 0);
+      totals.driveTimeToday     += (d.driveTimeToday || 0);
+      totals.driveDistTmrw      += (d.driveDistTmrw  || 0);
+      totals.driveTimeTmrw      += (d.driveTimeTmrw  || 0);
+      totals.driveDistD2        += (d.driveDistD2    || 0);
+      totals.driveTimeD2        += (d.driveTimeD2    || 0);
+      totals.driveDistD3        += (d.driveDistD3    || 0);
+      totals.driveTimeD3        += (d.driveTimeD3    || 0);
       var pillCls = isPest ? 'role-pest' : 'role-cgnwl';
       var pillTxt = isPest ? 'PEST' : 'CG/NWL';
       var nameDisplay = techDisplayName(item.tech);
@@ -2261,19 +2304,32 @@ function renderTechView_() {
         nameCellHtml +
         '<td>' + escapeHtml(branchLabel) + '</td>' +
         '<td><span class="pill-role ' + pillCls + '">' + pillTxt + '</span></td>' +
+        // MTD block
         moneyCell(d.completed, 0, false, false) +
         countCell(d.completedCount) +
         countCell(d.completedCallbacks) +
+        distCell(d.driveDistMtd) +
+        timeCell(d.driveTimeMtd) +
+        // Today block
         forecastCell(d.today, d.todayCount, d.today, isPest, false) +
         countCell(d.todayCallbacks) +
-        forecastCell(d.tmrw,  d.tmrwCount, d.tmrw,  isPest, false) +
+        distCell(d.driveDistToday) +
+        timeCell(d.driveTimeToday) +
+        // Tomorrow block
+        forecastCell(d.tmrw, d.tmrwCount, d.tmrw, isPest, false) +
         countCell(d.tmrwCallbacks) +
-        forecastCell(d.d2,    d.d2Count,   d.d2,    isPest, false) +
+        distCell(d.driveDistTmrw) +
+        timeCell(d.driveTimeTmrw) +
+        // +2 block
+        forecastCell(d.d2, d.d2Count, d.d2, isPest, false) +
         countCell(d.d2Callbacks) +
-        forecastCell(d.d3,    d.d3Count,   d.d3,    isPest, false) +
+        distCell(d.driveDistD2) +
+        timeCell(d.driveTimeD2) +
+        // +3 block
+        forecastCell(d.d3, d.d3Count, d.d3, isPest, false) +
         countCell(d.d3Callbacks) +
-        distCell(d.driveDist) +
-        timeCell(d.driveTime) +
+        distCell(d.driveDistD3) +
+        timeCell(d.driveTimeD3) +
       '</tr>';
     }).join('');
 
@@ -2284,16 +2340,24 @@ function renderTechView_() {
       moneyCell(totals.completed, 0, false, true) +
       countCell(totals.completedCount) +
       countCell(totals.completedCallbacks) +
+      distCell(totals.driveDistMtd) +
+      timeCell(totals.driveTimeMtd) +
       forecastCell(totals.today, totals.todayCount, totals.today, true, true) +
       countCell(totals.todayCallbacks) +
-      forecastCell(totals.tmrw,  totals.tmrwCount, totals.tmrw,  true, true) +
+      distCell(totals.driveDistToday) +
+      timeCell(totals.driveTimeToday) +
+      forecastCell(totals.tmrw, totals.tmrwCount, totals.tmrw, true, true) +
       countCell(totals.tmrwCallbacks) +
-      forecastCell(totals.d2,    totals.d2Count,   totals.d2,    true, true) +
+      distCell(totals.driveDistTmrw) +
+      timeCell(totals.driveTimeTmrw) +
+      forecastCell(totals.d2, totals.d2Count, totals.d2, true, true) +
       countCell(totals.d2Callbacks) +
-      forecastCell(totals.d3,    totals.d3Count,   totals.d3,    true, true) +
+      distCell(totals.driveDistD2) +
+      timeCell(totals.driveTimeD2) +
+      forecastCell(totals.d3, totals.d3Count, totals.d3, true, true) +
       countCell(totals.d3Callbacks) +
-      distCell(totals.driveDist) +
-      timeCell(totals.driveTime) +
+      distCell(totals.driveDistD3) +
+      timeCell(totals.driveTimeD3) +
     '</tr>';
 
     return '<div class="group-block full-width ' + brandCls + '">' +
@@ -2303,22 +2367,35 @@ function renderTechView_() {
       '</div>' +
       chipsHtml +
       '<table class="tech-table" data-branch="' + cardId + '"><thead><tr>' +
-        sortableTh_('name',               'Tech',          '',                                                                                       sortState, false) +
-        sortableTh_('branch',             'Branch',        '',                                                                                       sortState, false) +
-        sortableTh_('role',               'Class',         '',                                                                                       sortState, false) +
-        sortableTh_('completed',          'Completed',     '<br><span style="font-weight:400;color:var(--text-dim)">$ MTD</span>',                  sortState, true) +
-        sortableTh_('completedCount',     'Orders',        '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
-        sortableTh_('completedCallbacks', 'CB',            '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
-        sortableTh_('today',              'Today',         '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
-        sortableTh_('todayCallbacks',     'CB',            '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
-        sortableTh_('tmrw',               'Tomorrow',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
-        sortableTh_('tmrwCallbacks',      'CB',            '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
-        sortableTh_('d2',                 '+2',            '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
-        sortableTh_('d2Callbacks',        'CB',            '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
-        sortableTh_('d3',                 '+3',            '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
-        sortableTh_('d3Callbacks',        'CB',            '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
-        sortableTh_('driveDist',          'Drive Dist',    '<br><span style="font-weight:400;color:var(--text-dim)">4-day</span>',                  sortState, true) +
-        sortableTh_('driveTime',          'Drive Time',    '<br><span style="font-weight:400;color:var(--text-dim)">est.</span>',                   sortState, true) +
+        sortableTh_('name',               'Tech',      '',                                                                                       sortState, false) +
+        sortableTh_('branch',             'Branch',    '',                                                                                       sortState, false) +
+        sortableTh_('role',               'Class',     '',                                                                                       sortState, false) +
+        // ── MTD ──
+        sortableTh_('completed',          'Completed', '<br><span style="font-weight:400;color:var(--text-dim)">$ MTD</span>',                  sortState, true) +
+        sortableTh_('completedCount',     'Orders',    '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
+        sortableTh_('completedCallbacks', 'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
+        sortableTh_('driveDistMtd',       'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
+        sortableTh_('driveTimeMtd',       'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
+        // ── Today ──
+        sortableTh_('today',              'Today',     '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
+        sortableTh_('todayCallbacks',     'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
+        sortableTh_('driveDistToday',     'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
+        sortableTh_('driveTimeToday',     'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
+        // ── Tomorrow ──
+        sortableTh_('tmrw',               'Tomorrow',  '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
+        sortableTh_('tmrwCallbacks',      'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
+        sortableTh_('driveDistTmrw',      'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
+        sortableTh_('driveTimeTmrw',      'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
+        // ── +2 ──
+        sortableTh_('d2',                 '+2',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
+        sortableTh_('d2Callbacks',        'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
+        sortableTh_('driveDistD2',        'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
+        sortableTh_('driveTimeD2',        'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
+        // ── +3 ──
+        sortableTh_('d3',                 '+3',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
+        sortableTh_('d3Callbacks',        'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
+        sortableTh_('driveDistD3',        'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
+        sortableTh_('driveTimeD3',        'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
       '</tr></thead><tbody>' + bodyRows + totalRow + '</tbody></table></div>';
   }
 
@@ -2346,16 +2423,24 @@ var SORT_COLUMN_LABELS = {
   completed:          'Completed MTD',
   completedCount:     'Orders MTD',
   completedCallbacks: 'CB MTD',
+  driveDistMtd:       'Dist MTD',
+  driveTimeMtd:       'Time MTD',
   today:              'Today',
   todayCallbacks:     'CB Today',
+  driveDistToday:     'Dist Today',
+  driveTimeToday:     'Time Today',
   tmrw:               'Tomorrow',
   tmrwCallbacks:      'CB Tmrw',
+  driveDistTmrw:      'Dist Tmrw',
+  driveTimeTmrw:      'Time Tmrw',
   d2:                 '+2',
   d2Callbacks:        'CB +2',
+  driveDistD2:        'Dist +2',
+  driveTimeD2:        'Time +2',
   d3:                 '+3',
   d3Callbacks:        'CB +3',
-  driveDist:          'Drive Dist',
-  driveTime:          'Drive Time'
+  driveDistD3:        'Dist +3',
+  driveTimeD3:        'Time +3'
 };
 
 // Renders the row of sort chips shown above each master card's table.
