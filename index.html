@@ -484,6 +484,43 @@
   }
   .donut-center-label { font-size: 8px; fill: #9CA3AF; letter-spacing: 0.5px; }
 
+  /* Mini-donuts — one per branch, auto-fit grid */
+  .mini-donut-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  .mini-donut {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 8px 4px; gap: 4px; min-width: 0;
+  }
+  .mini-donut-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+    text-transform: uppercase; color: var(--text);
+  }
+  .mini-donut-svg { width: 90px; height: 90px; }
+  .mini-donut-center {
+    font-size: 18px; font-weight: 700; fill: #E5E7EB;
+    font-variant-numeric: tabular-nums;
+  }
+  .mini-donut-legend {
+    width: 100%; display: flex; flex-direction: column; gap: 2px;
+    font-size: 9px; margin-top: 2px;
+  }
+  .mini-donut-legend-item {
+    display: grid; grid-template-columns: 8px 1fr auto; gap: 4px;
+    align-items: center; min-width: 0;
+  }
+  .mini-donut-legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .mini-donut-legend-label {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--text-dim); font-weight: 600;
+  }
+  .mini-donut-legend-value { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .mini-donut-empty {
+    font-size: 9px; color: var(--text-dim); padding: 4px 0;
+  }
+
   /* ── Footer status ── */
   .footer-status {
     display: flex; gap: 16px; align-items: center; padding: 10px 32px;
@@ -1929,9 +1966,9 @@ function renderTechView_() {
   });
 
   // Forecast (Today/Tmrw/+2/+3) — orders cache, exact date match.
-  // Also accumulates per-tech callback count and the callbacks-by-class
-  // distribution in the same single pass.
-  var callbacksByClass = {};
+  // Also accumulates per-tech callback count + per-branch-per-service callback
+  // distribution (for the mini-donuts) in the same single pass.
+  var callbacksByBranchService = {};  // { branch: { ServiceCode: count } }
   if (STATE.rawCache && STATE.rawCache.orders) {
     STATE.rawCache.orders.forEach(function(o) {
       if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
@@ -1944,18 +1981,15 @@ function renderTechView_() {
       if (!bucket) return;
       var role = roleOf(o);
       attribute(bucket, o.Branch, role, Number(o.SubTotal) || 0, o.Tech1, o.Tech2);
-      // Per-tech callback count + by-class aggregation
+      // Per-tech callback count + per-branch-per-service aggregation
       if ((o.OrderType || '') === 'CallBack') {
         var t1 = o.Tech1, t2 = o.Tech2;
         if (t1) { row(t1).callbacks += 1; }
         if (t2 && t2 !== t1) { row(t2).callbacks += 1; }
-        // Derive ServiceClass from invoice cache lookup; fall back to '(other)'
-        var cls = '';
-        if (STATE.codeToClassMap && o.ServiceCode) {
-          cls = STATE.codeToClassMap[String(o.ServiceCode).toUpperCase()] || '';
-        }
-        if (!cls) cls = '(other)';
-        callbacksByClass[cls] = (callbacksByClass[cls] || 0) + 1;
+        var branch = o.Branch || '(no branch)';
+        var svc = String(o.ServiceCode || '(unknown)').toUpperCase();
+        if (!callbacksByBranchService[branch]) callbacksByBranchService[branch] = {};
+        callbacksByBranchService[branch][svc] = (callbacksByBranchService[branch][svc] || 0) + 1;
       }
     });
   }
@@ -2045,7 +2079,7 @@ function renderTechView_() {
     });
   }
   var chartsRow1 = renderTechChartsRow_(fcTotals, callbacksByBranch, totalsByBranch, dateLabel);
-  var chartsRow2 = renderTechChartsRow2_(callbacksByClass, byBranch);
+  var chartsRow2 = renderTechChartsRow2_(callbacksByBranchService, byBranch);
 
   // Master cards — one per company (Catseye + USX Pest), full-width
   function renderMasterCard(companyKey, label, brandCls) {
@@ -2322,13 +2356,13 @@ function renderTechChartsRow_(fcTotals, callbacksByBranch, totalsByBranch, dateL
   '</div>';
 }
 
-// Second chart row — Callbacks by Class (donut) + Revenue per Tech by Branch
-function renderTechChartsRow2_(callbacksByClass, byBranch) {
+// Second chart row — Callbacks by Branch (mini-donuts) + Revenue per Tech by Branch
+function renderTechChartsRow2_(callbacksByBranchService, byBranch) {
   return '<div class="tech-charts-row">' +
     '<div class="chart-card">' +
-      '<h3 class="chart-title">CALLBACKS BY CLASS</h3>' +
-      '<div class="chart-meta">Distribution of next-4-day callbacks across service classes</div>' +
-      renderCallbacksByClassDonut_(callbacksByClass) +
+      '<h3 class="chart-title">CALLBACKS BY BRANCH</h3>' +
+      '<div class="chart-meta">Per-branch breakdown by service — next 4 days</div>' +
+      renderCallbacksByBranchDonuts_(callbacksByBranchService) +
     '</div>' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">REVENUE PER TECH BY BRANCH</h3>' +
@@ -2338,48 +2372,100 @@ function renderTechChartsRow2_(callbacksByClass, byBranch) {
   '</div>';
 }
 
-// Donut chart — Callbacks by Class. Center label shows the total. Legend lists
-// each class with count + percentage, sorted by count desc.
-function renderCallbacksByClassDonut_(callbacksByClass) {
-  var total = Object.keys(callbacksByClass).reduce(function(s, k) { return s + callbacksByClass[k]; }, 0);
-  if (total === 0) return '<div class="cb-empty">No callbacks in the next 4 days</div>';
-  var classes = Object.keys(callbacksByClass).sort(function(a, b) {
-    return callbacksByClass[b] - callbacksByClass[a];
+// One mini-donut per branch. Slices are ServiceCode within the branch.
+// Top 5 services rendered as full slices; remaining services bucketed as
+// "OTHER" to keep the pie readable. Service colors stay consistent across
+// branches so the same code is the same color everywhere.
+function renderCallbacksByBranchDonuts_(callbacksByBranchService) {
+  // Total per branch (for sorting + empty state)
+  var branchOrder = BRANCH_ALL.slice();
+  var branchTotals = {};
+  branchOrder.forEach(function(b) {
+    var m = callbacksByBranchService[b] || {};
+    branchTotals[b] = Object.keys(m).reduce(function(s, k) { return s + m[k]; }, 0);
   });
-  var colors = ['#F47B20', '#60A5FA', '#34D399', '#FBBF24', '#A78BFA', '#EC4899', '#F87171', '#9CA3AF', '#6B645A'];
+  var grandTotal = branchOrder.reduce(function(s, b) { return s + branchTotals[b]; }, 0);
+  if (grandTotal === 0) return '<div class="cb-empty">No callbacks scheduled in the next 4 days</div>';
 
-  var cx = 100, cy = 100, r = 65, strokeW = 28;
-  var circumference = 2 * Math.PI * r;
-  var offset = 0;
-  var slices = classes.map(function(cls, i) {
-    var value = callbacksByClass[cls];
-    var fill = (value / total) * circumference;
-    var dashArr = fill.toFixed(2) + ' ' + (circumference - fill).toFixed(2);
-    var dashOff = (-offset).toFixed(2);
-    offset += fill;
-    var color = colors[i % colors.length];
-    return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
-           '" fill="none" stroke="' + color + '" stroke-width="' + strokeW +
-           '" stroke-dasharray="' + dashArr + '" stroke-dashoffset="' + dashOff +
-           '" transform="rotate(-90 ' + cx + ' ' + cy + ')"/>';
-  }).join('');
-  var legend = classes.map(function(cls, i) {
-    var color = colors[i % colors.length];
-    var pct = (callbacksByClass[cls] / total * 100).toFixed(0);
-    return '<div class="donut-legend-item">' +
-      '<span class="donut-legend-dot" style="background:' + color + '"></span>' +
-      '<span class="donut-legend-label">' + escapeHtml(cls) + '</span>' +
-      '<span class="donut-legend-value">' + callbacksByClass[cls] + ' · ' + pct + '%</span>' +
+  // Build a shared ServiceCode → color map so colors are consistent across donuts
+  var palette = ['#F47B20', '#60A5FA', '#34D399', '#FBBF24', '#A78BFA', '#EC4899', '#F87171', '#9CA3AF', '#6B645A', '#FB923C', '#22D3EE'];
+  var serviceColors = {};
+  var allServices = {};
+  branchOrder.forEach(function(b) {
+    var m = callbacksByBranchService[b] || {};
+    Object.keys(m).forEach(function(s) {
+      allServices[s] = (allServices[s] || 0) + m[s];
+    });
+  });
+  // Assign colors by descending global frequency so the biggest service gets the brand orange
+  Object.keys(allServices).sort(function(a, b) {
+    return allServices[b] - allServices[a];
+  }).forEach(function(s, i) {
+    serviceColors[s] = palette[i % palette.length];
+  });
+  var OTHER_COLOR = '#6B645A';
+
+  // Render one donut per branch
+  return '<div class="mini-donut-grid">' + branchOrder.map(function(b) {
+    var label = (BRANCH_DISPLAY[b] || b).toUpperCase();
+    var total = branchTotals[b] || 0;
+    if (total === 0) {
+      return '<div class="mini-donut">' +
+        '<div class="mini-donut-label">' + escapeHtml(label) + '</div>' +
+        '<div class="mini-donut-empty">no callbacks</div>' +
+      '</div>';
+    }
+    var serviceMap = callbacksByBranchService[b] || {};
+    var services = Object.keys(serviceMap).sort(function(a, c) {
+      return serviceMap[c] - serviceMap[a];
+    });
+    // Cap to top 5 + "Other"
+    var top = services.slice(0, 5);
+    var rest = services.slice(5);
+    var restCount = rest.reduce(function(s, k) { return s + serviceMap[k]; }, 0);
+    var slices = top.map(function(s) { return { svc: s, count: serviceMap[s], color: serviceColors[s] }; });
+    if (restCount > 0) slices.push({ svc: 'OTHER', count: restCount, color: OTHER_COLOR });
+
+    var cx = 50, cy = 50, r = 36, strokeW = 14;
+    var circumference = 2 * Math.PI * r;
+    var offset = 0;
+    var sliceHtml = slices.map(function(s) {
+      var fill = (s.count / total) * circumference;
+      var dashArr = fill.toFixed(2) + ' ' + (circumference - fill).toFixed(2);
+      var dashOff = (-offset).toFixed(2);
+      offset += fill;
+      return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+             '" fill="none" stroke="' + s.color + '" stroke-width="' + strokeW +
+             '" stroke-dasharray="' + dashArr + '" stroke-dashoffset="' + dashOff +
+             '" transform="rotate(-90 ' + cx + ' ' + cy + ')"/>';
+    }).join('');
+
+    // Compact legend showing top 3 slices (plus OTHER if present)
+    var legendItems = slices.slice(0, 3).map(function(s) {
+      return '<div class="mini-donut-legend-item">' +
+        '<span class="mini-donut-legend-dot" style="background:' + s.color + '"></span>' +
+        '<span class="mini-donut-legend-label" title="' + escapeHtml(s.svc) + '">' + escapeHtml(s.svc) + '</span>' +
+        '<span class="mini-donut-legend-value">' + s.count + '</span>' +
+      '</div>';
+    }).join('');
+    if (slices.length > 3) {
+      var moreCount = slices.slice(3).reduce(function(s, x) { return s + x.count; }, 0);
+      legendItems += '<div class="mini-donut-legend-item">' +
+        '<span class="mini-donut-legend-dot" style="background:transparent;border:1px solid var(--text-dim)"></span>' +
+        '<span class="mini-donut-legend-label">+' + (slices.length - 3) + ' more</span>' +
+        '<span class="mini-donut-legend-value">' + moreCount + '</span>' +
+      '</div>';
+    }
+
+    return '<div class="mini-donut">' +
+      '<div class="mini-donut-label">' + escapeHtml(label) + '</div>' +
+      '<svg viewBox="0 0 100 100" class="mini-donut-svg" preserveAspectRatio="xMidYMid meet">' +
+        sliceHtml +
+        '<text x="' + cx + '" y="' + (cy + 6) + '" text-anchor="middle" class="mini-donut-center">' + total + '</text>' +
+      '</svg>' +
+      '<div class="mini-donut-legend">' + legendItems + '</div>' +
     '</div>';
-  }).join('');
-  return '<div class="donut-wrap">' +
-    '<svg viewBox="0 0 200 200" class="donut-svg" preserveAspectRatio="xMidYMid meet">' +
-      slices +
-      '<text x="' + cx + '" y="' + (cy - 4) + '" text-anchor="middle" class="donut-center">' + total + '</text>' +
-      '<text x="' + cx + '" y="' + (cy + 14) + '" text-anchor="middle" class="donut-center-label">CALLBACKS</text>' +
-    '</svg>' +
-    '<div class="donut-legend">' + legend + '</div>' +
-  '</div>';
+  }).join('') + '</div>';
 }
 
 // Horizontal bars — MTD revenue per tech per branch, sorted desc.
