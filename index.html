@@ -331,6 +331,32 @@
   .score-pill.score-green  { background: rgba(52,211,153,0.18);  color: #34D399; }
   .score-pill.score-yellow { background: rgba(251,191,36,0.22);  color: #FBBF24; }
   .score-pill.score-red    { background: rgba(248,113,113,0.22); color: #F87171; }
+  /* Sub-line in forecast cells — "4 ord · 375" beneath the dollar amount */
+  .cell-sub {
+    font-size: 10px; color: var(--text-dim); font-weight: 400;
+    margin-top: 2px; font-variant-numeric: tabular-nums;
+  }
+  /* Tech view chart row — full-width strip above the branch cards grid */
+  .tech-charts-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 0;
+  }
+  @media (max-width: 1100px) {
+    .tech-charts-row { grid-template-columns: 1fr; }
+  }
+  .chart-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; min-width: 0;
+  }
+  .chart-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--text); margin: 0 0 6px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
+  .chart-meta { font-size: 10px; color: var(--text-dim); margin: -2px 0 6px; }
 
   /* ── Footer status ── */
   .footer-status {
@@ -1643,13 +1669,17 @@ function renderTechView_() {
   var mtdDays = Math.round((yestDate - somDate) / 86400000) + 1;
   if (mtdDays < 1) mtdDays = 1;
 
-  // techRows: techCode → { branchVotes, roleVotes, completed, today, tmrw, d2, d3 }
+  // techRows: techCode → { branchVotes, roleVotes, completed, today, tmrw, d2, d3 + counts }
   var techRows = {};
   function row(tech) {
     if (!techRows[tech]) {
       techRows[tech] = {
         branchVotes: {}, roleVotes: { pest: 0, cgnwl: 0 },
-        completed: 0, today: 0, tmrw: 0, d2: 0, d3: 0
+        completed: 0,      completedCount: 0,
+        today: 0,          todayCount: 0,
+        tmrw: 0,           tmrwCount: 0,
+        d2: 0,             d2Count: 0,
+        d3: 0,             d3Count: 0
       };
     }
     return techRows[tech];
@@ -1663,23 +1693,28 @@ function renderTechView_() {
     if (role)   r.roleVotes[role]     = (r.roleVotes[role] || 0) + 1;
   }
 
-  // Helper: attribute revenue to one or both techs depending on role + Tech2.
-  // CG/NWL jobs with two techs split 50/50 (both did the installation work).
+  // Helper: attribute revenue + count to one or both techs depending on role + Tech2.
+  // CG/NWL jobs with two techs split revenue 50/50 (both did the installation work)
+  // but each gets a full +1 to the order count — they were each at the stop.
   // Pest jobs always credit Tech1 only (Tech2 on pest is typically a trainee/check-in).
   function attribute(bucket, branch, role, amount, tech1, tech2) {
     if (!tech1) return;
+    var countKey = bucket + 'Count';
     if (role === 'cgnwl' && tech2 && tech2 !== tech1) {
       var half = amount / 2;
       var r1 = row(tech1);
       noteBranchRole(r1, branch, role);
       r1[bucket] += half;
+      r1[countKey] = (r1[countKey] || 0) + 1;
       var r2 = row(tech2);
       noteBranchRole(r2, branch, role);
       r2[bucket] += half;
+      r2[countKey] = (r2[countKey] || 0) + 1;
     } else {
       var r = row(tech1);
       noteBranchRole(r, branch, role);
       r[bucket] += amount;
+      r[countKey] = (r[countKey] || 0) + 1;
     }
   }
 
@@ -1728,17 +1763,32 @@ function renderTechView_() {
     if (perDay >= 1500) return 'score-yellow';
     return 'score-red';
   }
-  function moneyCell(amt, perDay, showScore) {
+  // moneyCell — used for the Completed (MTD) column. `showDollar` controls
+  // whether the "$" prefix is shown (Joe directive: only on total rows).
+  function moneyCell(amt, perDay, showScore, showDollar) {
     if (!amt && amt !== 0) amt = 0;
     if (amt === 0) {
       return '<td class="num"><span style="color:var(--text-dim)">—</span></td>';
     }
-    var amountStr = '$' + Math.round(amt).toLocaleString();
+    var amountStr = (showDollar ? '$' : '') + Math.round(amt).toLocaleString();
     if (!showScore) {
       return '<td class="num">' + amountStr + '</td>';
     }
-    var cls = scoreClass(perDay);
-    return '<td class="num"><span class="score-pill ' + cls + '">' + amountStr + '</span></td>';
+    return '<td class="num"><span class="score-pill ' + scoreClass(perDay) + '">' + amountStr + '</span></td>';
+  }
+  // forecastCell — used for the 4 forecast columns. Shows revenue on top + a
+  // sub-line "N ord · $/stop". Order count includes $0 orders (callbacks).
+  function forecastCell(amt, count, perDay, showScore, showDollar) {
+    if ((count || 0) === 0) {
+      return '<td class="num"><span style="color:var(--text-dim)">—</span></td>';
+    }
+    var amountStr = (showDollar ? '$' : '') + Math.round(amt).toLocaleString();
+    var topHtml = showScore
+      ? '<span class="score-pill ' + scoreClass(perDay) + '">' + amountStr + '</span>'
+      : amountStr;
+    var perStop = (count > 0) ? Math.round(amt / count) : 0;
+    var subHtml = '<div class="cell-sub">' + count + ' ord · ' + (showDollar ? '$' : '') + perStop.toLocaleString() + '</div>';
+    return '<td class="num">' + topHtml + subHtml + '</td>';
   }
   function dateLabel(n) {
     var d = new Date(todayD); d.setDate(d.getDate() + n);
@@ -1764,7 +1814,27 @@ function renderTechView_() {
   });
   orphanBranches.forEach(function(b) { branchEntries.push({ b: b, cls: '' }); });
 
-  var html = branchEntries.map(function(entry) {
+  // Aggregate forecast totals (across ALL techs) and callback counts per branch
+  // for the two charts that appear above the branch cards.
+  var fcTotals = { today: 0, tmrw: 0, d2: 0, d3: 0 };
+  Object.keys(techRows).forEach(function(t) {
+    var r = techRows[t];
+    fcTotals.today += r.today; fcTotals.tmrw += r.tmrw;
+    fcTotals.d2    += r.d2;    fcTotals.d3   += r.d3;
+  });
+  var callbacksByBranch = {};
+  if (STATE.rawCache && STATE.rawCache.orders) {
+    STATE.rawCache.orders.forEach(function(o) {
+      if ((o.OrderType || o.orderType) !== 'CallBack') return;
+      var date = String(o.WorkDate || '').substring(0, 10);
+      if (date !== dToday && date !== dTmrw && date !== dPlus2 && date !== dPlus3) return;
+      var b = o.Branch || '(no branch)';
+      callbacksByBranch[b] = (callbacksByBranch[b] || 0) + 1;
+    });
+  }
+  var chartsHtml = renderTechChartsRow_(fcTotals, callbacksByBranch, dateLabel);
+
+  var html = chartsHtml + branchEntries.map(function(entry) {
     var b = entry.b;
     var blockCls = 'group-block' + (entry.cls ? ' ' + entry.cls : '');
     var techs = byBranch[b].slice();
@@ -1776,15 +1846,26 @@ function renderTechView_() {
       return cF - aF;
     });
 
-    var totals = { completed: 0, today: 0, tmrw: 0, d2: 0, d3: 0 };
+    var totals = {
+      completed: 0, completedCount: 0,
+      today: 0, todayCount: 0,
+      tmrw: 0,  tmrwCount: 0,
+      d2: 0,    d2Count: 0,
+      d3: 0,    d3Count: 0
+    };
     var bodyRows = techs.map(function(item) {
       var d = item.data;
       var isPest = (item.role === 'pest');
-      totals.completed += d.completed;
-      totals.today     += d.today;
-      totals.tmrw      += d.tmrw;
-      totals.d2        += d.d2;
-      totals.d3        += d.d3;
+      totals.completed      += d.completed;
+      totals.completedCount += d.completedCount;
+      totals.today          += d.today;
+      totals.todayCount     += d.todayCount;
+      totals.tmrw           += d.tmrw;
+      totals.tmrwCount      += d.tmrwCount;
+      totals.d2             += d.d2;
+      totals.d2Count        += d.d2Count;
+      totals.d3             += d.d3;
+      totals.d3Count        += d.d3Count;
       var pillCls = isPest ? 'role-pest' : 'role-cgnwl';
       var pillTxt = isPest ? 'PEST' : 'CG/NWL';
       // Display full name when available, with code as tooltip; fall back to raw code
@@ -1792,26 +1873,27 @@ function renderTechView_() {
       var nameCellHtml = (nameDisplay !== item.tech)
         ? '<td title="' + escapeHtml(item.tech) + '">' + escapeHtml(nameDisplay) + '</td>'
         : '<td>' + escapeHtml(item.tech) + '</td>';
+      // Tech rows: NO $ on revenue values (Joe directive 2026-05-22)
       return '<tr>' +
         nameCellHtml +
         '<td><span class="pill-role ' + pillCls + '">' + pillTxt + '</span></td>' +
-        moneyCell(d.completed, 0, false) +  // MTD never colored (Joe directive 2026-05-21)
-        moneyCell(d.today, d.today, isPest) +
-        moneyCell(d.tmrw,  d.tmrw,  isPest) +
-        moneyCell(d.d2,    d.d2,    isPest) +
-        moneyCell(d.d3,    d.d3,    isPest) +
+        moneyCell(d.completed, 0, false, false) +                       // MTD never colored
+        forecastCell(d.today, d.todayCount, d.today, isPest, false) +
+        forecastCell(d.tmrw,  d.tmrwCount, d.tmrw,  isPest, false) +
+        forecastCell(d.d2,    d.d2Count,   d.d2,    isPest, false) +
+        forecastCell(d.d3,    d.d3Count,   d.d3,    isPest, false) +
       '</tr>';
     }).join('');
 
-    // Branch total — color on forecast columns uses Pest thresholds; MTD stays uncolored
+    // Branch total — $ ALWAYS shown on total row; forecast columns colored by Pest thresholds
     var totalRow = '<tr class="total-row">' +
       '<td>Total</td>' +
       '<td></td>' +
-      moneyCell(totals.completed, 0, false) +
-      moneyCell(totals.today, totals.today, true) +
-      moneyCell(totals.tmrw,  totals.tmrw,  true) +
-      moneyCell(totals.d2,    totals.d2,    true) +
-      moneyCell(totals.d3,    totals.d3,    true) +
+      moneyCell(totals.completed, 0, false, true) +
+      forecastCell(totals.today, totals.todayCount, totals.today, true, true) +
+      forecastCell(totals.tmrw,  totals.tmrwCount, totals.tmrw,  true, true) +
+      forecastCell(totals.d2,    totals.d2Count,   totals.d2,    true, true) +
+      forecastCell(totals.d3,    totals.d3Count,   totals.d3,    true, true) +
     '</tr>';
 
     return '<div class="' + blockCls + '">' +
@@ -1832,6 +1914,76 @@ function renderTechView_() {
 
   document.getElementById('techView').innerHTML = html;
   document.getElementById('footerCount').textContent = Object.keys(techRows).length.toLocaleString();
+}
+
+// ─────────── Tech view chart helpers ───────────
+// Renders the row of two SVG charts above the branch grid:
+//   1) Forecast Totals  — total revenue today/tmrw/+2/+3 across all techs
+//   2) Callback Counts  — # of CallBack-type orders in the next 4 days, by branch
+function renderTechChartsRow_(fcTotals, callbacksByBranch, dateLabel) {
+  // Chart 1: Forecast Totals (4 bars, all orange — single brand color)
+  var dayName = function(s) { return s.split(' ')[0]; };  // "Thu 5/22" → "Thu"
+  var dayDate = function(s) { return s.split(' ')[1] || ''; };
+  var fcBars = [
+    { label: 'TODAY '    + dayDate(dateLabel(0)), value: fcTotals.today, displayValue: '$' + Math.round(fcTotals.today).toLocaleString(), color: '#F47B20' },
+    { label: 'TOMORROW ' + dayDate(dateLabel(1)), value: fcTotals.tmrw,  displayValue: '$' + Math.round(fcTotals.tmrw).toLocaleString(),  color: '#F47B20' },
+    { label: '+2 '       + dayDate(dateLabel(2)), value: fcTotals.d2,    displayValue: '$' + Math.round(fcTotals.d2).toLocaleString(),    color: '#F47B20' },
+    { label: '+3 '       + dayDate(dateLabel(3)), value: fcTotals.d3,    displayValue: '$' + Math.round(fcTotals.d3).toLocaleString(),    color: '#F47B20' }
+  ];
+
+  // Chart 2: Callback Counts by Branch — orange for Catseye, blue for USX
+  var cbBars = BRANCH_ALL.map(function(b) {
+    var count = callbacksByBranch[b] || 0;
+    return {
+      label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
+      value: count,
+      displayValue: String(count),
+      color: isUsxBranch(b) ? '#60A5FA' : '#F47B20'
+    };
+  });
+
+  var fcChart = svgBarChart_(fcBars, 500, 180);
+  var cbChart = svgBarChart_(cbBars, 500, 180);
+
+  return '<div class="tech-charts-row">' +
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">FORECAST TOTALS</h3>' +
+      '<div class="chart-meta">Total scheduled revenue per day (all techs)</div>' +
+      fcChart +
+    '</div>' +
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">CALLBACK COUNTS BY BRANCH</h3>' +
+      '<div class="chart-meta">CallBack orders scheduled in next 4 days</div>' +
+      cbChart +
+    '</div>' +
+  '</div>';
+}
+
+// Generic SVG bar chart — vertical bars with value labels above and category
+// labels below. Sized for ~half-width card in the 2-col grid.
+function svgBarChart_(bars, width, height) {
+  var W = width  || 500;
+  var H = height || 180;
+  var max = Math.max.apply(null, bars.map(function(b) { return b.value; })) || 1;
+  var valueGap = 22, labelGap = 22;
+  var chartH = H - valueGap - labelGap;
+  var barWidth = Math.min(70, (W * 0.75) / bars.length);
+  var totalBarSpace = bars.length * barWidth;
+  var gap = (W - totalBarSpace) / (bars.length + 1);
+
+  var content = bars.map(function(b, i) {
+    var x = gap + i * (barWidth + gap);
+    var h = max > 0 ? (b.value / max) * chartH : 0;
+    var y = valueGap + (chartH - h);
+    var rectHtml = h > 0
+      ? '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barWidth.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + b.color + '" rx="4"/>'
+      : '';
+    return rectHtml +
+      '<text x="' + (x + barWidth / 2).toFixed(1) + '" y="' + (y - 5).toFixed(1) + '" text-anchor="middle" font-size="11" fill="#E5E7EB" font-weight="700">' + b.displayValue + '</text>' +
+      '<text x="' + (x + barWidth / 2).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="middle" font-size="9" fill="#9CA3AF" font-weight="700">' + escapeHtml(b.label) + '</text>';
+  }).join('');
+
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">' + content + '</svg>';
 }
 
 function fmt(v, type, record) {
