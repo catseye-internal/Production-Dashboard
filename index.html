@@ -321,6 +321,12 @@
   }
   .summary-table tr:last-child td, .tech-table tr:last-child td { border-bottom: none; }
   .summary-table .num, .tech-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Sortable column headers on Tech view — click to sort within that card */
+  .tech-table th[data-sort-key] { cursor: pointer; user-select: none; transition: color 0.15s; }
+  .tech-table th[data-sort-key]:hover { color: var(--text); }
+  .tech-table th.sort-active { color: var(--orange); }
+  .tech-table th.sort-active::after { content: ' ▾'; font-size: 9px; opacity: 0.85; }
+  .tech-table th.sort-active.sort-asc::after { content: ' ▴'; }
   .summary-table .total-row td, .tech-table .total-row td {
     font-weight: 700; border-top: 2px solid var(--border); padding-top: 5px;
     color: var(--text);
@@ -753,7 +759,7 @@ var STATE = {
   view: 'tech',            // 'tech' | 'orders' | 'invoices' | 'summary'
   invoiceMode: 'all',      // 'all' | 'production' | 'revenue'
   // Per-view date state — switching tabs preserves each tab's selection
-  ordersPeriod: 'tomorrow', // 'today' | 'tomorrow' | 'next7' | 'custom'
+  ordersPeriod: 'tomorrow', // 'today' | 'tomorrow' | 'next3' | 'next7' | 'custom'
   invoicesPeriod: 'mtd',   // 'today' | 'yesterday' | 'wk' | 'mtd' | 'ytd' | 'custom'
   summaryPeriod: 'mtd',    // mirrors invoices period set
   ordersCustom:   { start: '', end: '' },
@@ -779,6 +785,7 @@ var STATE = {
   employeesCache: null,
   employeesLoadPromise: null,
   employeesMap: null,         // Code (uppercase) → employee record
+  techCardSort: {},           // branch → { key, dir } — per-card sort on Tech view
 };
 
 // Per-view period button definitions
@@ -786,6 +793,7 @@ var PERIOD_BUTTONS = {
   orders: [
     { key: 'today',    label: 'Today' },
     { key: 'tomorrow', label: 'Tomorrow' },
+    { key: 'next3',    label: '3-Day' },          // today through today+2 (3 days inclusive)
     { key: 'next7',    label: '7-Day' },          // today through today+6 (7 days inclusive)
     { key: 'custom',   label: 'Custom' }
   ],
@@ -843,6 +851,7 @@ var refreshTimer = null;
 document.addEventListener('DOMContentLoaded', function() {
   wireFilters();
   wireTabs();
+  wireTechCardSort_();       // event delegation for Tech view column-header clicks
   renderHeader();
   populateFilterOptions();  // populate from config even before cache lands
   render();                  // show structure immediately
@@ -1463,6 +1472,10 @@ function resolvePeriod(period, custom) {
     var y = new Date(today); y.setDate(y.getDate() - 1);
     var s = fmtDate(y); return { start: s, end: s };
   }
+  if (period === 'next3') {  // today through today+2 (3 days inclusive)
+    var d3 = new Date(today); d3.setDate(d3.getDate() + 2);
+    return { start: todayStr, end: fmtDate(d3) };
+  }
   if (period === 'next7') {  // today through today+6 (7 days inclusive)
     var d7 = new Date(today); d7.setDate(d7.getDate() + 6);
     return { start: todayStr, end: fmtDate(d7) };
@@ -1985,13 +1998,8 @@ function renderTechView_() {
     var b = entry.b;
     var blockCls = 'group-block' + (entry.cls ? ' ' + entry.cls : '');
     var techs = byBranch[b].slice();
-    // Pest first, then CG/NWL. Within each group, by 4-day forecast desc.
-    techs.sort(function(a, c) {
-      if (a.role !== c.role) return (a.role === 'pest') ? -1 : 1;
-      var aF = a.data.today + a.data.tmrw + a.data.d2 + a.data.d3;
-      var cF = c.data.today + c.data.tmrw + c.data.d2 + c.data.d3;
-      return cF - aF;
-    });
+    var sortState = STATE.techCardSort[b] || null;
+    sortTechsForCard_(techs, sortState);
 
     var totals = {
       completed: 0, completedCount: 0,
@@ -2048,19 +2056,93 @@ function renderTechView_() {
         '<h3 class="group-block-title">' + (BRANCH_DISPLAY[b] || b).toUpperCase() + '</h3>' +
         '<div class="group-block-meta">' + techs.length + ' techs</div>' +
       '</div>' +
-      '<table class="tech-table"><thead><tr>' +
-        '<th>Tech</th>' +
-        '<th>Class</th>' +
-        '<th class="num">Completed<br><span style="font-weight:400;color:var(--text-dim)">MTD</span></th>' +
-        '<th class="num">Today<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span></th>' +
-        '<th class="num">Tomorrow<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span></th>' +
-        '<th class="num">+2<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span></th>' +
-        '<th class="num">+3<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span></th>' +
+      '<table class="tech-table" data-branch="' + escapeHtml(b) + '"><thead><tr>' +
+        sortableTh_('name',      'Tech',     '',                                                                                          sortState, false) +
+        sortableTh_('role',      'Class',    '',                                                                                          sortState, false) +
+        sortableTh_('completed', 'Completed','<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                        sortState, true) +
+        sortableTh_('today',     'Today',    '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',       sortState, true) +
+        sortableTh_('tmrw',      'Tomorrow', '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',       sortState, true) +
+        sortableTh_('d2',        '+2',       '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',       sortState, true) +
+        sortableTh_('d3',        '+3',       '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',       sortState, true) +
       '</tr></thead><tbody>' + bodyRows + totalRow + '</tbody></table></div>';
   }).join('');
 
   document.getElementById('techView').innerHTML = html;
   document.getElementById('footerCount').textContent = Object.keys(techRows).length.toLocaleString();
+}
+
+// Renders a clickable <th> with data-sort-key + active state arrow.
+// Used inside each tech card so headers can be clicked to sort within that card only.
+function sortableTh_(key, label, suffix, sortState, isNum) {
+  var classes = [];
+  if (isNum) classes.push('num');
+  if (sortState && sortState.key === key) {
+    classes.push('sort-active');
+    if (sortState.dir === 'asc') classes.push('sort-asc');
+  }
+  var cls = classes.length ? ' class="' + classes.join(' ') + '"' : '';
+  return '<th data-sort-key="' + key + '"' + cls + '>' + label + (suffix || '') + '</th>';
+}
+
+// Sort techs within a card. If sortState is null, use the default (Pest-first
+// grouping then by 4-day forecast desc — matches the original behavior).
+function sortTechsForCard_(techs, sortState) {
+  if (!sortState) {
+    techs.sort(function(a, c) {
+      if (a.role !== c.role) return (a.role === 'pest') ? -1 : 1;
+      var aF = a.data.today + a.data.tmrw + a.data.d2 + a.data.d3;
+      var cF = c.data.today + c.data.tmrw + c.data.d2 + c.data.d3;
+      return cF - aF;
+    });
+    return;
+  }
+  var dir = sortState.dir === 'asc' ? 1 : -1;
+  var key = sortState.key;
+  techs.sort(function(a, c) {
+    var av, cv;
+    if (key === 'name') {
+      av = techDisplayName(a.tech).toLowerCase();
+      cv = techDisplayName(c.tech).toLowerCase();
+      return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
+    }
+    if (key === 'role') {
+      // Pest before CG/NWL in asc, reversed in desc
+      av = a.role === 'pest' ? 0 : 1;
+      cv = c.role === 'pest' ? 0 : 1;
+      return (av - cv) * dir;
+    }
+    // Numeric columns: completed, today, tmrw, d2, d3
+    av = Number(a.data[key]) || 0;
+    cv = Number(c.data[key]) || 0;
+    return (av - cv) * dir;
+  });
+}
+
+// One-time click delegation for sortable Tech view headers — installed in boot.
+// (Re-rendering innerHTML wipes any listeners on the inner THs; delegating on
+// the persistent #techView container survives every render.)
+function wireTechCardSort_() {
+  var container = document.getElementById('techView');
+  if (!container || container.__sortWired) return;
+  container.__sortWired = true;
+  container.addEventListener('click', function(e) {
+    var th = e.target.closest && e.target.closest('th[data-sort-key]');
+    if (!th) return;
+    var table = th.closest('.tech-table');
+    if (!table) return;
+    var branch = table.getAttribute('data-branch');
+    var key = th.getAttribute('data-sort-key');
+    if (!branch || !key) return;
+    var current = STATE.techCardSort[branch];
+    if (current && current.key === key) {
+      // Toggle direction
+      STATE.techCardSort[branch] = { key: key, dir: current.dir === 'desc' ? 'asc' : 'desc' };
+    } else {
+      // New column — start with desc (asc for name column since alphabetical is more natural)
+      STATE.techCardSort[branch] = { key: key, dir: (key === 'name') ? 'asc' : 'desc' };
+    }
+    render();
+  });
 }
 
 // ─────────── Tech view chart helpers ───────────
