@@ -356,7 +356,68 @@
     color: var(--text); margin: 0 0 6px;
     padding-bottom: 6px; border-bottom: 1px solid var(--border);
   }
-  .chart-meta { font-size: 10px; color: var(--text-dim); margin: -2px 0 6px; }
+  .chart-meta { font-size: 10px; color: var(--text-dim); margin: -2px 0 8px; }
+
+  /* ── Forecast Totals — 4 KPI cards ── */
+  .fc-kpi-grid {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+  }
+  .fc-kpi {
+    background: rgba(244,123,32,0.06);
+    border: 1px solid rgba(244,123,32,0.25);
+    border-radius: 6px; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .fc-kpi-label {
+    font-size: 9px; color: var(--text-dim); font-weight: 700;
+    letter-spacing: 0.6px; text-transform: uppercase;
+  }
+  .fc-kpi-value {
+    font-size: 20px; color: #F47B20; font-weight: 700;
+    font-variant-numeric: tabular-nums; line-height: 1.15;
+  }
+  .fc-kpi-bar {
+    height: 4px; background: rgba(244,123,32,0.15); border-radius: 2px;
+    overflow: hidden; margin-top: 2px;
+  }
+  .fc-kpi-bar-fill {
+    height: 100%; background: #F47B20; border-radius: 2px;
+  }
+  @media (max-width: 640px) { .fc-kpi-grid { grid-template-columns: repeat(2, 1fr); } .fc-kpi-value { font-size: 18px; } }
+  @media (max-width: 380px) { .fc-kpi-grid { grid-template-columns: 1fr; } }
+
+  /* ── Callback Counts — horizontal bars sorted by count desc ── */
+  .cb-bars { display: flex; flex-direction: column; gap: 6px; }
+  .cb-row {
+    display: grid; grid-template-columns: 90px 1fr 40px;
+    align-items: center; gap: 10px;
+  }
+  .cb-label {
+    font-size: 11px; font-weight: 700; color: var(--text);
+    letter-spacing: 0.4px; text-transform: uppercase;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cb-bar-track {
+    height: 18px; background: rgba(255,255,255,0.04);
+    border-radius: 4px; overflow: hidden;
+  }
+  .cb-bar-fill {
+    height: 100%; border-radius: 4px;
+    transition: width 0.35s ease;
+  }
+  .cb-value {
+    font-size: 13px; font-weight: 700;
+    font-variant-numeric: tabular-nums; text-align: right;
+  }
+  .cb-empty {
+    text-align: center; color: var(--text-dim); padding: 24px 8px; font-size: 12px;
+  }
+  @media (max-width: 640px) {
+    .cb-row { grid-template-columns: 70px 1fr 32px; gap: 6px; }
+    .cb-label { font-size: 10px; }
+    .cb-value { font-size: 12px; }
+    .cb-bar-track { height: 14px; }
+  }
 
   /* ── Footer status ── */
   .footer-status {
@@ -1960,73 +2021,71 @@ function renderTechView_() {
 }
 
 // ─────────── Tech view chart helpers ───────────
-// Renders the row of two SVG charts above the branch grid:
-//   1) Forecast Totals  — total revenue today/tmrw/+2/+3 across all techs
-//   2) Callback Counts  — # of CallBack-type orders in the next 4 days, by branch
+// Renders the row of two charts above the branch grid:
+//   1) Forecast Totals  — 4 KPI cards with big dollar amounts + thin proportional bars
+//   2) Callback Counts  — Horizontal bars per branch, sorted by count desc
 function renderTechChartsRow_(fcTotals, callbacksByBranch, dateLabel) {
-  // Chart 1: Forecast Totals (4 bars, all orange — single brand color)
-  var dayName = function(s) { return s.split(' ')[0]; };  // "Thu 5/22" → "Thu"
-  var dayDate = function(s) { return s.split(' ')[1] || ''; };
-  var fcBars = [
-    { label: 'TODAY '    + dayDate(dateLabel(0)), value: fcTotals.today, displayValue: '$' + Math.round(fcTotals.today).toLocaleString(), color: '#F47B20' },
-    { label: 'TOMORROW ' + dayDate(dateLabel(1)), value: fcTotals.tmrw,  displayValue: '$' + Math.round(fcTotals.tmrw).toLocaleString(),  color: '#F47B20' },
-    { label: '+2 '       + dayDate(dateLabel(2)), value: fcTotals.d2,    displayValue: '$' + Math.round(fcTotals.d2).toLocaleString(),    color: '#F47B20' },
-    { label: '+3 '       + dayDate(dateLabel(3)), value: fcTotals.d3,    displayValue: '$' + Math.round(fcTotals.d3).toLocaleString(),    color: '#F47B20' }
-  ];
-
-  // Chart 2: Callback Counts by Branch — orange for Catseye, blue for USX
-  var cbBars = BRANCH_ALL.map(function(b) {
-    var count = callbacksByBranch[b] || 0;
-    return {
-      label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
-      value: count,
-      displayValue: String(count),
-      color: isUsxBranch(b) ? '#60A5FA' : '#F47B20'
-    };
-  });
-
-  var fcChart = svgBarChart_(fcBars, 500, 180);
-  var cbChart = svgBarChart_(cbBars, 500, 180);
-
   return '<div class="tech-charts-row">' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">FORECAST TOTALS</h3>' +
       '<div class="chart-meta">Total scheduled revenue per day (all techs)</div>' +
-      fcChart +
+      renderForecastKpiCards_(fcTotals, dateLabel) +
     '</div>' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">CALLBACK COUNTS BY BRANCH</h3>' +
       '<div class="chart-meta">CallBack orders scheduled in next 4 days</div>' +
-      cbChart +
+      renderCallbackHbars_(callbacksByBranch) +
     '</div>' +
   '</div>';
 }
 
-// Generic SVG bar chart — vertical bars with value labels above and category
-// labels below. Sized for ~half-width card in the 2-col grid.
-function svgBarChart_(bars, width, height) {
-  var W = width  || 500;
-  var H = height || 180;
-  var max = Math.max.apply(null, bars.map(function(b) { return b.value; })) || 1;
-  var valueGap = 22, labelGap = 22;
-  var chartH = H - valueGap - labelGap;
-  var barWidth = Math.min(70, (W * 0.75) / bars.length);
-  var totalBarSpace = bars.length * barWidth;
-  var gap = (W - totalBarSpace) / (bars.length + 1);
+// 4 KPI cards: TODAY / TOMORROW / +2 / +3. Each shows date label, big dollar
+// amount in brand orange, plus a thin proportional bar (% of the max day).
+function renderForecastKpiCards_(fcTotals, dateLabel) {
+  var max = Math.max(fcTotals.today, fcTotals.tmrw, fcTotals.d2, fcTotals.d3, 1);
+  var cards = [
+    { label: 'TODAY · '    + dateLabel(0), value: fcTotals.today },
+    { label: 'TOMORROW · ' + dateLabel(1), value: fcTotals.tmrw  },
+    { label: '+2 · '       + dateLabel(2), value: fcTotals.d2    },
+    { label: '+3 · '       + dateLabel(3), value: fcTotals.d3    }
+  ];
+  return '<div class="fc-kpi-grid">' + cards.map(function(c) {
+    var pct = (c.value / max) * 100;
+    return '<div class="fc-kpi">' +
+      '<div class="fc-kpi-label">' + escapeHtml(c.label) + '</div>' +
+      '<div class="fc-kpi-value">$' + Math.round(c.value).toLocaleString() + '</div>' +
+      '<div class="fc-kpi-bar"><div class="fc-kpi-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+    '</div>';
+  }).join('') + '</div>';
+}
 
-  var content = bars.map(function(b, i) {
-    var x = gap + i * (barWidth + gap);
-    var h = max > 0 ? (b.value / max) * chartH : 0;
-    var y = valueGap + (chartH - h);
-    var rectHtml = h > 0
-      ? '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barWidth.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + b.color + '" rx="4"/>'
-      : '';
-    return rectHtml +
-      '<text x="' + (x + barWidth / 2).toFixed(1) + '" y="' + (y - 5).toFixed(1) + '" text-anchor="middle" font-size="11" fill="#E5E7EB" font-weight="700">' + b.displayValue + '</text>' +
-      '<text x="' + (x + barWidth / 2).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="middle" font-size="9" fill="#9CA3AF" font-weight="700">' + escapeHtml(b.label) + '</text>';
-  }).join('');
-
-  return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">' + content + '</svg>';
+// Horizontal sorted bars — branch name | proportional bar | count.
+// Branch order: by count desc (rank-ordering is the visual purpose of this chart).
+// Color: orange Catseye, blue USX. Hidden branches with 0 callbacks still render so
+// CSRs see the full picture; the bar just shows as empty track.
+function renderCallbackHbars_(callbacksByBranch) {
+  var rows = BRANCH_ALL.map(function(b) {
+    return {
+      branch: b,
+      label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
+      count: callbacksByBranch[b] || 0,
+      color: isUsxBranch(b) ? '#60A5FA' : '#F47B20'
+    };
+  });
+  rows.sort(function(a, b) { return b.count - a.count; });
+  var max = Math.max.apply(null, rows.map(function(r) { return r.count; })) || 1;
+  var total = rows.reduce(function(s, r) { return s + r.count; }, 0);
+  if (total === 0) return '<div class="cb-empty">No callbacks scheduled in the next 4 days</div>';
+  return '<div class="cb-bars">' + rows.map(function(r) {
+    var pct = (r.count / max) * 100;
+    return '<div class="cb-row">' +
+      '<div class="cb-label">' + escapeHtml(r.label) + '</div>' +
+      '<div class="cb-bar-track">' +
+        (r.count > 0 ? '<div class="cb-bar-fill" style="width:' + pct.toFixed(1) + '%;background:' + r.color + '"></div>' : '') +
+      '</div>' +
+      '<div class="cb-value">' + r.count + '</div>' +
+    '</div>';
+  }).join('') + '</div>';
 }
 
 function fmt(v, type, record) {
