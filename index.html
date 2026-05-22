@@ -2711,34 +2711,56 @@ function renderTechView_() {
   function renderTechDrillHtml_(techCode, colspan) {
     var records = [];
 
-    // MTD invoices for this tech
+    // Helper: extract HH:MM from a datetime string like "2026-05-18T09:30:00".
+    // PestPac uses a 1899-12-30 sentinel year for "time only" fields, which
+    // we filter out as garbage. Returns '' if no usable time present.
+    function extractTime_(dt) {
+      if (!dt) return '';
+      var s = String(dt);
+      if (s.indexOf('1899') === 0) return '';   // sentinel placeholder
+      var ti = s.indexOf('T');
+      if (ti < 0) return '';
+      var time = s.substring(ti + 1, ti + 6);   // "HH:MM"
+      if (time === '00:00') return '';           // midnight = "no time set"
+      var h = parseInt(time.substring(0, 2), 10);
+      var m = time.substring(3);
+      var ampm = h >= 12 ? 'p' : 'a';
+      var h12  = h % 12 || 12;
+      return h12 + ':' + m + ampm;
+    }
+
+    // Helper: build a customer name from a Location record (used for SOs)
+    function customerFromLocation_(loc) {
+      if (!loc) return '';
+      if (loc.Company) return String(loc.Company).trim();
+      var f = String(loc.FirstName || '').trim();
+      var l = String(loc.LastName  || '').trim();
+      if (l && f) return l + ', ' + f;
+      return l || f || '';
+    }
+
+    // MTD invoices for this tech — invoices have CustomerName + City directly
     nonEstimateInvoices_().forEach(function(inv) {
       var d = String(inv.InvoiceDate || '').substring(0, 10);
       if (d < dSom || d > dYest) return;
       var t1 = String(inv.Tech  || '').toUpperCase();
       var t2 = String(inv.Tech2 || '').toUpperCase();
       if (t1 !== techCode && t2 !== techCode) return;
-      // Look up customer name from locations cache when available
-      var custName = inv.Customer || inv.LocationName || '';
-      if (!custName && STATE.locationsByCode && inv.LocationCode != null) {
-        var loc = STATE.locationsByCode[String(inv.LocationCode)];
-        if (loc) custName = loc.LocationName || loc.CompanyName || loc.Name || '';
-      }
       records.push({
         kind: 'INV',
         date: d,
         sortKey: String(inv.InvoiceDate || ''),
-        workDate: String(inv.WorkDate || inv.InvoiceDate || '').substring(0, 10),
-        customer: custName,
+        time: extractTime_(inv.WorkDate),   // most invoices won't have a time
+        customer: String(inv.CustomerName || '').trim(),
+        city: String(inv.City || '').trim(),
         serviceCode: inv.ServiceCode || '',
         serviceClass: inv.ServiceClass || inv._Class || '',
         amount: Number(inv.SubTotal) || 0,
-        typeCode: inv.InvoiceType || '',
-        pairedTech: (t1 === techCode ? (inv.Tech2 || '') : (inv.Tech || ''))
+        typeCode: inv.InvoiceType || ''
       });
     });
 
-    // MTD service orders for this tech (work that was scheduled and happened)
+    // MTD service orders for this tech — lookup customer + city via location
     if (STATE.rawCache && STATE.rawCache.orders) {
       STATE.rawCache.orders.forEach(function(o) {
         if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
@@ -2747,27 +2769,24 @@ function renderTechView_() {
         var t1 = String(o.Tech1 || '').toUpperCase();
         var t2 = String(o.Tech2 || '').toUpperCase();
         if (t1 !== techCode && t2 !== techCode) return;
-        var custName = o.Customer || o.LocationName || '';
-        if (!custName && STATE.locationsMap && o.LocationID != null) {
-          var loc = STATE.locationsMap[String(o.LocationID)];
-          if (loc) custName = loc.LocationName || loc.CompanyName || loc.Name || '';
-        }
+        var loc = (STATE.locationsMap && o.LocationID != null)
+          ? STATE.locationsMap[String(o.LocationID)] : null;
         records.push({
           kind: 'SO',
           date: d,
-          sortKey: String(o.EarliestTime || o.WorkDate || ''),
-          workDate: d,
-          customer: custName,
+          sortKey: String(o.WorkDate || o.EarliestTime || ''),
+          time: extractTime_(o.WorkDate) || extractTime_(o.EarliestTime),
+          customer: customerFromLocation_(loc),
+          city: loc ? String(loc.City || '').trim() : '',
           serviceCode: o.ServiceCode || '',
           serviceClass: o._Class || '',
           amount: Number(o.SubTotal) || 0,
-          typeCode: o.OrderType || '',
-          pairedTech: (t1 === techCode ? (o.Tech2 || '') : (o.Tech1 || ''))
+          typeCode: o.OrderType || ''
         });
       });
     }
 
-    // Sort desc by sortKey (full timestamp string), fall back to date
+    // Sort desc by sortKey (full timestamp), fall back to date
     records.sort(function(a, b) {
       var ak = String(a.sortKey || a.date);
       var bk = String(b.sortKey || b.date);
@@ -2798,21 +2817,25 @@ function renderTechView_() {
       var wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
       return wd + ' ' + (d.getMonth() + 1) + '/' + d.getDate();
     }
+    function dim_(s) {
+      return s ? escapeHtml(s) : '<span style="color:var(--text-dim)">—</span>';
+    }
 
     var rowsHtml = records.map(function(r) {
       var pillCls = r.kind === 'INV' ? 'drill-pill-inv' : 'drill-pill-so';
-      var paired = r.pairedTech ? ' <span style="color:var(--text-dim);font-size:9px">+ ' + escapeHtml(techDisplayName(r.pairedTech)) + '</span>' : '';
       var classCell = r.serviceClass
         ? '<span class="drill-class">' + escapeHtml(r.serviceClass) + '</span>'
         : '<span style="color:var(--text-dim)">—</span>';
       return '<tr>' +
         '<td>' + fmtShort(r.date) + '</td>' +
+        '<td>' + dim_(r.time) + '</td>' +
         '<td><span class="drill-pill ' + pillCls + '">' + r.kind + '</span></td>' +
-        '<td>' + escapeHtml(r.typeCode || '—') + '</td>' +
-        '<td>' + escapeHtml(r.customer || '—') + paired + '</td>' +
-        '<td>' + escapeHtml(r.serviceCode || '—') + '</td>' +
+        '<td>' + dim_(r.typeCode) + '</td>' +
+        '<td>' + dim_(r.city) + '</td>' +
+        '<td>' + dim_(r.customer) + '</td>' +
+        '<td>' + dim_(r.serviceCode) + '</td>' +
         '<td>' + classCell + '</td>' +
-        '<td class="num">' + (r.amount > 0 ? '$' + Math.round(r.amount).toLocaleString() : '<span style="color:var(--text-dim)">—</span>') + '</td>' +
+        '<td class="num">' + (r.amount !== 0 ? '$' + Math.round(r.amount).toLocaleString() : '<span style="color:var(--text-dim)">—</span>') + '</td>' +
       '</tr>';
     }).join('');
 
@@ -2822,8 +2845,10 @@ function renderTechView_() {
           summary +
           '<table class="drill-table"><thead><tr>' +
             '<th>Date</th>' +
+            '<th>Time</th>' +
             '<th>Type</th>' +
             '<th>Sub</th>' +
+            '<th>City</th>' +
             '<th>Customer</th>' +
             '<th>Service</th>' +
             '<th>Class</th>' +
