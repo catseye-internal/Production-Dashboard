@@ -440,7 +440,6 @@
 <header class="header">
   <div class="header-left">
     <div class="header-title">Production <span>Dashboard</span></div>
-    <span class="header-badge">Catseye &amp; USX</span>
   </div>
   <div class="header-right">
     <div class="refresh-indicator"><div class="refresh-dot"></div><span>Live</span></div>
@@ -729,11 +728,13 @@ function wireTabs() {
       applyViewVisibility_();
       setupPeriodButtons();
       document.getElementById('customDateRange').classList.remove('visible');
-      // Sort default sync (orders vs invoices keys)
-      if ((STATE.view === 'invoices' || STATE.view === 'summary') && STATE.sort.key === 'WorkDate') {
-        STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
-      } else if (STATE.view === 'orders' && STATE.sort.key === 'InvoiceDate') {
+      // Sort default sync — always reset to the view's canonical date column.
+      // Joe directive 2026-05-21: Forecast always sorts by WorkDate (not OrderDate
+      // or any other column the user may have clicked on a prior visit).
+      if (STATE.view === 'orders') {
         STATE.sort = { key: 'WorkDate', dir: 'desc' };
+      } else if (STATE.view === 'invoices' || STATE.view === 'summary') {
+        STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
       }
       // Tech view always needs invoices (for MTD completed column); Invoices and Summary need them too
       var needsInvoices = (STATE.view === 'invoices' || STATE.view === 'summary' || STATE.view === 'tech');
