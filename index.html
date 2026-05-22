@@ -2436,7 +2436,7 @@ function wireTechCardSort_() {
       if (current[j].key === key) { existingIdx = j; break; }
     }
     if (e.shiftKey) {
-      // Shift+click: ADD as secondary (or toggle dir if already in sort)
+      // Shift+click: ADD as next sort level (or toggle if already in sort)
       if (existingIdx >= 0) {
         current[existingIdx] = {
           key: key,
@@ -2446,12 +2446,20 @@ function wireTechCardSort_() {
         current.push({ key: key, dir: defaultDir });
       }
     } else {
-      // Plain click: REPLACE sort with this column as sole primary.
-      // If this column was already the sole primary, toggle its direction.
-      if (current.length === 1 && existingIdx === 0) {
-        current = [{ key: key, dir: current[0].dir === 'asc' ? 'desc' : 'asc' }];
-      } else {
+      // Plain click: REPLACE PRIMARY only — secondaries are preserved (Joe directive 2026-05-22).
+      // - If this column is already primary: toggle its direction.
+      // - If this column is a secondary level: promote to primary (remove old position).
+      // - If this column is new: replace primary, keep all existing secondaries.
+      if (existingIdx === 0) {
+        current[0] = { key: key, dir: current[0].dir === 'asc' ? 'desc' : 'asc' };
+      } else if (existingIdx > 0) {
+        var promotedDir = current[existingIdx].dir;
+        current.splice(existingIdx, 1);
+        current.unshift({ key: key, dir: promotedDir });
+      } else if (current.length === 0) {
         current = [{ key: key, dir: defaultDir }];
+      } else {
+        current[0] = { key: key, dir: defaultDir };
       }
     }
     STATE.techCardSort[branch] = current;
