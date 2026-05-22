@@ -363,32 +363,41 @@
   }
   .chart-meta { font-size: 10px; color: var(--text-dim); margin: -2px 0 8px; }
 
-  /* ── Forecast Totals — 4 KPI cards ── */
+  /* ── Forecast Totals — 4 KPI cards (taller, bigger numbers) ── */
   .fc-kpi-grid {
-    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
   }
   .fc-kpi {
     background: rgba(244,123,32,0.06);
     border: 1px solid rgba(244,123,32,0.25);
-    border-radius: 6px; padding: 8px 10px;
-    display: flex; flex-direction: column; gap: 4px;
+    border-radius: 8px; padding: 18px 16px 16px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    gap: 14px; min-height: 130px;
   }
   .fc-kpi-label {
-    font-size: 9px; color: var(--text-dim); font-weight: 700;
-    letter-spacing: 0.6px; text-transform: uppercase;
+    font-size: 11px; color: var(--text-dim); font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase;
   }
   .fc-kpi-value {
-    font-size: 20px; color: #F47B20; font-weight: 700;
-    font-variant-numeric: tabular-nums; line-height: 1.15;
+    font-size: 30px; color: #F47B20; font-weight: 700;
+    font-variant-numeric: tabular-nums; line-height: 1.1;
   }
   .fc-kpi-bar {
-    height: 4px; background: rgba(244,123,32,0.15); border-radius: 2px;
-    overflow: hidden; margin-top: 2px;
+    height: 5px; background: rgba(244,123,32,0.15); border-radius: 3px;
+    overflow: hidden;
   }
   .fc-kpi-bar-fill {
-    height: 100%; background: #F47B20; border-radius: 2px;
+    height: 100%; background: #F47B20; border-radius: 3px;
   }
-  @media (max-width: 640px) { .fc-kpi-grid { grid-template-columns: repeat(2, 1fr); } .fc-kpi-value { font-size: 18px; } }
+  @media (max-width: 900px) {
+    .fc-kpi { min-height: 110px; padding: 14px 12px; }
+    .fc-kpi-value { font-size: 24px; }
+  }
+  @media (max-width: 640px) {
+    .fc-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .fc-kpi { min-height: 100px; }
+    .fc-kpi-value { font-size: 22px; }
+  }
   @media (max-width: 380px) { .fc-kpi-grid { grid-template-columns: 1fr; } }
 
   /* ── Callback Counts — horizontal bars sorted by count desc ── */
