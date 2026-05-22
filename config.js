@@ -333,6 +333,8 @@ const NON_TECH_CODES = new Set([
   'BAG',   // Sales
   'TPLX',  // Sales
   'MRS',   // CSR
+  'SPD2',  // Sara D'Angelo — IPM Director (Joe 2026-05-22)
+  'BLL',   // Brian Lariccia — Manager (Joe 2026-05-22)
 ]);
 
 function isNonTechCode(code) {
