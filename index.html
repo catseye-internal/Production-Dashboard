@@ -638,6 +638,9 @@ var STATE = {
   setupsLoadPromise: null,
   setupsMap: null,            // SetupID → setup
   setupsByLocService: null,   // LocationID + ':' + ServiceCode → setup (for invoices fallback)
+  employeesCache: null,
+  employeesLoadPromise: null,
+  employeesMap: null,         // Code (uppercase) → employee record
 };
 
 // Per-view period button definitions
@@ -709,6 +712,8 @@ document.addEventListener('DOMContentLoaded', function() {
   loadLocationsCache();
   // Load setups cache in parallel — powers Schedule + Frequency columns on both views
   loadSetupsCache();
+  // Load employees cache — powers tech full-name display on the Tech view
+  loadEmployeesCache();
   // Load invoice cache eagerly (non-blocking) so the Class column populates on Service Orders
   // without waiting for the user to switch to the Invoices tab. ~24 MB but cached after first load.
   loadInvoiceCache();
@@ -850,6 +855,45 @@ function loadSetupsCache() {
       STATE.setupsByLocService = {};
     });
   return STATE.setupsLoadPromise;
+}
+
+// Load cache-employees.json and build STATE.employeesMap (Username uppercase → record).
+// PestPac's `Username` field is the 3-letter code (GRA, BAG2, ADMN) that matches
+// ServiceOrders.Tech1, ServiceOrders.Tech2, and Invoice.Tech.
+function loadEmployeesCache() {
+  if (STATE.employeesLoadPromise) return STATE.employeesLoadPromise;
+  STATE.employeesLoadPromise = fetch('./cache-employees.json', { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(data) {
+      STATE.employeesCache = data;
+      STATE.employeesMap = {};
+      (data.employees || []).forEach(function(emp) {
+        if (emp.Username) STATE.employeesMap[String(emp.Username).toUpperCase()] = emp;
+      });
+      try { render(); } catch (e) {}
+    })
+    .catch(function(err) {
+      console.warn('employees cache load failed (OK if cache-employees.json doesn\'t exist yet):', err);
+      STATE.employeesMap = {};
+    });
+  return STATE.employeesLoadPromise;
+}
+
+// Resolve a tech code to a friendly display name. Falls back to the code
+// itself if no employee record is found. Handles "FirstName LastName",
+// "FullName", or "Name" depending on which PestPac field is populated.
+function techDisplayName(code) {
+  if (!code) return '';
+  if (!STATE.employeesMap) return String(code);
+  var emp = STATE.employeesMap[String(code).toUpperCase()];
+  if (!emp) return String(code);
+  var first = (emp.FirstName || '').trim();
+  var last  = (emp.LastName  || '').trim();
+  if (first || last) return (first + ' ' + last).trim();
+  if (emp.FullName)    return String(emp.FullName).trim();
+  if (emp.DisplayName) return String(emp.DisplayName).trim();
+  if (emp.Name)        return String(emp.Name).trim();
+  return String(code);
 }
 
 // Derive a Frequency label from a PestPac Schedule code when we don't have a
@@ -1740,8 +1784,13 @@ function renderTechView_() {
       totals.d3        += d.d3;
       var pillCls = isPest ? 'role-pest' : 'role-cgnwl';
       var pillTxt = isPest ? 'PEST' : 'CG/NWL';
+      // Display full name when available, with code as tooltip; fall back to raw code
+      var nameDisplay = techDisplayName(item.tech);
+      var nameCellHtml = (nameDisplay !== item.tech)
+        ? '<td title="' + escapeHtml(item.tech) + '">' + escapeHtml(nameDisplay) + '</td>'
+        : '<td>' + escapeHtml(item.tech) + '</td>';
       return '<tr>' +
-        '<td>' + escapeHtml(item.tech) + '</td>' +
+        nameCellHtml +
         '<td><span class="pill-role ' + pillCls + '">' + pillTxt + '</span></td>' +
         moneyCell(d.completed, 0, false) +  // MTD never colored (Joe directive 2026-05-21)
         moneyCell(d.today, d.today, isPest) +
