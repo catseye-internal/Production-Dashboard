@@ -394,7 +394,7 @@
   /* ── Callback Counts — horizontal bars sorted by count desc ── */
   .cb-bars { display: flex; flex-direction: column; gap: 6px; }
   .cb-row {
-    display: grid; grid-template-columns: 90px 1fr 40px;
+    display: grid; grid-template-columns: 90px 1fr 90px;
     align-items: center; gap: 10px;
   }
   .cb-label {
@@ -418,9 +418,9 @@
     text-align: center; color: var(--text-dim); padding: 24px 8px; font-size: 12px;
   }
   @media (max-width: 640px) {
-    .cb-row { grid-template-columns: 70px 1fr 32px; gap: 6px; }
+    .cb-row { grid-template-columns: 70px 1fr 76px; gap: 6px; }
     .cb-label { font-size: 10px; }
-    .cb-value { font-size: 12px; }
+    .cb-value { font-size: 11px; }
     .cb-bar-track { height: 14px; }
   }
 
@@ -1944,17 +1944,23 @@ function renderTechView_() {
     fcTotals.today += r.today; fcTotals.tmrw += r.tmrw;
     fcTotals.d2    += r.d2;    fcTotals.d3   += r.d3;
   });
+  // Single pass capturing both total orders per branch AND callbacks per branch
+  // (next 4 days). Estimates are excluded from the denominator.
+  var totalsByBranch = {};
   var callbacksByBranch = {};
   if (STATE.rawCache && STATE.rawCache.orders) {
     STATE.rawCache.orders.forEach(function(o) {
-      if ((o.OrderType || o.orderType) !== 'CallBack') return;
+      if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
       var date = String(o.WorkDate || '').substring(0, 10);
       if (date !== dToday && date !== dTmrw && date !== dPlus2 && date !== dPlus3) return;
       var b = o.Branch || '(no branch)';
-      callbacksByBranch[b] = (callbacksByBranch[b] || 0) + 1;
+      totalsByBranch[b] = (totalsByBranch[b] || 0) + 1;
+      if ((o.OrderType || '') === 'CallBack') {
+        callbacksByBranch[b] = (callbacksByBranch[b] || 0) + 1;
+      }
     });
   }
-  var chartsHtml = renderTechChartsRow_(fcTotals, callbacksByBranch, dateLabel);
+  var chartsHtml = renderTechChartsRow_(fcTotals, callbacksByBranch, totalsByBranch, dateLabel);
 
   var html = chartsHtml + branchEntries.map(function(entry) {
     var b = entry.b;
@@ -2042,7 +2048,7 @@ function renderTechView_() {
 // Renders the row of two charts above the branch grid:
 //   1) Forecast Totals  — 4 KPI cards with big dollar amounts + thin proportional bars
 //   2) Callback Counts  — Horizontal bars per branch, sorted by count desc
-function renderTechChartsRow_(fcTotals, callbacksByBranch, dateLabel) {
+function renderTechChartsRow_(fcTotals, callbacksByBranch, totalsByBranch, dateLabel) {
   return '<div class="tech-charts-row">' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">FORECAST TOTALS</h3>' +
@@ -2051,8 +2057,8 @@ function renderTechChartsRow_(fcTotals, callbacksByBranch, dateLabel) {
     '</div>' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">CALLBACK COUNTS BY BRANCH</h3>' +
-      '<div class="chart-meta">CallBack orders scheduled in next 4 days</div>' +
-      renderCallbackHbars_(callbacksByBranch) +
+      '<div class="chart-meta">Callbacks in next 4 days — count · % of all scheduled orders</div>' +
+      renderCallbackHbars_(callbacksByBranch, totalsByBranch) +
     '</div>' +
   '</div>';
 }
@@ -2077,31 +2083,50 @@ function renderForecastKpiCards_(fcTotals, dateLabel) {
   }).join('') + '</div>';
 }
 
-// Horizontal sorted bars — branch name | proportional bar | count.
-// Branch order: by count desc (rank-ordering is the visual purpose of this chart).
-// Color: orange Catseye, blue USX. Hidden branches with 0 callbacks still render so
-// CSRs see the full picture; the bar just shows as empty track.
-function renderCallbackHbars_(callbacksByBranch) {
+// Horizontal sorted bars — branch name | proportional bar | count · rate%.
+// Sort by RATE desc (callbacks/total orders) so the worst-performing branch
+// surfaces to the top regardless of absolute count. Bar width is still keyed
+// off raw count (visual heft = volume). Branches with 0 scheduled orders go
+// to the bottom and show "—" for rate.
+// Color: orange Catseye, blue USX.
+function renderCallbackHbars_(callbacksByBranch, totalsByBranch) {
   var rows = BRANCH_ALL.map(function(b) {
+    var count = callbacksByBranch[b] || 0;
+    var total = (totalsByBranch && totalsByBranch[b]) || 0;
+    var rate  = total > 0 ? (count / total) : null;  // null when no orders
     return {
       branch: b,
       label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
-      count: callbacksByBranch[b] || 0,
+      count: count,
+      total: total,
+      rate: rate,
       color: isUsxBranch(b) ? '#60A5FA' : '#F47B20'
     };
   });
-  rows.sort(function(a, b) { return b.count - a.count; });
-  var max = Math.max.apply(null, rows.map(function(r) { return r.count; })) || 1;
-  var total = rows.reduce(function(s, r) { return s + r.count; }, 0);
-  if (total === 0) return '<div class="cb-empty">No callbacks scheduled in the next 4 days</div>';
+  // Sort: branches with a defined rate by rate desc, then no-order branches at bottom
+  rows.sort(function(a, b) {
+    if (a.rate == null && b.rate == null) return 0;
+    if (a.rate == null) return 1;
+    if (b.rate == null) return -1;
+    if (b.rate !== a.rate) return b.rate - a.rate;
+    return b.count - a.count;  // tiebreaker: higher count first
+  });
+  var maxCount = Math.max.apply(null, rows.map(function(r) { return r.count; })) || 1;
+  var grandCount = rows.reduce(function(s, r) { return s + r.count; }, 0);
+  if (grandCount === 0) return '<div class="cb-empty">No callbacks scheduled in the next 4 days</div>';
   return '<div class="cb-bars">' + rows.map(function(r) {
-    var pct = (r.count / max) * 100;
+    var pct = (r.count / maxCount) * 100;
+    var rateStr = (r.rate == null)
+      ? '<span style="color:var(--text-dim)">—</span>'
+      : (r.rate * 100).toFixed(0) + '%';
     return '<div class="cb-row">' +
       '<div class="cb-label">' + escapeHtml(r.label) + '</div>' +
       '<div class="cb-bar-track">' +
         (r.count > 0 ? '<div class="cb-bar-fill" style="width:' + pct.toFixed(1) + '%;background:' + r.color + '"></div>' : '') +
       '</div>' +
-      '<div class="cb-value">' + r.count + '</div>' +
+      '<div class="cb-value">' + r.count +
+        ' <span style="color:var(--text-dim);font-weight:600">· ' + rateStr + '</span>' +
+      '</div>' +
     '</div>';
   }).join('') + '</div>';
 }
