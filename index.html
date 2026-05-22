@@ -2539,9 +2539,11 @@ function compareTechsByKey_(a, c, key, dirStr) {
     return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
   }
   if (key === 'role') {
-    av = a.role === 'pest' ? 0 : 1;
-    cv = c.role === 'pest' ? 0 : 1;
-    return (av - cv) * dir;
+    // Alphabetical: 'cgnwl' < 'pest'. With desc (Z→A) PEST goes above CG/NWL,
+    // which is the requested default secondary-sort behavior (Joe 2026-05-22).
+    av = a.role || '';
+    cv = c.role || '';
+    return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
   }
   // All remaining numeric columns read directly off the data object:
   // completed, completedCount, completedCallbacks, today, todayCallbacks,
@@ -2573,10 +2575,10 @@ function sortTechsForCard_(techs, sortState) {
       return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
     }
     if (key === 'role') {
-      // Pest before CG/NWL in asc, reversed in desc
-      av = a.role === 'pest' ? 0 : 1;
-      cv = c.role === 'pest' ? 0 : 1;
-      return (av - cv) * dir;
+      // Alphabetical: cgnwl < pest, so desc puts PEST first.
+      av = a.role || '';
+      cv = c.role || '';
+      return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
     }
     // Numeric columns: completed, today, tmrw, d2, d3
     av = Number(a.data[key]) || 0;
