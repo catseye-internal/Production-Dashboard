@@ -458,6 +458,49 @@
     .kpi-card { padding: 10px; }
     .kpi-value { font-size: 20px; }
   }
+  /* ── Tech + Summary view: tablet-tight (≤ 900px) ── */
+  @media (max-width: 900px) {
+    .grouped-view { padding: 0 16px 16px; gap: 10px; }
+    .group-block { padding: 8px 10px; }
+    .group-block-header { margin: -8px -10px 5px; padding: 6px 10px; }
+    .group-block-title { font-size: 10px; letter-spacing: 1px; }
+    .group-block-meta { font-size: 9px; }
+    .summary-table, .tech-table { font-size: 10px; }
+    .summary-table th, .tech-table th {
+      padding: 3px 5px; font-size: 8px; letter-spacing: 0.4px;
+    }
+    .summary-table td, .tech-table td { padding: 3px 5px; }
+    .cell-sub { font-size: 9px; }
+    .score-pill { padding: 1px 6px; font-size: 10px; }
+    .pill-role { font-size: 8px; padding: 1px 5px; letter-spacing: 0.3px; }
+    .tech-charts-row { gap: 10px; }
+    .chart-card { padding: 8px 10px; }
+    .chart-title { font-size: 10px; }
+    .chart-meta { font-size: 9px; }
+  }
+  /* ── Phone (≤ 640px) — Tech view condenses, charts shrink ── */
+  @media (max-width: 640px) {
+    .grouped-view { padding: 0 8px 16px; gap: 8px; }
+    .group-block { padding: 6px 8px; min-width: 0; }
+    .group-block-header { margin: -6px -8px 4px; padding: 5px 8px; }
+    .group-block-meta { display: none; }
+    .summary-table, .tech-table { font-size: 9px; }
+    .summary-table th, .tech-table th {
+      padding: 2px 3px; font-size: 7px;
+    }
+    .summary-table td, .tech-table td { padding: 2px 3px; }
+    .cell-sub { font-size: 8px; margin-top: 1px; }
+    .score-pill { padding: 1px 4px; font-size: 9px; border-radius: 8px; }
+    .pill-role { font-size: 7px; padding: 0px 4px; }
+    /* Lone-center stays half-ish at phone (already 1-col below 1100, but reset) */
+    .group-block.lone-center { width: auto; }
+  }
+  /* ── Very narrow phone (≤ 420px) ── */
+  @media (max-width: 420px) {
+    .tabs { gap: 0; }
+    .tab { font-size: 11px; padding: 6px 10px; }
+    .group-block-title { font-size: 9px; }
+  }
 </style>
 </head>
 <body>
