@@ -997,6 +997,18 @@ function loadSetupsCache() {
   return STATE.setupsLoadPromise;
 }
 
+// Defensive filter — exclude Estimate-type invoices from every aggregation and
+// list view. Catseye doesn't currently post Estimate Service Orders (so they
+// never become invoices), but Joe's directive 2026-05-22 is to filter ES on
+// the invoice side as well so a future process change doesn't silently inflate
+// revenue / count metrics with non-revenue invoices.
+function nonEstimateInvoices_() {
+  if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return [];
+  return STATE.invoiceCache.invoices.filter(function(inv) {
+    return (inv.InvoiceType || '') !== 'ES';
+  });
+}
+
 // Load cache-employees.json and build STATE.employeesMap (Username uppercase → record).
 // PestPac's `Username` field is the 3-letter code (GRA, BAG2, ADMN) that matches
 // ServiceOrders.Tech1, ServiceOrders.Tech2, and Invoice.Tech.
@@ -1148,7 +1160,7 @@ function prettyFrequency(setup) {
 function buildCodeToClassMap() {
   if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return;
   var counts = {};
-  STATE.invoiceCache.invoices.forEach(function(inv) {
+  nonEstimateInvoices_().forEach(function(inv) {
     var code = inv.ServiceCode;
     var cls  = inv.ServiceClass;
     if (!code || !cls) return;
@@ -1352,7 +1364,7 @@ function getRecordsForView() {
   // Tech view: source depends on the Forecast/Completed sub-mode
   if (def.source === 'tech') {
     if (STATE.techMode === 'completed') {
-      return (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
+      return nonEstimateInvoices_();
     }
     if (!STATE.rawCache) return [];
     return (STATE.rawCache.orders || []).filter(function(o) {
@@ -1360,7 +1372,7 @@ function getRecordsForView() {
     });
   }
   if (def.source === 'invoices') {
-    return (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
+    return nonEstimateInvoices_();
   }
   if (!STATE.rawCache) return [];
   // Service Orders = everything except Estimates. Production OrderType is folded
@@ -1390,7 +1402,7 @@ function updateTabCounts() {
     if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
       var invRange = resolvePeriod(STATE.invoicesPeriod, STATE.invoicesCustom);
       var lens = INVOICE_LENS[STATE.invoiceMode];
-      var invFiltered = STATE.invoiceCache.invoices.filter(function(r) {
+      var invFiltered = nonEstimateInvoices_().filter(function(r) {
         if (!dateInPeriod(r.InvoiceDate, invRange)) return false;
         if (lens && !lens.has(r.InvoiceType)) return false;
         return true;
@@ -1406,7 +1418,7 @@ function updateTabCounts() {
     if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
       var sumRange = resolvePeriod(STATE.summaryPeriod, STATE.summaryCustom);
       var sumLens = INVOICE_LENS[STATE.invoiceMode];
-      var sumFiltered = STATE.invoiceCache.invoices.filter(function(r) {
+      var sumFiltered = nonEstimateInvoices_().filter(function(r) {
         if (!dateInPeriod(r.InvoiceDate, sumRange)) return false;
         if (sumLens && !sumLens.has(r.InvoiceType)) return false;
         return true;
@@ -1678,8 +1690,8 @@ function colClass(type) {
 
 /* ─────────── SUMMARY VIEW (Invoice rollups by branch + service class) ─────────── */
 function renderSummaryView_() {
-  // Source = invoices, filtered by the current filter bar + invoice lens
-  var raw = (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
+  // Source = non-Estimate invoices, filtered by the current filter bar + invoice lens
+  var raw = nonEstimateInvoices_();
   var filtered = applyFilters(raw, []);
 
   // Aggregate: count + subtotal by ServiceClass, grouped per branch bucket
@@ -1849,15 +1861,13 @@ function renderTechView_() {
     }
   }
 
-  // Completed (MTD) — invoice cache, 1st of month through yesterday
-  if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
-    STATE.invoiceCache.invoices.forEach(function(inv) {
-      var date = String(inv.InvoiceDate || '').substring(0, 10);
-      if (date < dSom || date > dYest) return;
-      var role = roleOf(inv);
-      attribute('completed', inv.Branch, role, Number(inv.SubTotal) || 0, inv.Tech, inv.Tech2);
-    });
-  }
+  // Completed (MTD) — invoice cache, 1st of month through yesterday, ES excluded
+  nonEstimateInvoices_().forEach(function(inv) {
+    var date = String(inv.InvoiceDate || '').substring(0, 10);
+    if (date < dSom || date > dYest) return;
+    var role = roleOf(inv);
+    attribute('completed', inv.Branch, role, Number(inv.SubTotal) || 0, inv.Tech, inv.Tech2);
+  });
 
   // Forecast (Today/Tmrw/+2/+3) — orders cache, exact date match
   if (STATE.rawCache && STATE.rawCache.orders) {
@@ -2265,7 +2275,7 @@ function populateFilterOptions() {
   // Branches — union of known branches + any new ones seen in EITHER cache,
   // scoped to the active company filter (Catseye / USX / All).
   var orders = (STATE.rawCache && STATE.rawCache.orders) || [];
-  var invoices = (STATE.invoiceCache && STATE.invoiceCache.invoices) || [];
+  var invoices = nonEstimateInvoices_();
   var branchSet = new Set(BRANCH_ALL);
   orders.forEach(function(o)   { if (o.Branch) branchSet.add(o.Branch); });
   invoices.forEach(function(r) { if (r.Branch) branchSet.add(r.Branch); });
@@ -2285,12 +2295,10 @@ function populateFilterOptions() {
   // OrderType is still surfaced as a color-coded badge column for visibility.
   var orders = (STATE.rawCache && STATE.rawCache.orders) || [];
 
-  // Techs — derived from orders (Tech1) + invoices (Tech) when loaded
+  // Techs — derived from orders (Tech1) + non-Estimate invoices (Tech) when loaded
   var techSet = new Set();
   orders.forEach(function(o) { if (o.Tech1) techSet.add(o.Tech1); });
-  if (STATE.invoiceCache && STATE.invoiceCache.invoices) {
-    STATE.invoiceCache.invoices.forEach(function(r) { if (r.Tech) techSet.add(r.Tech); });
-  }
+  nonEstimateInvoices_().forEach(function(r) { if (r.Tech) techSet.add(r.Tech); });
   var techs = Array.from(techSet).sort();
   document.getElementById('techFilter').innerHTML =
     '<option value="">All Techs</option>' +
