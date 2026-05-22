@@ -288,6 +288,58 @@ function isRecurring(rec) {
   return RECURRING_SERVICE_CLASSES.has(sc);
 }
 
+// ── Office-event identification (Joe 2026-05-22) ──
+// An "office event" is a billing-only record — no field work happens, the
+// invoice exists purely to bill someone. PestPac credits these to the
+// original salesperson (auto-renewals) or to the office user who entered
+// them (credit memos), which incorrectly inflates those people on the
+// Tech view. We route office events to a per-company Office-credited
+// bucket instead of attributing them to a tech.
+
+const OFFICE_EVENT_SERVICE_CODES = new Set([
+  'CGW AUTO-RENEW',   // CatGuard warranty annual auto-renewal
+  'USX WAR AUTOREN',  // USX warranty auto-renewal
+  'TMS AUTO RENEWA',  // Termite warranty auto-renewal
+  'CGW NO RENEWAL',   // Customer declines renewal — still a billing event
+  'EARLY TERM',       // Early termination fee
+]);
+
+function isOfficeEvent(rec) {
+  if (!rec) return false;
+  // Credit memos are by definition office-entered (refunds/adjustments)
+  if ((rec.InvoiceType || '') === 'CM') return true;
+  // Auto-renewal and early-termination billing
+  var sc = String(rec.ServiceCode || '').toUpperCase().trim();
+  return sc && OFFICE_EVENT_SERVICE_CODES.has(sc);
+}
+
+// ── Non-tech code denylist (Joe 2026-05-22) ──
+// Username codes that are NOT field techs even though PestPac may have
+// them tagged as IsTech=true. Use for residual catch-all — any invoice
+// or order credited to one of these codes routes to the Office bucket
+// regardless of the ServiceCode. Keep small; event-based filtering above
+// handles most cases. Managers like SPD2 (Sara) and BLL (Lariccia) are
+// intentionally NOT in this list — they do legitimate field work.
+const NON_TECH_CODES = new Set([
+  'DJO',   // Dylan O'Sick — Sales
+  'DJOX',  // Dylan O'Sick — Sales (USX duplicate user)
+  'TJW',   // Thomas Willis — Sales
+  'BES',   // Brian Santiago — Sales
+  'JVB',   // Jacob Burgess — Sales
+  'VXR',   // Vincent Romano — Sales
+  'KMD2',  // Kristin Dunigan — Sales/CSR
+  'MAA',   // Matthew Arredondo — Admin
+  'NMR',   // Sales
+  'BAG',   // Sales
+  'TPLX',  // Sales
+  'MRS',   // CSR
+]);
+
+function isNonTechCode(code) {
+  if (!code) return false;
+  return NON_TECH_CODES.has(String(code).toUpperCase().trim());
+}
+
 // Invoice Type code → friendly label and color (confirmed with Joe 2026-05-20)
 const INVOICE_TYPE_LABEL = {
   'IN': 'Invoice',     // standard completed work

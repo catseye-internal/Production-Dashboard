@@ -377,6 +377,35 @@
     font-weight: 700; border-top: 2px solid var(--border); padding-top: 5px;
     color: var(--text);
   }
+  /* MTD reconciliation banner — top of Tech view. 3-up grid showing
+     field-credited vs office-credited revenue vs the total that matches
+     Summary view. Joe directive 2026-05-22. */
+  .mtd-banner {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-bottom: 14px;
+  }
+  .mtd-banner-stat {
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 16px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .mtd-banner-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+    color: var(--text-dim); text-transform: uppercase;
+  }
+  .mtd-banner-value {
+    font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .mtd-banner-value.field  { color: #34D399; }   /* green */
+  .mtd-banner-value.office { color: #FBBF24; }   /* amber */
+  .mtd-banner-value.total  { color: var(--text); }
+  .mtd-banner-sub {
+    font-size: 10px; color: var(--text-dim); margin-top: 2px;
+  }
+  @media (max-width: 900px) {
+    .mtd-banner { grid-template-columns: 1fr; }
+  }
   /* Office-credited footer row — sales/CSR/manual-entry revenue that PestPac
      credited to non-tech codes. Aggregated into one line so Branch Total
      reconciles to the Summary view's MTD total. Joe directive 2026-05-22. */
@@ -2044,6 +2073,46 @@ function renderTechView_() {
     if (role)   r.roleVotes[role]     = (r.roleVotes[role] || 0) + 1;
   }
 
+  // ── Office-credited bucket (Joe directive 2026-05-22, event-based filter) ──
+  // Auto-renewals, credit memos, and revenue credited to known non-tech codes
+  // are routed here instead of being attributed to a specific tech. Tracked
+  // per-company (catseye / usx) so the master cards can render the
+  // Office-credited footer row that reconciles Branch Total to Summary.
+  function newOfficeBucket_() {
+    return {
+      completed: 0, completedCount: 0, completedCallbacks: 0,
+      today: 0, todayCount: 0, todayCallbacks: 0,
+      tmrw: 0,  tmrwCount: 0,  tmrwCallbacks: 0,
+      d2: 0,    d2Count: 0,    d2Callbacks: 0,
+      d3: 0,    d3Count: 0,    d3Callbacks: 0,
+      // Track distinct contributors for the hint text
+      contributors: {},
+      // Service-code breakdown (for tooltip / future drill-down)
+      codeBreakdown: {}
+    };
+  }
+  var officeByCompany = { catseye: newOfficeBucket_(), usx: newOfficeBucket_() };
+  function officeBucketFor_(branch) {
+    return officeByCompany[isUsxBranch(branch) ? 'usx' : 'catseye'];
+  }
+  // Returns true if this record should be routed to the Office-credited
+  // bucket (auto-renewal / credit memo / non-tech-credited).
+  function shouldRouteToOffice_(rec, primaryTech) {
+    if (isOfficeEvent(rec)) return true;
+    if (isNonTechCode(primaryTech)) return true;
+    return false;
+  }
+  function noteOfficeContributor_(bucket, code, amount) {
+    if (!code) return;
+    var k = String(code).toUpperCase();
+    bucket.contributors[k] = (bucket.contributors[k] || 0) + amount;
+  }
+  function noteOfficeCode_(bucket, code, amount) {
+    if (!code) return;
+    var k = String(code).toUpperCase();
+    bucket.codeBreakdown[k] = (bucket.codeBreakdown[k] || 0) + amount;
+  }
+
   // Helper: attribute revenue + count to one or both techs depending on role + Tech2.
   // CG/NWL jobs with two techs split revenue 50/50 (both did the installation work)
   // but each gets a full +1 to the order count — they were each at the stop.
@@ -2080,8 +2149,20 @@ function renderTechView_() {
   nonEstimateInvoices_().forEach(function(inv) {
     var date = String(inv.InvoiceDate || '').substring(0, 10);
     if (date < dSom || date > dYest) return;
+    var amount = Number(inv.SubTotal) || 0;
+    // ── Office-credited routing (auto-renewals, credit memos, non-tech codes) ──
+    if (shouldRouteToOffice_(inv, inv.Tech)) {
+      var bk = officeBucketFor_(inv.Branch);
+      bk.completed += amount;
+      bk.completedCount += 1;
+      // Callbacks count separately if this was somehow a CB (rare for office events)
+      if ((inv.InvoiceType || '') === 'CB') bk.completedCallbacks += 1;
+      noteOfficeContributor_(bk, inv.Tech, amount);
+      noteOfficeCode_(bk, inv.ServiceCode, amount);
+      return;
+    }
     var role = roleOf(inv);
-    attribute('completed', inv.Branch, role, Number(inv.SubTotal) || 0, inv.Tech, inv.Tech2);
+    attribute('completed', inv.Branch, role, amount, inv.Tech, inv.Tech2);
     var t1 = inv.Tech, t2 = inv.Tech2;
     // MTD callback count per tech
     if ((inv.InvoiceType || '') === 'CB') {
@@ -2117,8 +2198,19 @@ function renderTechView_() {
       else if (date === dPlus2) bucket = 'd2';
       else if (date === dPlus3) bucket = 'd3';
       if (!bucket) return;
+      var amount = Number(o.SubTotal) || 0;
+      // ── Office-credited routing (same rule as invoices) ──
+      if (shouldRouteToOffice_(o, o.Tech1)) {
+        var obk = officeBucketFor_(o.Branch);
+        obk[bucket] += amount;
+        obk[bucket + 'Count'] += 1;
+        if ((o.OrderType || '') === 'CallBack') obk[bucket + 'Callbacks'] += 1;
+        noteOfficeContributor_(obk, o.Tech1, amount);
+        noteOfficeCode_(obk, o.ServiceCode, amount);
+        return;
+      }
       var role = roleOf(o);
-      attribute(bucket, o.Branch, role, Number(o.SubTotal) || 0, o.Tech1, o.Tech2);
+      attribute(bucket, o.Branch, role, amount, o.Tech1, o.Tech2);
       var t1 = o.Tech1, t2 = o.Tech2;
       // Per-period callback count
       if ((o.OrderType || '') === 'CallBack') {
@@ -2287,35 +2379,69 @@ function renderTechView_() {
       }
     });
   }
+  // ── MTD reconciliation banner (Joe directive 2026-05-22) ──
+  // Three stats: field-tech MTD, office-credited MTD, and total (matches
+  // Summary view's MTD revenue). Lets you eyeball the office leakage at a
+  // glance and confirms the Tech view reconciles to Summary.
+  var fieldMtd = 0;
+  Object.keys(techRows).forEach(function(t) { fieldMtd += techRows[t].completed || 0; });
+  var officeMtd = (officeByCompany.catseye.completed || 0) + (officeByCompany.usx.completed || 0);
+  var totalMtd  = fieldMtd + officeMtd;
+  var officePct = totalMtd > 0 ? (officeMtd / totalMtd) * 100 : 0;
+  // Build hover-text breakdowns: top codes + top contributors across both companies
+  var allOfficeCodes = {};
+  var allOfficeContribs = {};
+  ['catseye','usx'].forEach(function(k) {
+    var o = officeByCompany[k];
+    Object.keys(o.codeBreakdown || {}).forEach(function(c) {
+      allOfficeCodes[c] = (allOfficeCodes[c] || 0) + o.codeBreakdown[c];
+    });
+    Object.keys(o.contributors || {}).forEach(function(c) {
+      allOfficeContribs[c] = (allOfficeContribs[c] || 0) + o.contributors[c];
+    });
+  });
+  var topCodes = Object.keys(allOfficeCodes)
+    .sort(function(a,b){ return allOfficeCodes[b] - allOfficeCodes[a]; })
+    .slice(0,5)
+    .map(function(c){ return c + ' ($' + Math.round(allOfficeCodes[c]).toLocaleString() + ')'; })
+    .join(' · ');
+  var topContribs = Object.keys(allOfficeContribs)
+    .sort(function(a,b){ return allOfficeContribs[b] - allOfficeContribs[a]; })
+    .slice(0,5)
+    .map(function(c){ return techDisplayName(c) + ' ($' + Math.round(allOfficeContribs[c]).toLocaleString() + ')'; })
+    .join(' · ');
+  var officeTip = 'Auto-renewals, credit memos, and revenue credited to non-tech codes.' +
+    (topCodes ? '\nTop codes: ' + topCodes : '') +
+    (topContribs ? '\nCredited to: ' + topContribs : '');
+  var mtdBanner =
+    '<div class="mtd-banner">' +
+      '<div class="mtd-banner-stat">' +
+        '<div class="mtd-banner-label">MTD Field Revenue</div>' +
+        '<div class="mtd-banner-value field">$' + Math.round(fieldMtd).toLocaleString() + '</div>' +
+        '<div class="mtd-banner-sub">attributed to field techs</div>' +
+      '</div>' +
+      '<div class="mtd-banner-stat" title="' + escapeHtml(officeTip) + '">' +
+        '<div class="mtd-banner-label">MTD Office-Credited</div>' +
+        '<div class="mtd-banner-value office">$' + Math.round(officeMtd).toLocaleString() + '</div>' +
+        '<div class="mtd-banner-sub">' + officePct.toFixed(1) + '% · auto-renew · credit memos · non-tech codes</div>' +
+      '</div>' +
+      '<div class="mtd-banner-stat">' +
+        '<div class="mtd-banner-label">MTD Total</div>' +
+        '<div class="mtd-banner-value total">$' + Math.round(totalMtd).toLocaleString() + '</div>' +
+        '<div class="mtd-banner-sub">reconciles to Summary view</div>' +
+      '</div>' +
+    '</div>';
+
   var chartsRow1 = renderTechChartsRow_(fcTotals, callbacksByBranch, totalsByBranch, dateLabel);
   var chartsRow2 = renderTechChartsRow2_(callbacksByBranchService, byBranch);
 
   // Master cards — one per company (Catseye + USX Pest), full-width
   function renderMasterCard(companyKey, label, brandCls) {
-    var allTechs = (byCompany[companyKey] || []).slice();
-    if (allTechs.length === 0) return '';
+    var techs = (byCompany[companyKey] || []).slice();
+    var office = officeByCompany[companyKey];
     var cardId = 'master-' + companyKey;
-
-    // ── IsTech filter (Joe directive 2026-05-22, "Option C") ──
-    // Split into visible field-tech rows vs. office-credited (sales/CSR/manual)
-    // codes. PestPac's "Invoice List" report puts CGW AUTO-RENEW and office-
-    // entered invoices under non-field codes — those people aren't techs but
-    // their revenue is real. We hide them from per-tech rows but aggregate
-    // their numbers into the Branch Total via a single "Office-credited"
-    // footer row so the card still reconciles to the Summary view.
-    // Filter rule: keep as visible tech if IsTech===true OR not yet in the
-    // employees cache (graceful for brand-new hires not synced overnight yet).
-    var techs = [];
-    var officeTechs = [];
-    allTechs.forEach(function(item) {
-      var emp = STATE.employeesMap ? STATE.employeesMap[String(item.tech).toUpperCase()] : null;
-      if (emp && emp.IsTech === false) {
-        officeTechs.push(item);
-      } else {
-        techs.push(item);
-      }
-    });
-    if (techs.length === 0 && officeTechs.length === 0) return '';
+    // Empty card guard: no real techs AND no office revenue → skip the card entirely
+    if (techs.length === 0 && (!office || office.completed === 0)) return '';
 
     // Precompute per-period drive distance + time so they're sortable.
     // MTD drive miles uses computeDriveMiles_ which groups by day internally
@@ -2339,7 +2465,6 @@ function renderTechView_() {
       d.driveTimeD3    = d.driveDistD3    > 0 ? d.driveDistD3    / 30 : 0;
     }
     techs.forEach(computeDriveOn_);
-    officeTechs.forEach(computeDriveOn_);
 
     // Default sort: Branch A→Z, then Class Z→A (Joe directive 2026-05-22)
     var sortState = STATE.techCardSort[cardId] || DEFAULT_MASTER_SORT.slice();
@@ -2428,67 +2553,56 @@ function renderTechView_() {
       '</tr>';
     }).join('');
 
-    // Office-credited aggregate — sum the IsTech=false rows into a single
-    // line AND fold into Branch Total so the card reconciles to Summary.
-    // (Drive miles intentionally excluded: these codes aren't doing route
-    // stops; any lat/lng points on their invoices are billing artifacts.)
-    var office = {
-      completed: 0, completedCount: 0, completedCallbacks: 0,
-      today: 0, todayCount: 0, todayCallbacks: 0,
-      tmrw: 0,  tmrwCount: 0,  tmrwCallbacks: 0,
-      d2: 0,    d2Count: 0,    d2Callbacks: 0,
-      d3: 0,    d3Count: 0,    d3Callbacks: 0
-    };
-    officeTechs.forEach(function(item) {
-      var d = item.data;
-      office.completed          += d.completed;
-      office.completedCount     += d.completedCount;
-      office.completedCallbacks += (d.completedCallbacks || 0);
-      office.today              += d.today;
-      office.todayCount         += d.todayCount;
-      office.todayCallbacks     += (d.todayCallbacks || 0);
-      office.tmrw               += d.tmrw;
-      office.tmrwCount          += d.tmrwCount;
-      office.tmrwCallbacks      += (d.tmrwCallbacks || 0);
-      office.d2                 += d.d2;
-      office.d2Count            += d.d2Count;
-      office.d2Callbacks        += (d.d2Callbacks || 0);
-      office.d3                 += d.d3;
-      office.d3Count            += d.d3Count;
-      office.d3Callbacks        += (d.d3Callbacks || 0);
-      // Fold into Branch Total so Summary view reconciles
-      totals.completed          += d.completed;
-      totals.completedCount     += d.completedCount;
-      totals.completedCallbacks += (d.completedCallbacks || 0);
-      totals.today              += d.today;
-      totals.todayCount         += d.todayCount;
-      totals.todayCallbacks     += (d.todayCallbacks || 0);
-      totals.tmrw               += d.tmrw;
-      totals.tmrwCount          += d.tmrwCount;
-      totals.tmrwCallbacks      += (d.tmrwCallbacks || 0);
-      totals.d2                 += d.d2;
-      totals.d2Count            += d.d2Count;
-      totals.d2Callbacks        += (d.d2Callbacks || 0);
-      totals.d3                 += d.d3;
-      totals.d3Count            += d.d3Count;
-      totals.d3Callbacks        += (d.d3Callbacks || 0);
-    });
-
-    // Office-credited row — only render if there's actually something to show.
+    // Office-credited row — pulled from the per-company officeByCompany
+    // aggregator that was populated upstream during the invoice + service-
+    // order loops. Folded into Branch Total so the card reconciles to
+    // the Summary view's MTD total. (Drive miles intentionally excluded
+    // — office events are billing-only, no route driving.)
     var officeRow = '';
-    var officeHasData = (
-      office.completed > 0 || office.today > 0 || office.tmrw > 0 ||
-      office.d2 > 0 || office.d3 > 0 || office.completedCount > 0 ||
+    var officeHasData = !!(office && (
+      office.completed !== 0 || office.completedCount > 0 ||
+      office.today > 0 || office.tmrw > 0 || office.d2 > 0 || office.d3 > 0 ||
       office.todayCount > 0 || office.tmrwCount > 0 ||
       office.d2Count > 0 || office.d3Count > 0
-    );
+    ));
     if (officeHasData) {
-      var officeNames = officeTechs.map(function(t) { return techDisplayName(t.tech); }).join(', ');
-      var officeCodeCount = officeTechs.length;
+      // Fold office numbers into Branch Total so it matches Summary view
+      totals.completed          += office.completed;
+      totals.completedCount     += office.completedCount;
+      totals.completedCallbacks += (office.completedCallbacks || 0);
+      totals.today              += office.today;
+      totals.todayCount         += office.todayCount;
+      totals.todayCallbacks     += (office.todayCallbacks || 0);
+      totals.tmrw               += office.tmrw;
+      totals.tmrwCount          += office.tmrwCount;
+      totals.tmrwCallbacks      += (office.tmrwCallbacks || 0);
+      totals.d2                 += office.d2;
+      totals.d2Count            += office.d2Count;
+      totals.d2Callbacks        += (office.d2Callbacks || 0);
+      totals.d3                 += office.d3;
+      totals.d3Count            += office.d3Count;
+      totals.d3Callbacks        += (office.d3Callbacks || 0);
+
+      // Build a friendly tooltip listing top contributors and codes
+      var contribList = Object.keys(office.contributors || {})
+        .sort(function(a, b) { return (office.contributors[b] || 0) - (office.contributors[a] || 0); })
+        .slice(0, 8)
+        .map(function(c) { return techDisplayName(c) + ' ($' + Math.round(office.contributors[c]).toLocaleString() + ')'; })
+        .join(' · ');
+      var codeList = Object.keys(office.codeBreakdown || {})
+        .sort(function(a, b) { return (office.codeBreakdown[b] || 0) - (office.codeBreakdown[a] || 0); })
+        .slice(0, 6)
+        .map(function(c) { return c + ' ($' + Math.round(office.codeBreakdown[c]).toLocaleString() + ')'; })
+        .join(' · ');
+      var contribCount = Object.keys(office.contributors || {}).length;
       var officeLabelHtml =
         '<span class="office-label">Office-credited</span>' +
-        '<span class="office-hint">' + officeCodeCount + ' non-tech ' + (officeCodeCount === 1 ? 'code' : 'codes') + '</span>';
-      officeRow = '<tr class="office-row" title="' + escapeHtml(officeNames) + ' — sales/CSR/manual entries. Counted in Branch Total but excluded from per-tech rows.">' +
+        '<span class="office-hint">auto-renew · credit memo · non-tech codes</span>';
+      var tooltipText = 'Auto-renewals, credit memos, and revenue credited to non-tech codes. ' +
+        'Counted in Branch Total but not attributed to a specific tech.' +
+        (codeList ? '\\n\\nTop codes: ' + codeList : '') +
+        (contribList ? '\\n\\nCredited to: ' + contribList : '');
+      officeRow = '<tr class="office-row" title="' + escapeHtml(tooltipText) + '">' +
         '<td>' + officeLabelHtml + '</td>' +
         '<td></td>' +
         '<td></td>' +
@@ -2584,7 +2698,7 @@ function renderTechView_() {
 
   var catseyeCard = renderMasterCard('catseye', 'CATSEYE TECHS', 'brand-catseye');
   var usxCard     = renderMasterCard('usx',     'USX PEST TECHS', 'brand-usx');
-  var html = chartsRow1 + chartsRow2 + catseyeCard + usxCard;
+  var html = mtdBanner + chartsRow1 + chartsRow2 + catseyeCard + usxCard;
 
   document.getElementById('techView').innerHTML = html;
   document.getElementById('footerCount').textContent = Object.keys(techRows).length.toLocaleString();
@@ -3143,15 +3257,12 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService) {
 }
 
 // Horizontal bars — MTD revenue per tech per branch, sorted desc.
-// Filters out office-credited (IsTech=false) codes so the per-tech average
-// reflects actual field-tech productivity, not sales-credit attribution.
+// Office-credited revenue is filtered out upstream during the invoice +
+// service-order loops (routed to officeByCompany instead of techRows), so
+// byBranch contains only real field techs at this point. No extra filter needed.
 function renderRevPerTechHbars_(byBranch) {
-  function isFieldTech_(item) {
-    var emp = STATE.employeesMap ? STATE.employeesMap[String(item.tech).toUpperCase()] : null;
-    return !emp || emp.IsTech !== false;  // unknown → assume tech (new-hire grace)
-  }
   var rows = BRANCH_ALL.map(function(b) {
-    var techs = (byBranch[b] || []).filter(isFieldTech_);
+    var techs = (byBranch[b] || []);
     var totalRev = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
     var revPerTech = techs.length > 0 ? totalRev / techs.length : 0;
     return {
