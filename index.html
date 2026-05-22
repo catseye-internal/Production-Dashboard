@@ -321,12 +321,23 @@
   }
   .summary-table tr:last-child td, .tech-table tr:last-child td { border-bottom: none; }
   .summary-table .num, .tech-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-  /* Sortable column headers on Tech view — click to sort within that card */
+  /* Sortable column headers on Tech view — click to sort within that card,
+     shift+click to add as a secondary sort level. */
   .tech-table th[data-sort-key] { cursor: pointer; user-select: none; transition: color 0.15s; }
   .tech-table th[data-sort-key]:hover { color: var(--text); }
   .tech-table th.sort-active { color: var(--orange); }
-  .tech-table th.sort-active::after { content: ' ▾'; font-size: 9px; opacity: 0.85; }
-  .tech-table th.sort-active.sort-asc::after { content: ' ▴'; }
+  .tech-table th.sort-active .sort-arrow { display: inline-block; font-size: 9px; opacity: 0.85; }
+  .tech-table th.sort-active.sort-asc .sort-arrow::before { content: '▴'; }
+  .tech-table th.sort-active:not(.sort-asc) .sort-arrow::before { content: '▾'; }
+  .tech-table th .sort-arrow { display: none; }
+  .sort-ordinal {
+    font-size: 8px; font-weight: 700; color: var(--orange);
+    margin-left: 2px; vertical-align: super;
+  }
+  .sort-hint {
+    font-size: 9px; color: var(--text-dim); font-weight: 400;
+    letter-spacing: 0.3px; text-transform: none;
+  }
   .summary-table .total-row td, .tech-table .total-row td {
     font-weight: 700; border-top: 2px solid var(--border); padding-top: 5px;
     color: var(--text);
@@ -2105,7 +2116,7 @@ function renderTechView_() {
     return '<div class="group-block full-width ' + brandCls + '">' +
       '<div class="group-block-header">' +
         '<h3 class="group-block-title">' + label + '</h3>' +
-        '<div class="group-block-meta">' + techs.length + ' techs</div>' +
+        '<div class="group-block-meta">' + techs.length + ' techs · <span class="sort-hint">shift+click column to add secondary sort</span></div>' +
       '</div>' +
       '<table class="tech-table" data-branch="' + cardId + '"><thead><tr>' +
         sortableTh_('name',      'Tech',      '',                                                                                       sortState, false) +
@@ -2129,23 +2140,34 @@ function renderTechView_() {
 }
 
 // Renders a clickable <th> with data-sort-key + active state arrow.
-// Used inside each tech card so headers can be clicked to sort within that card only.
+// sortState is an ARRAY of {key, dir} (most-priority first). If a column is
+// active in a multi-level sort, an ordinal (¹, ², …) is shown next to it.
 function sortableTh_(key, label, suffix, sortState, isNum) {
   var classes = [];
   if (isNum) classes.push('num');
-  if (sortState && sortState.key === key) {
+  var sortIdx = -1;
+  if (sortState && sortState.length) {
+    for (var i = 0; i < sortState.length; i++) {
+      if (sortState[i].key === key) { sortIdx = i; break; }
+    }
+  }
+  if (sortIdx >= 0) {
     classes.push('sort-active');
-    if (sortState.dir === 'asc') classes.push('sort-asc');
+    if (sortState[sortIdx].dir === 'asc') classes.push('sort-asc');
   }
   var cls = classes.length ? ' class="' + classes.join(' ') + '"' : '';
-  return '<th data-sort-key="' + key + '"' + cls + '>' + label + (suffix || '') + '</th>';
+  var ordinal = (sortIdx >= 0 && sortState.length > 1)
+    ? '<sup class="sort-ordinal">' + (sortIdx + 1) + '</sup>' : '';
+  var arrow = sortIdx >= 0 ? '<span class="sort-arrow"></span>' : '';
+  var title = ' title="Click to sort. Shift+click to add as secondary sort."';
+  return '<th data-sort-key="' + key + '"' + cls + title + '>' + label + (suffix || '') + ordinal + arrow + '</th>';
 }
 
-// Sort techs in a master card (Catseye / USX). Default: group by branch (in
-// canonical BRANCH_ALL order) then Pest first, then by 4-day forecast desc.
-// On column click, sort purely by the chosen column.
+// Multi-level sort for master cards. sortState is an array of {key, dir}
+// (most-priority first). If empty/null, falls back to the default sort
+// (branch in canonical order, then Pest first, then 4-day forecast desc).
 function sortTechsForMasterCard_(techs, sortState) {
-  if (!sortState) {
+  if (!sortState || !sortState.length) {
     techs.sort(function(a, c) {
       var ai = BRANCH_ALL.indexOf(a.branch); if (ai < 0) ai = 999;
       var ci = BRANCH_ALL.indexOf(c.branch); if (ci < 0) ci = 999;
@@ -2157,34 +2179,47 @@ function sortTechsForMasterCard_(techs, sortState) {
     });
     return;
   }
-  var dir = sortState.dir === 'asc' ? 1 : -1;
-  var key = sortState.key;
   techs.sort(function(a, c) {
-    var av, cv;
-    if (key === 'name') {
-      av = techDisplayName(a.tech).toLowerCase();
-      cv = techDisplayName(c.tech).toLowerCase();
-      return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
+    for (var i = 0; i < sortState.length; i++) {
+      var cmp = compareTechsByKey_(a, c, sortState[i].key, sortState[i].dir);
+      if (cmp !== 0) return cmp;
     }
-    if (key === 'branch') {
+    return 0;
+  });
+}
+
+// Pairwise comparator for a single sort column. Returns negative/0/positive.
+function compareTechsByKey_(a, c, key, dirStr) {
+  var dir = dirStr === 'asc' ? 1 : -1;
+  var av, cv;
+  if (key === 'name') {
+    av = techDisplayName(a.tech).toLowerCase();
+    cv = techDisplayName(c.tech).toLowerCase();
+    return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
+  }
+  if (key === 'branch') {
+    var ai = BRANCH_ALL.indexOf(a.branch || ''); if (ai < 0) ai = 999;
+    var ci = BRANCH_ALL.indexOf(c.branch || ''); if (ci < 0) ci = 999;
+    if (ai === ci) {
       av = a.branch || ''; cv = c.branch || '';
       return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
     }
-    if (key === 'role') {
-      av = a.role === 'pest' ? 0 : 1;
-      cv = c.role === 'pest' ? 0 : 1;
-      return (av - cv) * dir;
-    }
-    if (key === 'callbacks') {
-      av = Number(a.data.callbacks) || 0;
-      cv = Number(c.data.callbacks) || 0;
-      return (av - cv) * dir;
-    }
-    // Numeric columns: completed, today, tmrw, d2, d3
-    av = Number(a.data[key]) || 0;
-    cv = Number(c.data[key]) || 0;
+    return (ai - ci) * dir;
+  }
+  if (key === 'role') {
+    av = a.role === 'pest' ? 0 : 1;
+    cv = c.role === 'pest' ? 0 : 1;
     return (av - cv) * dir;
-  });
+  }
+  if (key === 'callbacks') {
+    av = Number(a.data.callbacks) || 0;
+    cv = Number(c.data.callbacks) || 0;
+    return (av - cv) * dir;
+  }
+  // Numeric columns: completed, today, tmrw, d2, d3
+  av = Number(a.data[key]) || 0;
+  cv = Number(c.data[key]) || 0;
+  return (av - cv) * dir;
 }
 
 // Sort techs within a card. If sortState is null, use the default (Pest-first
@@ -2236,14 +2271,34 @@ function wireTechCardSort_() {
     var branch = table.getAttribute('data-branch');
     var key = th.getAttribute('data-sort-key');
     if (!branch || !key) return;
-    var current = STATE.techCardSort[branch];
-    if (current && current.key === key) {
-      // Toggle direction
-      STATE.techCardSort[branch] = { key: key, dir: current.dir === 'desc' ? 'asc' : 'desc' };
-    } else {
-      // New column — start with desc (asc for name column since alphabetical is more natural)
-      STATE.techCardSort[branch] = { key: key, dir: (key === 'name') ? 'asc' : 'desc' };
+    var current = (STATE.techCardSort[branch] || []).slice();
+    // Default direction: asc for label columns, desc for numeric metrics
+    var defaultDir = (key === 'name' || key === 'branch' || key === 'role') ? 'asc' : 'desc';
+    // Find if this key is already in the sort sequence
+    var existingIdx = -1;
+    for (var i = 0; i < current.length; i++) {
+      if (current[i].key === key) { existingIdx = i; break; }
     }
+    if (e.shiftKey) {
+      // Shift+click: ADD as secondary (or toggle dir if already in sort)
+      if (existingIdx >= 0) {
+        current[existingIdx] = {
+          key: key,
+          dir: current[existingIdx].dir === 'asc' ? 'desc' : 'asc'
+        };
+      } else {
+        current.push({ key: key, dir: defaultDir });
+      }
+    } else {
+      // Plain click: REPLACE sort with this column as sole primary.
+      // If this column was already the sole primary, toggle its direction.
+      if (current.length === 1 && existingIdx === 0) {
+        current = [{ key: key, dir: current[0].dir === 'asc' ? 'desc' : 'asc' }];
+      } else {
+        current = [{ key: key, dir: defaultDir }];
+      }
+    }
+    STATE.techCardSort[branch] = current;
     render();
   });
 }
