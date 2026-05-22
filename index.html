@@ -338,6 +338,41 @@
     font-size: 9px; color: var(--text-dim); font-weight: 400;
     letter-spacing: 0.3px; text-transform: none;
   }
+
+  /* Sort chip bar — visible row above each master card's table showing the
+     active multi-level sort with controls to toggle direction or remove. */
+  .sort-chips {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    margin: 4px 0 8px; font-size: 10px;
+  }
+  .sort-chips-label {
+    color: var(--text-dim); font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; margin-right: 2px;
+  }
+  .sort-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 6px 2px 8px; border-radius: 12px;
+    background: rgba(244,123,32,0.12); border: 1px solid rgba(244,123,32,0.35);
+    color: var(--orange); font-weight: 600;
+    cursor: pointer; user-select: none;
+  }
+  .sort-chip:hover { background: rgba(244,123,32,0.20); }
+  .sort-chip-ordinal {
+    font-size: 8px; opacity: 0.7; margin-right: 2px;
+  }
+  .sort-chip-arrow { font-size: 10px; margin-left: 2px; }
+  .sort-chip-x {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%;
+    font-size: 12px; line-height: 1; font-weight: 700;
+    color: var(--text-dim); margin-left: 4px;
+    background: rgba(255,255,255,0.04);
+  }
+  .sort-chip-x:hover { color: var(--orange); background: rgba(255,255,255,0.10); }
+  .sort-instructions {
+    font-size: 10px; color: var(--text-dim); margin-left: 6px;
+    font-weight: 400; letter-spacing: 0.2px; font-style: italic;
+  }
   .summary-table .total-row td, .tech-table .total-row td {
     font-weight: 700; border-top: 2px solid var(--border); padding-top: 5px;
     color: var(--text);
@@ -1966,9 +2001,7 @@ function renderTechView_() {
   });
 
   // Forecast (Today/Tmrw/+2/+3) — orders cache, exact date match.
-  // Also accumulates per-tech callback count + per-branch-per-service callback
-  // distribution (for the mini-donuts) in the same single pass.
-  var callbacksByBranchService = {};  // { branch: { ServiceCode: count } }
+  // Also tracks per-tech callback count (next 4 days) for the per-tech column.
   if (STATE.rawCache && STATE.rawCache.orders) {
     STATE.rawCache.orders.forEach(function(o) {
       if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
@@ -1981,18 +2014,28 @@ function renderTechView_() {
       if (!bucket) return;
       var role = roleOf(o);
       attribute(bucket, o.Branch, role, Number(o.SubTotal) || 0, o.Tech1, o.Tech2);
-      // Per-tech callback count + per-branch-per-service aggregation
+      // Per-tech callback count (next 4 days)
       if ((o.OrderType || '') === 'CallBack') {
         var t1 = o.Tech1, t2 = o.Tech2;
         if (t1) { row(t1).callbacks += 1; }
         if (t2 && t2 !== t1) { row(t2).callbacks += 1; }
-        var branch = o.Branch || '(no branch)';
-        var svc = String(o.ServiceCode || '(unknown)').toUpperCase();
-        if (!callbacksByBranchService[branch]) callbacksByBranchService[branch] = {};
-        callbacksByBranchService[branch][svc] = (callbacksByBranchService[branch][svc] || 0) + 1;
       }
     });
   }
+
+  // Callbacks by Branch (mini-donuts): MTD invoices with InvoiceType='CB',
+  // grouped by Branch + ServiceCode. Joe directive 2026-05-22: switched from
+  // forecast service-orders to MTD invoices for retrospective signal.
+  var callbacksByBranchService = {};  // { branch: { ServiceCode: count } }
+  nonEstimateInvoices_().forEach(function(inv) {
+    if ((inv.InvoiceType || '') !== 'CB') return;
+    var date = String(inv.InvoiceDate || '').substring(0, 10);
+    if (date < dSom || date > dYest) return;
+    var branch = inv.Branch || '(no branch)';
+    var svc = String(inv.ServiceCode || '(unknown)').toUpperCase();
+    if (!callbacksByBranchService[branch]) callbacksByBranchService[branch] = {};
+    callbacksByBranchService[branch][svc] = (callbacksByBranchService[branch][svc] || 0) + 1;
+  });
 
   // Resolve canonical role + branch per tech (winner of votes), then bucket BY BRANCH
   // (used for chart aggregations) and BY COMPANY (used for master-card rendering).
@@ -2086,8 +2129,10 @@ function renderTechView_() {
     var techs = (byCompany[companyKey] || []).slice();
     if (techs.length === 0) return '';
     var cardId = 'master-' + companyKey;
-    var sortState = STATE.techCardSort[cardId] || null;
+    // Default sort: Branch A→Z, then Class Z→A (Joe directive 2026-05-22)
+    var sortState = STATE.techCardSort[cardId] || DEFAULT_MASTER_SORT.slice();
     sortTechsForMasterCard_(techs, sortState);
+    var chipsHtml = renderSortChips_(cardId, sortState);
 
     var totals = {
       completed: 0, completedCount: 0,
@@ -2150,8 +2195,9 @@ function renderTechView_() {
     return '<div class="group-block full-width ' + brandCls + '">' +
       '<div class="group-block-header">' +
         '<h3 class="group-block-title">' + label + '</h3>' +
-        '<div class="group-block-meta">' + techs.length + ' techs · <span class="sort-hint">shift+click column to add secondary sort</span></div>' +
+        '<div class="group-block-meta">' + techs.length + ' techs</div>' +
       '</div>' +
+      chipsHtml +
       '<table class="tech-table" data-branch="' + cardId + '"><thead><tr>' +
         sortableTh_('name',      'Tech',      '',                                                                                       sortState, false) +
         sortableTh_('branch',    'Branch',    '',                                                                                       sortState, false) +
@@ -2171,6 +2217,54 @@ function renderTechView_() {
 
   document.getElementById('techView').innerHTML = html;
   document.getElementById('footerCount').textContent = Object.keys(techRows).length.toLocaleString();
+}
+
+// Default sort for master cards: primary Branch A→Z, secondary Class Z→A.
+// (Class Z→A puts PEST before CG/NWL since 'P' > 'C' alphabetically — matches
+// the visual grouping we used before.) Joe directive 2026-05-22.
+var DEFAULT_MASTER_SORT = [
+  { key: 'branch', dir: 'asc'  },
+  { key: 'role',   dir: 'desc' }
+];
+
+// Column key → display label, for chips + Add-sort menus
+var SORT_COLUMN_LABELS = {
+  name:      'Tech',
+  branch:    'Branch',
+  role:      'Class',
+  completed: 'Completed MTD',
+  today:     'Today',
+  tmrw:      'Tomorrow',
+  d2:        '+2',
+  d3:        '+3',
+  callbacks: 'Callbacks'
+};
+
+// Renders the row of sort chips shown above each master card's table.
+// Each chip is clickable to toggle direction; the × removes that level.
+// Followed by a small instruction line so the team knows the shortcuts.
+function renderSortChips_(cardId, sortState) {
+  if (!sortState || !sortState.length) {
+    return '<div class="sort-chips">' +
+      '<span class="sort-chips-label">Sort:</span>' +
+      '<span style="color:var(--text-dim)">none</span>' +
+      '<span class="sort-instructions">click a column header to sort</span>' +
+    '</div>';
+  }
+  var chips = sortState.map(function(s, i) {
+    var label = SORT_COLUMN_LABELS[s.key] || s.key;
+    var arrow = s.dir === 'asc' ? '↑' : '↓';
+    var ordinal = (sortState.length > 1) ? '<span class="sort-chip-ordinal">' + (i + 1) + '</span>' : '';
+    return '<span class="sort-chip" data-chip-action="toggle" data-chip-card="' + escapeHtml(cardId) + '" data-chip-key="' + escapeHtml(s.key) + '" title="Click to toggle direction. × to remove from sort.">' +
+      ordinal + escapeHtml(label) + '<span class="sort-chip-arrow">' + arrow + '</span>' +
+      '<span class="sort-chip-x" data-chip-action="remove" data-chip-card="' + escapeHtml(cardId) + '" data-chip-key="' + escapeHtml(s.key) + '">×</span>' +
+    '</span>';
+  }).join('');
+  return '<div class="sort-chips">' +
+    '<span class="sort-chips-label">Sort:</span>' +
+    chips +
+    '<span class="sort-instructions">click column header to set primary · shift+click to add secondary</span>' +
+  '</div>';
 }
 
 // Renders a clickable <th> with data-sort-key + active state arrow.
@@ -2298,6 +2392,33 @@ function wireTechCardSort_() {
   if (!container || container.__sortWired) return;
   container.__sortWired = true;
   container.addEventListener('click', function(e) {
+    // ── Sort-chip controls (toggle direction, remove level) ──
+    var chip = e.target.closest && e.target.closest('[data-chip-action]');
+    if (chip) {
+      var action = chip.getAttribute('data-chip-action');
+      var cardId = chip.getAttribute('data-chip-card');
+      var chipKey = chip.getAttribute('data-chip-key');
+      if (!cardId || !chipKey) return;
+      // Resolve current state (use default if untouched)
+      var cur = STATE.techCardSort[cardId];
+      if (!cur) cur = DEFAULT_MASTER_SORT.slice();
+      cur = cur.slice();
+      var idx = -1;
+      for (var i = 0; i < cur.length; i++) {
+        if (cur[i].key === chipKey) { idx = i; break; }
+      }
+      if (action === 'remove') {
+        if (idx >= 0) cur.splice(idx, 1);
+      } else if (action === 'toggle') {
+        if (idx >= 0) cur[idx] = { key: chipKey, dir: cur[idx].dir === 'asc' ? 'desc' : 'asc' };
+      }
+      STATE.techCardSort[cardId] = cur;
+      e.preventDefault();
+      e.stopPropagation();
+      render();
+      return;
+    }
+    // ── Column-header click sorting ──
     var th = e.target.closest && e.target.closest('th[data-sort-key]');
     if (!th) return;
     var table = th.closest('.tech-table');
@@ -2305,13 +2426,13 @@ function wireTechCardSort_() {
     var branch = table.getAttribute('data-branch');
     var key = th.getAttribute('data-sort-key');
     if (!branch || !key) return;
-    var current = (STATE.techCardSort[branch] || []).slice();
-    // Default direction: asc for label columns, desc for numeric metrics
+    var current = STATE.techCardSort[branch];
+    if (!current) current = DEFAULT_MASTER_SORT.slice();
+    current = current.slice();
     var defaultDir = (key === 'name' || key === 'branch' || key === 'role') ? 'asc' : 'desc';
-    // Find if this key is already in the sort sequence
     var existingIdx = -1;
-    for (var i = 0; i < current.length; i++) {
-      if (current[i].key === key) { existingIdx = i; break; }
+    for (var j = 0; j < current.length; j++) {
+      if (current[j].key === key) { existingIdx = j; break; }
     }
     if (e.shiftKey) {
       // Shift+click: ADD as secondary (or toggle dir if already in sort)
@@ -2361,7 +2482,7 @@ function renderTechChartsRow2_(callbacksByBranchService, byBranch) {
   return '<div class="tech-charts-row">' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">CALLBACKS BY BRANCH</h3>' +
-      '<div class="chart-meta">Per-branch breakdown by service — next 4 days</div>' +
+      '<div class="chart-meta">MTD callbacks broken down by service per branch</div>' +
       renderCallbacksByBranchDonuts_(callbacksByBranchService) +
     '</div>' +
     '<div class="chart-card">' +
@@ -2385,7 +2506,7 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService) {
     branchTotals[b] = Object.keys(m).reduce(function(s, k) { return s + m[k]; }, 0);
   });
   var grandTotal = branchOrder.reduce(function(s, b) { return s + branchTotals[b]; }, 0);
-  if (grandTotal === 0) return '<div class="cb-empty">No callbacks scheduled in the next 4 days</div>';
+  if (grandTotal === 0) return '<div class="cb-empty">No MTD callbacks yet</div>';
 
   // Build a shared ServiceCode → color map so colors are consistent across donuts
   var palette = ['#F47B20', '#60A5FA', '#34D399', '#FBBF24', '#A78BFA', '#EC4899', '#F87171', '#9CA3AF', '#6B645A', '#FB923C', '#22D3EE'];
