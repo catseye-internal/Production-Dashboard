@@ -1610,9 +1610,11 @@ function render() {
     }).join('');
   }
 
-  // KPI strip + footer — different metrics for orders vs invoices
+  // KPI strip + footer — different metrics for orders vs invoices.
+  // Uses SubTotal (pre-tax) so the KPI matches the per-row Subtotal column
+  // and the Summary view's per-bucket totals — Joe directive 2026-05-22.
   document.getElementById('kpiCount').textContent = sorted.length.toLocaleString();
-  var total = sorted.reduce(function(s, r) { return s + (Number(r.Total) || 0); }, 0);
+  var total = sorted.reduce(function(s, r) { return s + (Number(r.SubTotal) || 0); }, 0);
   document.getElementById('kpiTotal').textContent = '$' + Math.round(total).toLocaleString();
 
   if (def.source === 'invoices') {
@@ -1732,7 +1734,8 @@ function renderSummaryView_() {
   document.getElementById('summaryView').innerHTML = html;
   // KPI strip — mirror Invoices view metrics on the filtered records
   document.getElementById('kpiCount').textContent = filtered.length.toLocaleString();
-  var grandTotal = filtered.reduce(function(s, r) { return s + (Number(r.Total) || 0); }, 0);
+  // Summary KPI sums SubTotal so it matches the per-bucket Subtotal columns exactly
+  var grandTotal = filtered.reduce(function(s, r) { return s + (Number(r.SubTotal) || 0); }, 0);
   document.getElementById('kpiTotal').textContent = '$' + Math.round(grandTotal).toLocaleString();
   var balanceSum = filtered.reduce(function(s, r) { return s + (Number(r.Balance) || 0); }, 0);
   document.getElementById('kpiConfirmed').textContent = '$' + Math.round(balanceSum).toLocaleString();
