@@ -2326,13 +2326,14 @@ function compareTechsByKey_(a, c, key, dirStr) {
     return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
   }
   if (key === 'branch') {
-    var ai = BRANCH_ALL.indexOf(a.branch || ''); if (ai < 0) ai = 999;
-    var ci = BRANCH_ALL.indexOf(c.branch || ''); if (ci < 0) ci = 999;
-    if (ai === ci) {
-      av = a.branch || ''; cv = c.branch || '';
-      return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
-    }
-    return (ai - ci) * dir;
+    // Pure alphabetical by display label (CT < E. MASS < RI, U < W).
+    // Records with no/unknown branch always sort to the END regardless of direction.
+    var aHas = a.branch && BRANCH_ALL.indexOf(a.branch) >= 0;
+    var cHas = c.branch && BRANCH_ALL.indexOf(c.branch) >= 0;
+    if (aHas !== cHas) return aHas ? -1 : 1;
+    av = String(BRANCH_DISPLAY[a.branch] || a.branch || '').toLowerCase();
+    cv = String(BRANCH_DISPLAY[c.branch] || c.branch || '').toLowerCase();
+    return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
   }
   if (key === 'role') {
     av = a.role === 'pest' ? 0 : 1;
