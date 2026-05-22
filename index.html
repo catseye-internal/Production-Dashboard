@@ -1971,24 +1971,31 @@ function renderTechView_() {
   // CG/NWL jobs with two techs split revenue 50/50 (both did the installation work)
   // but each gets a full +1 to the order count — they were each at the stop.
   // Pest jobs always credit Tech1 only (Tech2 on pest is typically a trainee/check-in).
+  //
+  // BRANCH/ROLE VOTES are ALWAYS recorded for both techs regardless of revenue
+  // policy — branch identity shouldn't depend on whether revenue gets split.
+  // (Otherwise a tech who's only ever Tech2 on Pest jobs gets no branch vote
+  // and falls into "(no branch)". Joe spotted this 2026-05-22.)
   function attribute(bucket, branch, role, amount, tech1, tech2) {
     if (!tech1) return;
     var countKey = bucket + 'Count';
-    if (role === 'cgnwl' && tech2 && tech2 !== tech1) {
+    var r1 = row(tech1);
+    noteBranchRole(r1, branch, role);
+    var r2 = null;
+    if (tech2 && tech2 !== tech1) {
+      r2 = row(tech2);
+      noteBranchRole(r2, branch, role);
+    }
+    // Revenue + order-count attribution — still role-dependent
+    if (role === 'cgnwl' && r2) {
       var half = amount / 2;
-      var r1 = row(tech1);
-      noteBranchRole(r1, branch, role);
       r1[bucket] += half;
       r1[countKey] = (r1[countKey] || 0) + 1;
-      var r2 = row(tech2);
-      noteBranchRole(r2, branch, role);
       r2[bucket] += half;
       r2[countKey] = (r2[countKey] || 0) + 1;
     } else {
-      var r = row(tech1);
-      noteBranchRole(r, branch, role);
-      r[bucket] += amount;
-      r[countKey] = (r[countKey] || 0) + 1;
+      r1[bucket] += amount;
+      r1[countKey] = (r1[countKey] || 0) + 1;
     }
   }
 
