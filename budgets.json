@@ -1,0 +1,12 @@
+{
+  "_meta": {
+    "description": "Monthly production budgets per branch. Keys are PestPac Branch names (exact string match). Values are { 'YYYY-MM': monthly_budget_dollars }. Add new months as needed.",
+    "updated": "2026-05-22",
+    "instructions": "Edit this file directly in the GitHub web UI or via git. Dashboard reads it on every page load (and on cache refresh). Missing branch/month combinations display '—' instead of a value."
+  },
+  "Eastern Mass":       { "2026-05": 400000, "2026-06": 420000 },
+  "Connecticut":        { "2026-05": 300000, "2026-06": 320000 },
+  "Rhode Island":       { "2026-05": 100000, "2026-06": 110000 },
+  "USX-Western Mass":   { "2026-05": 175000, "2026-06": 185000 },
+  "USX-Upstate NY":     { "2026-05": 150000, "2026-06": 160000 }
+}

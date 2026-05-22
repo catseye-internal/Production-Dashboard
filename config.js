@@ -342,6 +342,103 @@ function isNonTechCode(code) {
   return NON_TECH_CODES.has(String(code).toUpperCase().trim());
 }
 
+// ── Working-days calculator (Joe directive 2026-05-22) ──
+// Working day = Mon-Fri minus key holidays. Holidays observed:
+//   - Christmas (Dec 25) — if it falls on Sat/Sun, observed on nearest weekday
+//   - New Year's Day (Jan 1) — same weekend-shift rule
+//   - July 4th — fixed date; only counts as a holiday if it falls Mon-Fri
+//   - Memorial Day (last Monday of May)
+//   - Labor Day (first Monday of September)
+//   - Thanksgiving (4th Thursday of November)
+// Used for "on-pace" projections in the MTD Production card.
+
+function isObservedHoliday_(date) {
+  var y = date.getFullYear();
+  var m = date.getMonth();   // 0-indexed
+  var d = date.getDate();
+  var dow = date.getDay();   // 0 = Sun, 6 = Sat
+
+  // --- Fixed-date holiday with weekend-shift rule ---
+  function observedDateOf_(year, month, day) {
+    // Returns the date on which a fixed-date holiday is observed.
+    // Sat → shift to Fri (-1). Sun → shift to Mon (+1). Weekday → same day.
+    var dt = new Date(year, month, day);
+    var wd = dt.getDay();
+    if (wd === 6) return new Date(year, month, day - 1);   // Sat → Fri
+    if (wd === 0) return new Date(year, month, day + 1);   // Sun → Mon
+    return dt;
+  }
+
+  // Christmas (Dec 25) observed
+  var xmas = observedDateOf_(y, 11, 25);
+  if (m === xmas.getMonth() && d === xmas.getDate()) return true;
+
+  // New Year's Day (Jan 1) observed — for the SAME year only.
+  // Edge case: if Jan 1 is Sat, observed Fri Dec 31 of PRIOR year — checked below.
+  var ny = observedDateOf_(y, 0, 1);
+  if (m === ny.getMonth() && d === ny.getDate()) return true;
+  // NY observed on Dec 31 of prior year: if next year's Jan 1 is a Saturday
+  if (m === 11 && d === 31) {
+    var nextNy = new Date(y + 1, 0, 1);
+    if (nextNy.getDay() === 6) return true;
+  }
+
+  // July 4th — only if it falls Mon-Fri (no weekend shift per Joe's spec)
+  if (m === 6 && d === 4 && dow >= 1 && dow <= 5) return true;
+
+  // Memorial Day — last Monday of May
+  if (m === 4 && dow === 1) {
+    var lastOfMay = new Date(y, 5, 0).getDate();
+    if (d > lastOfMay - 7) return true;
+  }
+
+  // Labor Day — first Monday of September
+  if (m === 8 && dow === 1 && d <= 7) return true;
+
+  // Thanksgiving — 4th Thursday of November
+  if (m === 10 && dow === 4 && d >= 22 && d <= 28) return true;
+
+  return false;
+}
+
+function isWorkingDay_(date) {
+  var dow = date.getDay();
+  if (dow === 0 || dow === 6) return false;     // weekend
+  return !isObservedHoliday_(date);
+}
+
+// Count working days from start through end (inclusive). Both args are Date objects.
+function workingDaysBetween_(start, end) {
+  if (!start || !end || end < start) return 0;
+  var count = 0;
+  var d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  var stop = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  while (d <= stop) {
+    if (isWorkingDay_(d)) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}
+
+// Working days in a calendar month (year, monthIdx 0-11).
+function workingDaysInMonth_(year, monthIdx) {
+  var first = new Date(year, monthIdx, 1);
+  var last  = new Date(year, monthIdx + 1, 0);
+  return workingDaysBetween_(first, last);
+}
+
+// ── Budget lookup ──
+// budgets.json is loaded into STATE.budgets at startup. This helper returns
+// the budget for a branch + month, or 0 if not set. Branch names must match
+// the PestPac Branch field exactly.
+function getMonthlyBudget(budgets, branch, year, monthIdx) {
+  if (!budgets || !branch) return 0;
+  var key = String(year) + '-' + String(monthIdx + 1).padStart(2, '0');
+  var branchBudgets = budgets[branch];
+  if (!branchBudgets) return 0;
+  return Number(branchBudgets[key]) || 0;
+}
+
 // Invoice Type code → friendly label and color (confirmed with Joe 2026-05-20)
 const INVOICE_TYPE_LABEL = {
   'IN': 'Invoice',     // standard completed work

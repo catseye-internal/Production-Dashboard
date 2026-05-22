@@ -637,6 +637,70 @@
     font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
     text-transform: uppercase; color: var(--text);
   }
+  /* MTD Production card — Joe directive 2026-05-22 */
+  .mtd-prod-card { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+  .mtd-prod-row {
+    display: grid; grid-template-columns: 130px 1fr;
+    gap: 12px; align-items: center;
+  }
+  .mtd-prod-label {
+    font-size: 11px; font-weight: 700; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mtd-prod-bar-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .mtd-prod-bar {
+    position: relative;
+    width: 100%; height: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 5px; overflow: visible;
+  }
+  .mtd-prod-bar-fill {
+    height: 100%; border-radius: 5px;
+    transition: width 0.3s ease;
+  }
+  .mtd-prod-pace-marker {
+    position: absolute; top: -3px; height: 16px; width: 2px;
+    background: #FBBF24; transform: translateX(-1px);
+    box-shadow: 0 0 6px rgba(251, 191, 36, 0.5);
+    cursor: help;
+  }
+  .mtd-prod-pace-marker::after {
+    content: ''; position: absolute; top: -3px; left: -3px;
+    width: 8px; height: 8px; background: #FBBF24; border-radius: 50%;
+  }
+  .mtd-prod-bar-foot {
+    display: flex; gap: 14px; align-items: center;
+    font-size: 11px; font-variant-numeric: tabular-nums;
+    color: var(--text);
+    flex-wrap: wrap;
+  }
+  .mtd-prod-stat-pair b {
+    font-size: 9px; font-weight: 700; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.4px;
+    margin-right: 3px;
+  }
+  .mtd-prod-pacing {
+    margin-left: auto; font-weight: 700; font-size: 11px;
+  }
+  .mtd-prod-pacing.pace-ahead  { color: #34D399; }
+  .mtd-prod-pacing.pace-warn   { color: #FBBF24; }
+  .mtd-prod-pacing.pace-behind { color: #F87171; }
+  .mtd-prod-pacing.pace-unset  { color: var(--text-dim); font-weight: 500; }
+  .mtd-prod-divider {
+    height: 1px; background: var(--border); margin: 4px 0;
+  }
+  .mtd-prod-total {
+    padding: 4px 0;
+    border-top: 1px solid transparent;
+  }
+  .mtd-prod-total .mtd-prod-label {
+    font-size: 12px; font-weight: 800; letter-spacing: 0.6px;
+  }
+  .mtd-prod-total.catseye .mtd-prod-label { color: #F47B20; }
+  .mtd-prod-total.usx     .mtd-prod-label { color: #60A5FA; }
+  .mtd-prod-total .mtd-prod-bar { height: 12px; }
+  .mtd-prod-total .mtd-prod-bar-foot { font-size: 12px; }
   .mini-donut-svg { width: 90px; height: 90px; overflow: visible; }
   .mini-donut-center {
     font-size: 18px; font-weight: 700; fill: #E5E7EB;
@@ -1036,6 +1100,8 @@ var STATE = {
   employeesCache: null,
   employeesLoadPromise: null,
   employeesMap: null,         // Code (uppercase) → employee record
+  budgets: null,              // { Branch: { 'YYYY-MM': dollars } } from budgets.json
+  budgetsLoadPromise: null,
   techCardSort: {},           // branch → { key, dir } — per-card sort on Tech view
 };
 
@@ -1112,6 +1178,8 @@ document.addEventListener('DOMContentLoaded', function() {
   loadSetupsCache();
   // Load employees cache — powers tech full-name display on the Tech view
   loadEmployeesCache();
+  // Load monthly budgets — powers the MTD Production card on the Tech view
+  loadBudgets();
   // Load invoice cache eagerly (non-blocking) so the Class column populates on Service Orders
   // without waiting for the user to switch to the Invoices tab. ~24 MB but cached after first load.
   loadInvoiceCache();
@@ -1289,6 +1357,23 @@ function loadEmployeesCache() {
       STATE.employeesMap = {};
     });
   return STATE.employeesLoadPromise;
+}
+
+// Load budgets.json — monthly production budgets per branch.
+// Powers the MTD Production card on the Tech view. Format documented in budgets.json.
+function loadBudgets() {
+  if (STATE.budgetsLoadPromise) return STATE.budgetsLoadPromise;
+  STATE.budgetsLoadPromise = fetch('./budgets.json', { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(data) {
+      STATE.budgets = data || {};
+      try { render(); } catch (e) {}
+    })
+    .catch(function(err) {
+      console.warn('budgets load failed (OK if budgets.json doesn\'t exist yet):', err);
+      STATE.budgets = {};
+    });
+  return STATE.budgetsLoadPromise;
 }
 
 // Resolve a tech code to a friendly display name. Falls back to the code
@@ -2462,7 +2547,7 @@ function renderTechView_() {
       '</div>' +
     '</div>';
 
-  var chartsRow1 = renderTechChartsRow_(fcTotals, callbacksByBranch, totalsByBranch, dateLabel);
+  var chartsRow1 = renderTechChartsRow_(fcTotals, byBranch, todayD, dateLabel);
   var chartsRow2 = renderTechChartsRow2_(callbacksByBranchService, byBranch);
 
   // Master cards — one per company (Catseye + USX Pest), full-width
@@ -3253,7 +3338,7 @@ function wireTechCardSort_() {
 // Renders the row of two charts above the branch grid:
 //   1) Forecast Totals  — 4 KPI cards with big dollar amounts + thin proportional bars
 //   2) Callback Counts  — Horizontal bars per branch, sorted by count desc
-function renderTechChartsRow_(fcTotals, callbacksByBranch, totalsByBranch, dateLabel) {
+function renderTechChartsRow_(fcTotals, byBranch, todayD, dateLabel) {
   return '<div class="tech-charts-row">' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">FORECAST TOTALS</h3>' +
@@ -3261,10 +3346,102 @@ function renderTechChartsRow_(fcTotals, callbacksByBranch, totalsByBranch, dateL
       renderForecastKpiCards_(fcTotals, dateLabel) +
     '</div>' +
     '<div class="chart-card">' +
-      '<h3 class="chart-title">CALLBACK COUNTS BY BRANCH</h3>' +
-      '<div class="chart-meta">Callbacks in next 4 days — count · % of all scheduled orders</div>' +
-      renderCallbackHbars_(callbacksByBranch, totalsByBranch) +
+      '<h3 class="chart-title">MTD PRODUCTION</h3>' +
+      '<div class="chart-meta">Field-tech revenue MTD · pacing vs monthly budget</div>' +
+      renderMtdProductionCard_(byBranch, todayD) +
     '</div>' +
+  '</div>';
+}
+
+// MTD Production card — per-branch and per-company progress bars showing
+// completed field-tech revenue MTD, projected end-of-month at current pace,
+// and the monthly budget from budgets.json. Joe directive 2026-05-22.
+function renderMtdProductionCard_(byBranch, todayD) {
+  if (!byBranch || !todayD) return '<div class="cb-empty">Loading…</div>';
+
+  var year   = todayD.getFullYear();
+  var month  = todayD.getMonth();
+  var som    = new Date(year, month, 1);
+  var yest   = new Date(todayD);  yest.setDate(yest.getDate() - 1);
+  var workingElapsed = (yest >= som) ? workingDaysBetween_(som, yest) : 0;
+  var workingTotal   = workingDaysInMonth_(year, month);
+  var elapsedForPace = Math.max(1, workingElapsed);  // avoid div-by-zero on the 1st
+
+  // Per-branch MTD (field-tech only; office-credited revenue is shown in
+  // the master cards' Office-credited row and reconciled in the top banner)
+  var branches = BRANCH_ALL.map(function(b) {
+    var techs = byBranch[b] || [];
+    var mtd     = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
+    var onPace  = (mtd / elapsedForPace) * workingTotal;
+    var budget  = getMonthlyBudget(STATE.budgets, b, year, month);
+    return {
+      branch: b,
+      label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
+      mtd: mtd, onPace: onPace, budget: budget,
+      usx: isUsxBranch(b)
+    };
+  });
+
+  // Per-company totals (Catseye + USX Pest)
+  var companies = [
+    { key: 'catseye', label: 'CATSEYE TOTAL', usx: false },
+    { key: 'usx',     label: 'USX PEST TOTAL', usx: true  }
+  ];
+  companies.forEach(function(c) {
+    var subset = branches.filter(function(b) { return b.usx === c.usx; });
+    c.mtd    = subset.reduce(function(s, x) { return s + x.mtd; }, 0);
+    c.onPace = subset.reduce(function(s, x) { return s + x.onPace; }, 0);
+    c.budget = subset.reduce(function(s, x) { return s + x.budget; }, 0);
+  });
+
+  // Format helpers
+  function fmt$(n) { return '$' + Math.round(n).toLocaleString(); }
+  function fmtK(n) {
+    if (n >= 1000) return '$' + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K';
+    return '$' + Math.round(n);
+  }
+
+  function renderRow(item, isTotal) {
+    var color = item.usx ? '#60A5FA' : '#F47B20';
+    var hasBudget = item.budget > 0;
+    var fillPct   = hasBudget ? Math.min((item.mtd / item.budget) * 100, 100) : 0;
+    var paceAt    = hasBudget ? Math.min((item.onPace / item.budget) * 100, 110) : null;
+    var pacingPct = hasBudget ? ((item.onPace - item.budget) / item.budget) * 100 : null;
+    var pacingCls = (pacingPct === null) ? 'pace-unset'
+                  : pacingPct >= 0       ? 'pace-ahead'
+                  : pacingPct >= -10     ? 'pace-warn'
+                                          : 'pace-behind';
+    var pacingLabel = (pacingPct === null) ? 'No budget set'
+                    : (pacingPct >= 0 ? '+' : '') + pacingPct.toFixed(1) + '% vs budget';
+    var perDay = item.mtd / elapsedForPace;
+    var paceTip = workingElapsed + ' of ' + workingTotal + ' working days elapsed · ' +
+                  fmt$(perDay) + '/day · projects to ' + fmt$(item.onPace) + ' end-of-month';
+
+    var totalCls = isTotal ? (' mtd-prod-total ' + (item.usx ? 'usx' : 'catseye')) : '';
+    return '<div class="mtd-prod-row' + totalCls + '">' +
+      '<div class="mtd-prod-label">' + escapeHtml(item.label) + '</div>' +
+      '<div class="mtd-prod-bar-wrap">' +
+        '<div class="mtd-prod-bar">' +
+          (hasBudget ? '<div class="mtd-prod-bar-fill" style="width:' + fillPct.toFixed(1) + '%;background:' + color + '"></div>' : '') +
+          (paceAt !== null ? '<div class="mtd-prod-pace-marker" style="left:' + Math.min(paceAt, 100).toFixed(1) + '%" title="' + escapeHtml(paceTip) + '"></div>' : '') +
+        '</div>' +
+        '<div class="mtd-prod-bar-foot">' +
+          '<span class="mtd-prod-stat-pair"><b>MTD</b> ' + fmtK(item.mtd) + '</span>' +
+          '<span class="mtd-prod-stat-pair" title="' + escapeHtml(paceTip) + '"><b>On Pace</b> ' + fmtK(item.onPace) + '</span>' +
+          '<span class="mtd-prod-stat-pair"><b>Budget</b> ' + (hasBudget ? fmtK(item.budget) : '—') + '</span>' +
+          '<span class="mtd-prod-pacing ' + pacingCls + '">' + escapeHtml(pacingLabel) + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  var branchRows = branches.map(function(b) { return renderRow(b, false); }).join('');
+  var companyRows = companies.filter(function(c) { return c.mtd > 0 || c.budget > 0; })
+    .map(function(c) { return renderRow(c, true); }).join('');
+
+  return '<div class="mtd-prod-card">' +
+    branchRows +
+    (companyRows ? '<div class="mtd-prod-divider"></div>' + companyRows : '') +
   '</div>';
 }
 
