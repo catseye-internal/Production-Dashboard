@@ -637,11 +637,41 @@
     font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
     text-transform: uppercase; color: var(--text);
   }
-  .mini-donut-svg { width: 90px; height: 90px; }
+  .mini-donut-svg { width: 90px; height: 90px; overflow: visible; }
   .mini-donut-center {
     font-size: 18px; font-weight: 700; fill: #E5E7EB;
     font-variant-numeric: tabular-nums;
+    transition: font-size 0.12s;
   }
+  /* Interactive donut slices — Joe directive 2026-05-22 */
+  .mini-donut-svg .donut-slice {
+    cursor: pointer;
+    transition: stroke-width 0.15s ease, opacity 0.15s ease;
+  }
+  .mini-donut-svg .donut-slice:hover { stroke-width: 19; }
+  .mini-donut-svg.hovering .donut-slice:not(:hover) { opacity: 0.32; }
+  /* Slim center label used when a slice is hovered (multi-line via tspans) */
+  .mini-donut-center.hovered { font-size: 7.5px; font-weight: 600; }
+  .mini-donut-center .center-svc   { font-weight: 700; font-size: 7px; }
+  .mini-donut-center .center-count { font-weight: 800; font-size: 14px; }
+  .mini-donut-center .center-pct   { fill: var(--text-dim); font-size: 7px; font-weight: 500; }
+  /* Cursor-following tooltip (singleton, lives at bottom of body) */
+  .donut-tooltip {
+    position: fixed; z-index: 9999; pointer-events: none;
+    background: rgba(20, 22, 28, 0.96);
+    border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px;
+    font-size: 11px; font-variant-numeric: tabular-nums;
+    white-space: nowrap; opacity: 0;
+    transition: opacity 0.1s ease;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    max-width: 240px;
+  }
+  .donut-tooltip.show { opacity: 1; }
+  .donut-tooltip .dt-svc    { font-weight: 700; font-size: 12px; }
+  .donut-tooltip .dt-meta   { color: var(--text-dim); margin-top: 2px; font-size: 10px; }
+  .donut-tooltip .dt-branch { color: var(--text-dim); font-size: 9px; margin-bottom: 2px;
+                              text-transform: uppercase; letter-spacing: 0.4px; }
   .mini-donut-legend {
     width: 100%; display: flex; flex-direction: column; gap: 2px;
     font-size: 9px; margin-top: 2px;
@@ -2891,6 +2921,70 @@ function renderTechView_() {
       tr.classList.add('expanded');
     });
   });
+
+  // ── Interactive donut hover (Joe directive 2026-05-22) ──
+  // For each slice in the Callbacks-by-Branch donuts: dim siblings, swap the
+  // center number for the hovered slice's service / count / %, and show a
+  // tooltip near the cursor. Tooltip is a singleton at the bottom of <body>.
+  (function() {
+    var tooltip = document.getElementById('donut-tooltip-singleton');
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.id = 'donut-tooltip-singleton';
+      tooltip.className = 'donut-tooltip';
+      document.body.appendChild(tooltip);
+    }
+    document.querySelectorAll('#techView .mini-donut-svg').forEach(function(svg) {
+      var centerText = svg.querySelector('.mini-donut-center');
+      var defaultText = centerText ? centerText.getAttribute('data-default') : '';
+      svg.querySelectorAll('circle.donut-slice').forEach(function(circle) {
+        circle.addEventListener('mouseenter', function(ev) {
+          svg.classList.add('hovering');
+          var svc    = circle.getAttribute('data-svc');
+          var count  = circle.getAttribute('data-count');
+          var pct    = circle.getAttribute('data-pct');
+          var color  = circle.getAttribute('data-color');
+          var branch = circle.getAttribute('data-branch');
+          // Swap center text → 3-line tspan with service name, count, %
+          if (centerText) {
+            centerText.classList.add('hovered');
+            centerText.innerHTML =
+              '<tspan x="50" dy="-8" class="center-svc" style="fill:' + color + '">' +
+                (svc.length > 14 ? svc.substring(0, 13) + '…' : svc) +
+              '</tspan>' +
+              '<tspan x="50" dy="13" class="center-count">' + count + '</tspan>' +
+              '<tspan x="50" dy="9" class="center-pct">' + pct + '%</tspan>';
+          }
+          // Position + show tooltip
+          tooltip.innerHTML =
+            '<div class="dt-branch">' + branch + '</div>' +
+            '<div class="dt-svc" style="color:' + color + '">' + svc + '</div>' +
+            '<div class="dt-meta">' + count + ' callback' + (count === '1' ? '' : 's') + ' · ' + pct + '% of branch</div>';
+          tooltip.classList.add('show');
+          tooltip.style.left = (ev.clientX + 14) + 'px';
+          tooltip.style.top  = (ev.clientY + 14) + 'px';
+        });
+        circle.addEventListener('mousemove', function(ev) {
+          // Keep tooltip glued to cursor, with right-edge guard so it doesn't escape viewport
+          var x = ev.clientX + 14;
+          var y = ev.clientY + 14;
+          var w = tooltip.offsetWidth || 200;
+          if (x + w > window.innerWidth - 8) x = ev.clientX - w - 10;
+          tooltip.style.left = x + 'px';
+          tooltip.style.top  = y + 'px';
+        });
+        circle.addEventListener('mouseleave', function() {
+          svg.classList.remove('hovering');
+          if (centerText) {
+            centerText.classList.remove('hovered');
+            centerText.innerHTML = '';
+            centerText.textContent = defaultText;
+          }
+          tooltip.classList.remove('show');
+        });
+      });
+    });
+  })();
 }
 
 // Default sort for master cards: primary Branch A→Z, secondary Class Z→A.
@@ -3252,10 +3346,18 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService) {
       var dashArr = fill.toFixed(2) + ' ' + (circumference - fill).toFixed(2);
       var dashOff = (-offset).toFixed(2);
       offset += fill;
-      return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+      var pct = (s.count / total * 100).toFixed(1);
+      return '<circle class="donut-slice" cx="' + cx + '" cy="' + cy + '" r="' + r +
              '" fill="none" stroke="' + s.color + '" stroke-width="' + strokeW +
              '" stroke-dasharray="' + dashArr + '" stroke-dashoffset="' + dashOff +
-             '" transform="rotate(-90 ' + cx + ' ' + cy + ')"/>';
+             '" transform="rotate(-90 ' + cx + ' ' + cy + ')"' +
+             ' data-svc="' + escapeHtml(s.svc) + '"' +
+             ' data-count="' + s.count + '"' +
+             ' data-pct="' + pct + '"' +
+             ' data-color="' + s.color + '"' +
+             ' data-branch="' + escapeHtml(label) + '">' +
+             '<title>' + escapeHtml(s.svc) + ': ' + s.count + ' (' + pct + '%)</title>' +
+             '</circle>';
     }).join('');
 
     // Compact legend showing top 3 slices (plus OTHER if present)
@@ -3277,9 +3379,9 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService) {
 
     return '<div class="mini-donut">' +
       '<div class="mini-donut-label">' + escapeHtml(label) + '</div>' +
-      '<svg viewBox="0 0 100 100" class="mini-donut-svg" preserveAspectRatio="xMidYMid meet">' +
+      '<svg viewBox="0 0 100 100" class="mini-donut-svg" preserveAspectRatio="xMidYMid meet" data-default-total="' + total + '">' +
         sliceHtml +
-        '<text x="' + cx + '" y="' + (cy + 6) + '" text-anchor="middle" class="mini-donut-center">' + total + '</text>' +
+        '<text x="' + cx + '" y="' + (cy + 6) + '" text-anchor="middle" class="mini-donut-center" data-default="' + total + '">' + total + '</text>' +
       '</svg>' +
       '<div class="mini-donut-legend">' + legendItems + '</div>' +
     '</div>';
