@@ -390,6 +390,63 @@
     display: block; font-size: 9px; font-style: normal;
     color: var(--text-dim); opacity: 0.7; margin-top: 1px; font-weight: 400;
   }
+  /* Tech drill-down — click a tech row to expand all MTD records below it.
+     Joe directive 2026-05-22. */
+  .tech-table tr.tech-row-clickable { cursor: pointer; transition: background 0.12s; }
+  .tech-table tr.tech-row-clickable:hover { background: rgba(255,255,255,0.04); }
+  .tech-table tr.tech-row-clickable.expanded { background: rgba(244,123,32,0.07); }
+  .tech-table .drill-chevron {
+    display: inline-block; width: 10px; color: var(--text-dim);
+    font-size: 9px; margin-right: 4px;
+    transition: transform 0.18s;
+  }
+  .tech-table tr.tech-row-clickable.expanded .drill-chevron {
+    transform: rotate(90deg); color: var(--orange);
+  }
+  .tech-table tr.drill-row > td {
+    padding: 0; background: rgba(0,0,0,0.22); border-top: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .tech-table tr.drill-row.hidden { display: none; }
+  .drill-cell-inner {
+    padding: 10px 18px 14px 36px;
+    background: linear-gradient(180deg, rgba(244,123,32,0.04), transparent 70%);
+  }
+  .drill-empty {
+    padding: 16px 36px; color: var(--text-dim); font-style: italic; font-size: 11px;
+  }
+  .drill-summary {
+    font-size: 10px; color: var(--text-dim); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+  }
+  .drill-summary strong { color: var(--text); font-weight: 700; }
+  table.drill-table {
+    width: 100%; border-collapse: collapse; font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  table.drill-table th {
+    text-align: left; color: var(--text-dim); font-weight: 600;
+    padding: 4px 8px; border-bottom: 1px solid var(--border);
+    text-transform: uppercase; font-size: 9px; letter-spacing: 0.4px;
+    background: transparent;
+  }
+  table.drill-table td {
+    padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: var(--text);
+  }
+  table.drill-table tr:hover td { background: rgba(255,255,255,0.025); }
+  table.drill-table .num { text-align: right; }
+  .drill-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 4px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .drill-pill-inv { background: rgba(96,165,250,0.20); color: #60A5FA; }
+  .drill-pill-so  { background: rgba(167,139,250,0.22); color: #A78BFA; }
+  .drill-class {
+    display: inline-block; padding: 1px 5px; border-radius: 3px;
+    font-size: 9px; font-weight: 600; background: rgba(255,255,255,0.06);
+    color: var(--text-dim);
+  }
   /* Role color treatment for Tech view headers + Class column pill */
   .role-pest    { background: rgba(52,211,153,0.16); color: #34D399; }
   .role-cgnwl   { background: rgba(167,139,250,0.18); color: #A78BFA; }
@@ -2332,11 +2389,13 @@ function renderTechView_() {
       var pillCls = isPest ? 'role-pest' : 'role-cgnwl';
       var pillTxt = isPest ? 'PEST' : 'CG/NWL';
       var nameDisplay = techDisplayName(item.tech);
+      var techCodeUpper = String(item.tech).toUpperCase();
+      var chevronHtml = '<span class="drill-chevron">▶</span>';
       var nameCellHtml = (nameDisplay !== item.tech)
-        ? '<td title="' + escapeHtml(item.tech) + '">' + escapeHtml(nameDisplay) + '</td>'
-        : '<td>' + escapeHtml(item.tech) + '</td>';
+        ? '<td title="' + escapeHtml(item.tech) + '">' + chevronHtml + escapeHtml(nameDisplay) + '</td>'
+        : '<td>' + chevronHtml + escapeHtml(item.tech) + '</td>';
       var branchLabel = (BRANCH_DISPLAY[item.branch] || item.branch).toUpperCase();
-      return '<tr>' +
+      return '<tr class="tech-row-clickable" data-tech-code="' + escapeHtml(techCodeUpper) + '">' +
         nameCellHtml +
         '<td>' + escapeHtml(branchLabel) + '</td>' +
         '<td><span class="pill-role ' + pillCls + '">' + pillTxt + '</span></td>' +
@@ -2529,6 +2588,165 @@ function renderTechView_() {
 
   document.getElementById('techView').innerHTML = html;
   document.getElementById('footerCount').textContent = Object.keys(techRows).length.toLocaleString();
+
+  // ── Drill-down: click a tech row to expand all MTD records below it ──
+  // Records = invoices (Tech or Tech2 === code, InvoiceDate in MTD) UNION
+  // service orders (Tech1 or Tech2 === code, WorkDate in MTD). Sorted by
+  // date desc. Built lazily on first click; cached on the row afterwards.
+  // Joe directive 2026-05-22.
+  function renderTechDrillHtml_(techCode, colspan) {
+    var records = [];
+
+    // MTD invoices for this tech
+    nonEstimateInvoices_().forEach(function(inv) {
+      var d = String(inv.InvoiceDate || '').substring(0, 10);
+      if (d < dSom || d > dYest) return;
+      var t1 = String(inv.Tech  || '').toUpperCase();
+      var t2 = String(inv.Tech2 || '').toUpperCase();
+      if (t1 !== techCode && t2 !== techCode) return;
+      // Look up customer name from locations cache when available
+      var custName = inv.Customer || inv.LocationName || '';
+      if (!custName && STATE.locationsByCode && inv.LocationCode != null) {
+        var loc = STATE.locationsByCode[String(inv.LocationCode)];
+        if (loc) custName = loc.LocationName || loc.CompanyName || loc.Name || '';
+      }
+      records.push({
+        kind: 'INV',
+        date: d,
+        sortKey: String(inv.InvoiceDate || ''),
+        workDate: String(inv.WorkDate || inv.InvoiceDate || '').substring(0, 10),
+        customer: custName,
+        serviceCode: inv.ServiceCode || '',
+        serviceClass: inv.ServiceClass || inv._Class || '',
+        amount: Number(inv.SubTotal) || 0,
+        typeCode: inv.InvoiceType || '',
+        pairedTech: (t1 === techCode ? (inv.Tech2 || '') : (inv.Tech || ''))
+      });
+    });
+
+    // MTD service orders for this tech (work that was scheduled and happened)
+    if (STATE.rawCache && STATE.rawCache.orders) {
+      STATE.rawCache.orders.forEach(function(o) {
+        if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
+        var d = String(o.WorkDate || '').substring(0, 10);
+        if (d < dSom || d > dYest) return;
+        var t1 = String(o.Tech1 || '').toUpperCase();
+        var t2 = String(o.Tech2 || '').toUpperCase();
+        if (t1 !== techCode && t2 !== techCode) return;
+        var custName = o.Customer || o.LocationName || '';
+        if (!custName && STATE.locationsMap && o.LocationID != null) {
+          var loc = STATE.locationsMap[String(o.LocationID)];
+          if (loc) custName = loc.LocationName || loc.CompanyName || loc.Name || '';
+        }
+        records.push({
+          kind: 'SO',
+          date: d,
+          sortKey: String(o.EarliestTime || o.WorkDate || ''),
+          workDate: d,
+          customer: custName,
+          serviceCode: o.ServiceCode || '',
+          serviceClass: o._Class || '',
+          amount: Number(o.SubTotal) || 0,
+          typeCode: o.OrderType || '',
+          pairedTech: (t1 === techCode ? (o.Tech2 || '') : (o.Tech1 || ''))
+        });
+      });
+    }
+
+    // Sort desc by sortKey (full timestamp string), fall back to date
+    records.sort(function(a, b) {
+      var ak = String(a.sortKey || a.date);
+      var bk = String(b.sortKey || b.date);
+      if (ak !== bk) return bk.localeCompare(ak);
+      return String(b.date).localeCompare(String(a.date));
+    });
+
+    if (records.length === 0) {
+      return '<tr class="drill-row"><td colspan="' + colspan + '"><div class="drill-empty">No MTD activity for this tech.</div></td></tr>';
+    }
+
+    // Summary line: total $, count of INV vs SO
+    var totalAmt = records.reduce(function(s, r) { return s + r.amount; }, 0);
+    var invCount = records.filter(function(r) { return r.kind === 'INV'; }).length;
+    var soCount  = records.length - invCount;
+    var summary = '<div class="drill-summary">' +
+      '<strong>' + records.length + '</strong> MTD records · ' +
+      '<strong>' + invCount + '</strong> invoices · ' +
+      '<strong>' + soCount + '</strong> service orders · ' +
+      'subtotal <strong>$' + Math.round(totalAmt).toLocaleString() + '</strong>' +
+    '</div>';
+
+    function fmtShort(ymd) {
+      // "2026-05-20" → "Wed 5/20"
+      if (!ymd || ymd.length < 10) return ymd || '';
+      var p = ymd.split('-');
+      var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      var wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+      return wd + ' ' + (d.getMonth() + 1) + '/' + d.getDate();
+    }
+
+    var rowsHtml = records.map(function(r) {
+      var pillCls = r.kind === 'INV' ? 'drill-pill-inv' : 'drill-pill-so';
+      var paired = r.pairedTech ? ' <span style="color:var(--text-dim);font-size:9px">+ ' + escapeHtml(techDisplayName(r.pairedTech)) + '</span>' : '';
+      var classCell = r.serviceClass
+        ? '<span class="drill-class">' + escapeHtml(r.serviceClass) + '</span>'
+        : '<span style="color:var(--text-dim)">—</span>';
+      return '<tr>' +
+        '<td>' + fmtShort(r.date) + '</td>' +
+        '<td><span class="drill-pill ' + pillCls + '">' + r.kind + '</span></td>' +
+        '<td>' + escapeHtml(r.typeCode || '—') + '</td>' +
+        '<td>' + escapeHtml(r.customer || '—') + paired + '</td>' +
+        '<td>' + escapeHtml(r.serviceCode || '—') + '</td>' +
+        '<td>' + classCell + '</td>' +
+        '<td class="num">' + (r.amount > 0 ? '$' + Math.round(r.amount).toLocaleString() : '<span style="color:var(--text-dim)">—</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    return '<tr class="drill-row">' +
+      '<td colspan="' + colspan + '">' +
+        '<div class="drill-cell-inner">' +
+          summary +
+          '<table class="drill-table"><thead><tr>' +
+            '<th>Date</th>' +
+            '<th>Type</th>' +
+            '<th>Sub</th>' +
+            '<th>Customer</th>' +
+            '<th>Service</th>' +
+            '<th>Class</th>' +
+            '<th class="num">Amount</th>' +
+          '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
+        '</div>' +
+      '</td>' +
+    '</tr>';
+  }
+
+  // Wire up click handler — one delegated handler per master card table.
+  // Clicks on TH (sort) and on the office/total rows are ignored.
+  document.querySelectorAll('#techView .tech-table').forEach(function(table) {
+    table.addEventListener('click', function(ev) {
+      // Ignore clicks on sortable headers
+      if (ev.target.closest('th')) return;
+      var tr = ev.target.closest('tr.tech-row-clickable');
+      if (!tr) return;
+      var techCode = tr.getAttribute('data-tech-code');
+      if (!techCode) return;
+      var next = tr.nextElementSibling;
+      // If a drill row already exists below, toggle it
+      if (next && next.classList.contains('drill-row') && next.getAttribute('data-for') === techCode) {
+        next.classList.toggle('hidden');
+        tr.classList.toggle('expanded');
+        return;
+      }
+      // Otherwise build and insert
+      var colspan = tr.children.length;
+      var temp = document.createElement('tbody');
+      temp.innerHTML = renderTechDrillHtml_(techCode, colspan);
+      var newRow = temp.firstElementChild;
+      newRow.setAttribute('data-for', techCode);
+      tr.parentNode.insertBefore(newRow, tr.nextSibling);
+      tr.classList.add('expanded');
+    });
+  });
 }
 
 // Default sort for master cards: primary Branch A→Z, secondary Class Z→A.
