@@ -191,6 +191,10 @@
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
     margin-bottom: 16px;
   }
+  /* Summary view shows a 5th card (Recurring %) — toggled via body class */
+  .kpi-strip.has-extra { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .kpi-extra { display: none; }
+  .kpi-strip.has-extra .kpi-extra { display: block; }
   .kpi-card {
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 10px; padding: 16px;
@@ -208,6 +212,7 @@
   .kpi-value.blue   { color: var(--blue); }
   .kpi-value.yellow { color: var(--yellow); }
   .kpi-value.purple { color: var(--purple); }
+  .kpi-value.pink   { color: var(--pink); }
   .kpi-sub {
     font-size: 10px; font-weight: 600; color: var(--text-dim);
     margin-top: 4px; letter-spacing: 0.3px;
@@ -694,6 +699,7 @@
       <div class="kpi-sub" id="kpiConfirmedRate"></div>
     </div>
     <div class="kpi-card"><div class="kpi-label">Techs Active</div><div class="kpi-value yellow" id="kpiTechs">—</div></div>
+    <div class="kpi-card kpi-extra"><div class="kpi-label" id="kpiExtraLabel">Extra</div><div class="kpi-value pink" id="kpiExtra">—</div></div>
   </div>
 
   <!-- ─────────── TABLE (Service Orders / Invoices views) ─────────── -->
@@ -1613,6 +1619,9 @@ function render() {
   // KPI strip + footer — different metrics for orders vs invoices.
   // Uses SubTotal (pre-tax) so the KPI matches the per-row Subtotal column
   // and the Summary view's per-bucket totals — Joe directive 2026-05-22.
+  // Forecast/Completed views use the standard 4-card strip (no Recurring % slot)
+  var kpiStripEl = document.getElementById('kpiStrip');
+  if (kpiStripEl) kpiStripEl.classList.remove('has-extra');
   document.getElementById('kpiCount').textContent = sorted.length.toLocaleString();
   var total = sorted.reduce(function(s, r) { return s + (Number(r.SubTotal) || 0); }, 0);
   document.getElementById('kpiTotal').textContent = '$' + Math.round(total).toLocaleString();
@@ -1732,17 +1741,29 @@ function renderSummaryView_() {
   }).join('');
 
   document.getElementById('summaryView').innerHTML = html;
-  // KPI strip — mirror Invoices view metrics on the filtered records
+  // KPI strip — Summary uses 5 slots (toggled via `.has-extra` class)
+  var kpiStripEl = document.getElementById('kpiStrip');
+  if (kpiStripEl) kpiStripEl.classList.add('has-extra');
   document.getElementById('kpiCount').textContent = filtered.length.toLocaleString();
-  // Summary KPI sums SubTotal so it matches the per-bucket Subtotal columns exactly
+  // Total $ sums SubTotal so the KPI matches the per-bucket Subtotal columns exactly
   var grandTotal = filtered.reduce(function(s, r) { return s + (Number(r.SubTotal) || 0); }, 0);
   document.getElementById('kpiTotal').textContent = '$' + Math.round(grandTotal).toLocaleString();
+  // Outstanding: total unpaid balance across the filtered invoices (A/R)
   var balanceSum = filtered.reduce(function(s, r) { return s + (Number(r.Balance) || 0); }, 0);
   document.getElementById('kpiConfirmed').textContent = '$' + Math.round(balanceSum).toLocaleString();
   document.querySelector('.kpi-card:nth-child(3) .kpi-label').textContent = 'Outstanding';
   document.getElementById('kpiConfirmedRate').textContent = '';
-  document.getElementById('kpiTechs').textContent = bucketOrder.length;
-  document.querySelector('.kpi-card:nth-child(4) .kpi-label').textContent = 'Buckets';
+  // Avg Invoice $ = total SubTotal ÷ count (only meaningful when count > 0)
+  var avgInv = filtered.length > 0 ? grandTotal / filtered.length : 0;
+  document.getElementById('kpiTechs').textContent = '$' + Math.round(avgInv).toLocaleString();
+  document.querySelector('.kpi-card:nth-child(4) .kpi-label').textContent = 'Avg Invoice $';
+  // Recurring % = SubTotal of recurring service classes ÷ total SubTotal
+  var recurringRev = filtered.reduce(function(s, r) {
+    return s + (isRecurring(r) ? (Number(r.SubTotal) || 0) : 0);
+  }, 0);
+  var recurringPct = grandTotal > 0 ? (recurringRev / grandTotal) * 100 : 0;
+  document.getElementById('kpiExtra').textContent = recurringPct.toFixed(0) + '%';
+  document.getElementById('kpiExtraLabel').textContent = 'Recurring %';
   document.getElementById('footerCount').textContent = filtered.length.toLocaleString();
 }
 
