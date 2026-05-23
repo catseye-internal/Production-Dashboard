@@ -521,33 +521,33 @@
   .fc-kpi {
     background: rgba(244,123,32,0.06);
     border: 1px solid rgba(244,123,32,0.25);
-    border-radius: 8px; padding: 18px 16px 16px;
+    border-radius: 8px; padding: 10px 14px 12px;
     display: flex; flex-direction: column; justify-content: space-between;
-    gap: 14px; min-height: 130px;
+    gap: 6px; min-height: 78px;
   }
   .fc-kpi-label {
-    font-size: 11px; color: var(--text-dim); font-weight: 700;
-    letter-spacing: 0.8px; text-transform: uppercase;
+    font-size: 10px; color: var(--text-dim); font-weight: 700;
+    letter-spacing: 0.7px; text-transform: uppercase;
   }
   .fc-kpi-value {
-    font-size: 30px; color: #F47B20; font-weight: 700;
-    font-variant-numeric: tabular-nums; line-height: 1.1;
+    font-size: 22px; color: #F47B20; font-weight: 700;
+    font-variant-numeric: tabular-nums; line-height: 1.05;
   }
   .fc-kpi-bar {
-    height: 5px; background: rgba(244,123,32,0.15); border-radius: 3px;
+    height: 4px; background: rgba(244,123,32,0.15); border-radius: 2px;
     overflow: hidden;
   }
   .fc-kpi-bar-fill {
-    height: 100%; background: #F47B20; border-radius: 3px;
+    height: 100%; background: #F47B20; border-radius: 2px;
   }
   @media (max-width: 900px) {
-    .fc-kpi { min-height: 110px; padding: 14px 12px; }
-    .fc-kpi-value { font-size: 24px; }
+    .fc-kpi { min-height: 70px; padding: 8px 10px 10px; }
+    .fc-kpi-value { font-size: 19px; }
   }
   @media (max-width: 640px) {
     .fc-kpi-grid { grid-template-columns: repeat(2, 1fr); }
-    .fc-kpi { min-height: 100px; }
-    .fc-kpi-value { font-size: 22px; }
+    .fc-kpi { min-height: 64px; }
+    .fc-kpi-value { font-size: 18px; }
   }
   @media (max-width: 380px) { .fc-kpi-grid { grid-template-columns: 1fr; } }
 
@@ -626,15 +626,15 @@
   /* Mini-donuts — one per branch, auto-fit grid */
   .mini-donut-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
   }
   .mini-donut {
     display: flex; flex-direction: column; align-items: center;
-    padding: 8px 4px; gap: 4px; min-width: 0;
+    padding: 10px 6px; gap: 6px; min-width: 0;
   }
   .mini-donut-label {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
     text-transform: uppercase; color: var(--text);
   }
   /* MTD Production card — Joe directive 2026-05-22 */
@@ -701,9 +701,9 @@
   .mtd-prod-total.usx     .mtd-prod-label { color: #60A5FA; }
   .mtd-prod-total .mtd-prod-bar { height: 12px; }
   .mtd-prod-total .mtd-prod-bar-foot { font-size: 12px; }
-  .mini-donut-svg { width: 90px; height: 90px; overflow: visible; }
+  .mini-donut-svg { width: 150px; height: 150px; overflow: visible; }
   .mini-donut-center {
-    font-size: 18px; font-weight: 700; fill: #E5E7EB;
+    font-size: 26px; font-weight: 700; fill: #E5E7EB;
     font-variant-numeric: tabular-nums;
     transition: font-size 0.12s;
   }
@@ -715,10 +715,10 @@
   .mini-donut-svg .donut-slice:hover { stroke-width: 19; }
   .mini-donut-svg.hovering .donut-slice:not(:hover) { opacity: 0.32; }
   /* Slim center label used when a slice is hovered (multi-line via tspans) */
-  .mini-donut-center.hovered { font-size: 7.5px; font-weight: 600; }
-  .mini-donut-center .center-svc   { font-weight: 700; font-size: 7px; }
-  .mini-donut-center .center-count { font-weight: 800; font-size: 14px; }
-  .mini-donut-center .center-pct   { fill: var(--text-dim); font-size: 7px; font-weight: 500; }
+  .mini-donut-center.hovered { font-size: 9px; font-weight: 600; }
+  .mini-donut-center .center-svc   { font-weight: 700; font-size: 8px; }
+  .mini-donut-center .center-count { font-weight: 800; font-size: 16px; }
+  .mini-donut-center .center-pct   { fill: var(--text-dim); font-size: 8px; font-weight: 500; }
   /* Cursor-following tooltip (singleton, lives at bottom of body) */
   .donut-tooltip {
     position: fixed; z-index: 9999; pointer-events: none;
@@ -737,8 +737,8 @@
   .donut-tooltip .dt-branch { color: var(--text-dim); font-size: 9px; margin-bottom: 2px;
                               text-transform: uppercase; letter-spacing: 0.4px; }
   .mini-donut-legend {
-    width: 100%; display: flex; flex-direction: column; gap: 2px;
-    font-size: 9px; margin-top: 2px;
+    width: 100%; display: flex; flex-direction: column; gap: 3px;
+    font-size: 10px; margin-top: 4px;
   }
   .mini-donut-legend-item {
     display: grid; grid-template-columns: 8px 1fr auto; gap: 4px;
