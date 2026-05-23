@@ -503,6 +503,30 @@
   @media (max-width: 1100px) {
     .tech-charts-row { grid-template-columns: 1fr; }
   }
+  /* Two-column layout where each column stacks cards vertically and the
+     bottom card flex-grows to fill leftover space. Joe directive 2026-05-22:
+     Callbacks-by-Branch needs more vertical room when Forecast Totals is
+     compact, since they live in the same left column. */
+  .tech-charts-grid {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 1100px) {
+    .tech-charts-grid { grid-template-columns: 1fr; }
+  }
+  .tech-charts-col {
+    display: flex; flex-direction: column; gap: 14px; min-width: 0;
+  }
+  /* The bottom card in each column stretches to match the tallest column */
+  .tech-charts-col .chart-card:last-child { flex: 1 1 auto; }
+  .tech-charts-col .chart-card { display: flex; flex-direction: column; }
+  .tech-charts-col .chart-card > .mini-donut-grid,
+  .tech-charts-col .chart-card > .cb-bars {
+    flex: 1 1 auto;
+    align-content: center;       /* center donut row vertically in extra space */
+  }
   .chart-card {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
     padding: 10px 12px; min-width: 0;
@@ -701,9 +725,9 @@
   .mtd-prod-total.usx     .mtd-prod-label { color: #60A5FA; }
   .mtd-prod-total .mtd-prod-bar { height: 12px; }
   .mtd-prod-total .mtd-prod-bar-foot { font-size: 12px; }
-  .mini-donut-svg { width: 150px; height: 150px; overflow: visible; }
+  .mini-donut-svg { width: 170px; height: 170px; overflow: visible; }
   .mini-donut-center {
-    font-size: 26px; font-weight: 700; fill: #E5E7EB;
+    font-size: 28px; font-weight: 700; fill: #E5E7EB;
     font-variant-numeric: tabular-nums;
     transition: font-size 0.12s;
   }
@@ -2547,8 +2571,40 @@ function renderTechView_() {
       '</div>' +
     '</div>';
 
-  var chartsRow1 = renderTechChartsRow_(fcTotals, byBranch, todayD, dateLabel);
-  var chartsRow2 = renderTechChartsRow2_(callbacksByBranchService, byBranch);
+  // ── Top-of-Tech-view chart grid (Joe directive 2026-05-22) ──
+  // Two columns. Left column stacks Forecast Totals (compact) on top of
+  // Callbacks-by-Branch (grows to fill leftover space, so the donuts get
+  // ample room). Right column stacks MTD Production on top of Revenue per
+  // Tech. Each column's bottom card flex-grows to match the tallest column.
+  var cardForecastTotals =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">FORECAST TOTALS</h3>' +
+      '<div class="chart-meta">Total scheduled revenue per day (all techs)</div>' +
+      renderForecastKpiCards_(fcTotals, dateLabel) +
+    '</div>';
+  var cardCallbacksByBranch =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">CALLBACKS BY BRANCH</h3>' +
+      '<div class="chart-meta">MTD callbacks broken down by service per branch</div>' +
+      renderCallbacksByBranchDonuts_(callbacksByBranchService) +
+    '</div>';
+  var cardMtdProduction =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">MTD PRODUCTION</h3>' +
+      '<div class="chart-meta">Field-tech revenue MTD · pacing vs monthly budget</div>' +
+      renderMtdProductionCard_(byBranch, todayD) +
+    '</div>';
+  var cardRevPerTech =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">REVENUE PER TECH BY BRANCH</h3>' +
+      '<div class="chart-meta">MTD completed revenue ÷ active techs per branch</div>' +
+      renderRevPerTechHbars_(byBranch) +
+    '</div>';
+  var chartsGrid =
+    '<div class="tech-charts-grid">' +
+      '<div class="tech-charts-col">' + cardForecastTotals + cardCallbacksByBranch + '</div>' +
+      '<div class="tech-charts-col">' + cardMtdProduction + cardRevPerTech + '</div>' +
+    '</div>';
 
   // Master cards — one per company (Catseye + USX Pest), full-width
   function renderMasterCard(companyKey, label, brandCls) {
@@ -2813,7 +2869,7 @@ function renderTechView_() {
 
   var catseyeCard = renderMasterCard('catseye', 'CATSEYE TECHS', 'brand-catseye');
   var usxCard     = renderMasterCard('usx',     'USX PEST TECHS', 'brand-usx');
-  var html = mtdBanner + chartsRow1 + chartsRow2 + catseyeCard + usxCard;
+  var html = mtdBanner + chartsGrid + catseyeCard + usxCard;
 
   document.getElementById('techView').innerHTML = html;
   document.getElementById('footerCount').textContent = Object.keys(techRows).length.toLocaleString();
