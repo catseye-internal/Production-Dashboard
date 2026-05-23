@@ -867,6 +867,17 @@
   }
   .mtd-prod-divider { height: 1px; background: var(--border); margin: 6px 0; }
 
+  /* Catseye + USX side-by-side row (Joe 2026-05-23). Combined Total
+     sits full-width above; each company gets half the row below. */
+  .mtd-prod-companies-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 12px; align-items: start;
+  }
+  .mtd-prod-companies-row > .mtd-prod-branch-total { margin-top: 0; }
+  @media (max-width: 900px) {
+    .mtd-prod-companies-row { grid-template-columns: 1fr; }
+  }
+
   /* Clickable branch row + chevron rotation when expanded */
   .mtd-prod-branch.mtd-prod-clickable { cursor: pointer; }
   .mtd-prod-branch.mtd-prod-clickable .mtd-prod-branch-header { gap: 6px; }
@@ -4481,12 +4492,14 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     headerStrip +
     dailyHeader +
     datePicker +
-    // Combined Total now sits at the TOP (Joe 2026-05-23) — gives an
-    // at-a-glance roll-up before drilling into Catseye + USX individually.
+    // Combined Total full-width at the top, then Catseye + USX side-by-side
+    // in a 2-column row. Joe directive 2026-05-23.
     combinedBlock +
     (combinedBlock ? '<div class="mtd-prod-divider"></div>' : '') +
-    catseyeBlock +
-    usxBlock +
+    '<div class="mtd-prod-companies-row">' +
+      catseyeBlock +
+      usxBlock +
+    '</div>' +
   '</div>';
 }
 
