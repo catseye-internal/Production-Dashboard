@@ -1389,6 +1389,25 @@ function nonEstimateInvoices_() {
   });
 }
 
+// PRODUCTION-lens invoice filter (Joe directive 2026-05-22). Counts work
+// that techs actually performed; excludes PI (pre-bill auto-bills that hit
+// at start of month but represent work not yet done) and ES (estimates).
+// Keeps:
+//   - IN = standard service invoices
+//   - PR = production-lens invoices
+//   - CM = credit memos (negative production from refunds/adjustments)
+//   - CB = callbacks ($0 revenue but real field visits — needed for callback counts)
+// REVENUE = IN+PI+CM is end-of-day accounting truth and lives on the Summary
+// view. The Tech view uses PRODUCTION so daily pacing isn't distorted by
+// the first-week auto-bill lump.
+function productionInvoices_() {
+  if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return [];
+  return STATE.invoiceCache.invoices.filter(function(inv) {
+    var t = inv.InvoiceType || '';
+    return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB';
+  });
+}
+
 // Load cache-employees.json and build STATE.employeesMap (Username uppercase → record).
 // PestPac's `Username` field is the 3-letter code (GRA, BAG2, ADMN) that matches
 // ServiceOrders.Tech1, ServiceOrders.Tech2, and Invoice.Tech.
@@ -2317,8 +2336,9 @@ function renderTechView_() {
     }
   }
 
-  // Completed (MTD) — invoice cache, 1st of month through yesterday, ES excluded
-  nonEstimateInvoices_().forEach(function(inv) {
+  // Completed (MTD) — invoice cache, 1st of month through yesterday.
+  // PRODUCTION lens (IN+PR+CM+CB only) — excludes PI auto-bills.
+  productionInvoices_().forEach(function(inv) {
     var date = String(inv.InvoiceDate || '').substring(0, 10);
     if (date < dSom || date > dYest) return;
     var amount = Number(inv.SubTotal) || 0;
@@ -2415,7 +2435,7 @@ function renderTechView_() {
   // grouped by Branch + ServiceCode. Joe directive 2026-05-22: switched from
   // forecast service-orders to MTD invoices for retrospective signal.
   var callbacksByBranchService = {};  // { branch: { ServiceCode: count } }
-  nonEstimateInvoices_().forEach(function(inv) {
+  productionInvoices_().forEach(function(inv) {
     if ((inv.InvoiceType || '') !== 'CB') return;
     var date = String(inv.InvoiceDate || '').substring(0, 10);
     if (date < dSom || date > dYest) return;
@@ -2592,19 +2612,19 @@ function renderTechView_() {
   var mtdBanner =
     '<div class="mtd-banner">' +
       '<div class="mtd-banner-stat">' +
-        '<div class="mtd-banner-label">MTD Field Revenue</div>' +
+        '<div class="mtd-banner-label">MTD Field Production</div>' +
         '<div class="mtd-banner-value field">$' + Math.round(fieldMtd).toLocaleString() + '</div>' +
         '<div class="mtd-banner-sub">attributed to field techs</div>' +
       '</div>' +
       '<div class="mtd-banner-stat" title="' + escapeHtml(officeTip) + '">' +
         '<div class="mtd-banner-label">MTD Office-Credited</div>' +
         '<div class="mtd-banner-value office">$' + Math.round(officeMtd).toLocaleString() + '</div>' +
-        '<div class="mtd-banner-sub">' + officePct.toFixed(1) + '% · auto-renew · credit memos · non-tech codes</div>' +
+        '<div class="mtd-banner-sub">' + officePct.toFixed(1) + '% · credit memos · non-tech codes</div>' +
       '</div>' +
       '<div class="mtd-banner-stat">' +
-        '<div class="mtd-banner-label">MTD Total</div>' +
+        '<div class="mtd-banner-label">MTD Total Production</div>' +
         '<div class="mtd-banner-value total">$' + Math.round(totalMtd).toLocaleString() + '</div>' +
-        '<div class="mtd-banner-sub">reconciles to Summary view</div>' +
+        '<div class="mtd-banner-sub">IN + PR + CM · excludes PI auto-bills</div>' +
       '</div>' +
     '</div>';
 
@@ -2641,8 +2661,8 @@ function renderTechView_() {
   // column with the same look as the chart cards. Joe directive 2026-05-22.
   var cardRevenueBanner =
     '<div class="chart-card revenue-banner-card">' +
-      '<h3 class="chart-title">REVENUE</h3>' +
-      '<div class="chart-meta">MTD field · office-credited · total</div>' +
+      '<h3 class="chart-title">PRODUCTION</h3>' +
+      '<div class="chart-meta">MTD production (IN + PR + CM · excludes PI auto-bills) · field · office-credited · total</div>' +
       mtdBanner +
     '</div>';
   var chartsGrid =
@@ -2964,8 +2984,9 @@ function renderTechView_() {
       return l || f || '';
     }
 
-    // MTD invoices for this tech — invoices have CustomerName + City directly
-    nonEstimateInvoices_().forEach(function(inv) {
+    // MTD invoices for this tech — invoices have CustomerName + City directly.
+    // PRODUCTION lens (excludes PI auto-bills).
+    productionInvoices_().forEach(function(inv) {
       var d = String(inv.InvoiceDate || '').substring(0, 10);
       if (d < dSom || d > dYest) return;
       var t1 = String(inv.Tech  || '').toUpperCase();
@@ -3124,8 +3145,9 @@ function renderTechView_() {
 
     var records = [];
 
-    // Office-event invoices in this company's branches, MTD only
-    nonEstimateInvoices_().forEach(function(inv) {
+    // Office-event invoices in this company's branches, MTD only.
+    // PRODUCTION lens (excludes PI auto-bills) — same as upstream aggregation.
+    productionInvoices_().forEach(function(inv) {
       var d = String(inv.InvoiceDate || '').substring(0, 10);
       if (d < dSom || d > dYest) return;
       if (!branchInCompany_(inv.Branch)) return;
