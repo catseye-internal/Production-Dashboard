@@ -443,6 +443,9 @@ function workingDaysInMonth_(year, monthIdx) {
 //                             enhanced: { cg_nwl, ... } } } }
 // Dashboard displays the SUM of the 6 ENHANCED categories. TRUE is private
 // and never returned by this helper — it's only exposed inside admin.html.
+// Full list of 6 categories — used by the admin page's input grid so Joe can
+// budget for and track each one (including Total Platinum 1st-yr-free for
+// pipeline visibility even though it has $0 revenue impact in year 1).
 const BUDGET_CATEGORIES = [
   'cg_nwl',
   'pest_rodent_initial',
@@ -459,6 +462,17 @@ const BUDGET_CATEGORY_LABELS = {
   recurring_total_platinum: 'Recurring — Total Platinum (1st yr free)',
   cgw_generated:            'CGW Generated'
 };
+// Subset of categories that count toward the dashboard's "Budget" total.
+// Joe directive 2026-05-23: Total Platinum 1st-yr-free is $0 revenue so it
+// should NOT inflate the budget the dashboard paces against. It's still in
+// BUDGET_CATEGORIES so Joe can budget for it in the admin page for visibility.
+const BUDGET_DASHBOARD_CATEGORIES = [
+  'cg_nwl',
+  'pest_rodent_initial',
+  'recurring_residential',
+  'recurring_commercial',
+  'cgw_generated'
+];
 
 function getMonthlyBudget(budgets, branch, year, monthIdx) {
   if (!budgets || !branch) return 0;
@@ -467,9 +481,10 @@ function getMonthlyBudget(budgets, branch, year, monthIdx) {
   if (!branchBudgets) return 0;
   var monthEntry = branchBudgets[key];
   if (!monthEntry) return 0;
-  // New shape: sum the 6 ENHANCED categories
+  // New shape: sum the dashboard-relevant ENHANCED categories
+  // (excludes recurring_total_platinum per Joe directive 2026-05-23)
   if (monthEntry.enhanced && typeof monthEntry.enhanced === 'object') {
-    return BUDGET_CATEGORIES.reduce(function(sum, cat) {
+    return BUDGET_DASHBOARD_CATEGORIES.reduce(function(sum, cat) {
       return sum + (Number(monthEntry.enhanced[cat]) || 0);
     }, 0);
   }

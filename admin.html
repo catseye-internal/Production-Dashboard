@@ -252,7 +252,7 @@
 
       <div class="preview-card">
         <h3>Dashboard Preview · ENHANCED Total</h3>
-        <div class="sub">This is what the MTD Production card will show as "Budget" for the selected branch + month.</div>
+        <div class="sub">What the MTD Production card will show as "Budget" for the selected branch + month. Excludes Recurring — Total Platinum (1st yr free) since it carries no revenue.</div>
         <div id="preview-total" class="dashboard-value">$0</div>
       </div>
 
@@ -311,6 +311,12 @@
       recurring_total_platinum: 'Recurring — Total Platinum (1st yr free)',
       cgw_generated:            'CGW Generated'
     };
+    // Subset that counts toward the dashboard's "Budget" line. Total Platinum
+    // is tracked here for visibility but excluded from the dashboard total.
+    var DASHBOARD_CATEGORIES = (typeof BUDGET_DASHBOARD_CATEGORIES !== 'undefined') ? BUDGET_DASHBOARD_CATEGORIES : [
+      'cg_nwl', 'pest_rodent_initial', 'recurring_residential',
+      'recurring_commercial', 'cgw_generated'
+    ];
 
     var state = {
       password: null,
@@ -500,15 +506,22 @@
 
     function recomputeTotals() {
       var entry = getCurrentEntry();
+      // Total of ALL 6 categories — shown on the input grid's Total row so
+      // Joe sees the full picture including Total Platinum.
       var totalTrue = CATEGORIES.reduce(function(s, c) {
         return s + (Number(entry['true'][c]) || 0);
       }, 0);
       var totalEnhanced = CATEGORIES.reduce(function(s, c) {
         return s + (Number(entry['enhanced'][c]) || 0);
       }, 0);
+      // What the DASHBOARD will actually display — sum of the 5 dashboard
+      // categories (Total Platinum 1st-yr-free excluded per Joe 2026-05-23).
+      var dashboardEnhanced = DASHBOARD_CATEGORIES.reduce(function(s, c) {
+        return s + (Number(entry['enhanced'][c]) || 0);
+      }, 0);
       $('total-true').textContent     = fmtMoney(totalTrue);
       $('total-enhanced').textContent = fmtMoney(totalEnhanced);
-      $('preview-total').textContent  = fmtMoney(totalEnhanced);
+      $('preview-total').textContent  = fmtMoney(dashboardEnhanced);
     }
 
     function markDirty() {
