@@ -2270,6 +2270,11 @@ function renderTechView_() {
   // and falls into "(no branch)". Joe spotted this 2026-05-22.)
   function attribute(bucket, branch, role, amount, tech1, tech2) {
     if (!tech1) return;
+    // Suppress Tech2 entirely if it's a non-tech code — don't credit them with
+    // a row, don't split CG/NWL revenue with them. Tech1 (the real field tech)
+    // gets full credit. Joe directive 2026-05-22 — prevents Brian Lariccia etc.
+    // from leaking onto the Tech view when paired as Tech2 on real-tech orders.
+    if (tech2 && isNonTechCode(tech2)) tech2 = null;
     var countKey = bucket + 'Count';
     var r1 = row(tech1);
     noteBranchRole(r1, branch, role);
@@ -2310,6 +2315,8 @@ function renderTechView_() {
     var role = roleOf(inv);
     attribute('completed', inv.Branch, role, amount, inv.Tech, inv.Tech2);
     var t1 = inv.Tech, t2 = inv.Tech2;
+    // Suppress Tech2 if it's a non-tech code (don't credit them as a callback contributor)
+    if (t2 && isNonTechCode(t2)) t2 = null;
     // MTD callback count per tech
     if ((inv.InvoiceType || '') === 'CB') {
       if (t1) { row(t1).completedCallbacks = (row(t1).completedCallbacks || 0) + 1; }
@@ -2358,6 +2365,8 @@ function renderTechView_() {
       var role = roleOf(o);
       attribute(bucket, o.Branch, role, amount, o.Tech1, o.Tech2);
       var t1 = o.Tech1, t2 = o.Tech2;
+      // Suppress Tech2 if it's a non-tech code (don't credit them as a callback contributor)
+      if (t2 && isNonTechCode(t2)) t2 = null;
       // Per-period callback count
       if ((o.OrderType || '') === 'CallBack') {
         var cbKey = bucket + 'Callbacks';
@@ -2873,7 +2882,7 @@ function renderTechView_() {
         sortableTh_('d3Callbacks',        'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('driveDistD3',        'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('driveTimeD3',        'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
-      '</tr></thead><tbody>' + bodyRows + totalRow + '</tbody></table></div>';
+      '</tr></thead><tbody>' + bodyRows + officeRow + totalRow + '</tbody></table></div>';
   }
 
   var catseyeCard = renderMasterCard('catseye', 'CATSEYE TECHS', 'brand-catseye');
