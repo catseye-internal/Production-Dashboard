@@ -718,6 +718,18 @@
   .mtd-prod-header-date { color: var(--text); font-weight: 700; }
   .mtd-prod-header-sep  { opacity: 0.4; }
   .mtd-prod-header-range { font-style: italic; }
+  /* Cache-freshness indicator. Fresh (<24h) = subdued gray. Aging (24-72h)
+     = yellow warning. Stale (>72h) = red warning. Joe 2026-05-23. */
+  .mtd-prod-header-freshness { font-weight: 600; cursor: help; }
+  .mtd-prod-header-freshness.mtd-prod-freshness-fresh  { color: var(--text-dim); }
+  .mtd-prod-header-freshness.mtd-prod-freshness-aging  {
+    color: #FBBF24; padding: 1px 6px; border-radius: 3px;
+    background: rgba(251, 191, 36, 0.10);
+  }
+  .mtd-prod-header-freshness.mtd-prod-freshness-stale  {
+    color: #F87171; padding: 1px 6px; border-radius: 3px;
+    background: rgba(248, 113, 113, 0.10);
+  }
   @media (max-width: 720px) {
     .mtd-prod-header-strip { flex-wrap: wrap; justify-content: flex-start; }
   }
@@ -4362,9 +4374,8 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   var combinedBlock = (combinedAgg.mtdAll > 0 || combinedAgg.budgetWithCgw > 0)
                       ? renderRowBlock_(combinedAgg, 'combined') : '';
 
-  // Header strip — today's date · working day #X of Y · Z% complete.
-  // Joe directive 2026-05-23. Positioned top-right of the card body so the
-  // chart-card's existing <h3> title stays untouched.
+  // Header strip — today's date · working day #X of Y · Z% complete · range
+  // · cache-freshness indicator. Joe directive 2026-05-23.
   var todayLabel = todayD.toLocaleDateString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric'
   });
@@ -4372,6 +4383,37 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   var rangeLabel = isCustom
     ? ('Custom range: ' + startYmd + ' → ' + endYmd)
     : ('MTD · ' + startYmd + ' → ' + endYmd);
+
+  // Cache freshness — read `updated` ISO timestamp from cache-invoices.json.
+  // Show how long ago the cache was reconciled. Yellow > 24h, red > 72h.
+  // This is the safety net for catching webhook drift early.
+  var freshnessHtml = '';
+  var cacheUpdated = STATE.invoiceCache && STATE.invoiceCache.updated;
+  if (cacheUpdated) {
+    var ut = new Date(cacheUpdated);
+    if (!isNaN(ut.getTime())) {
+      var ageMs = Date.now() - ut.getTime();
+      var ageHours = ageMs / 3600000;
+      var ageLabel;
+      if      (ageHours < 1)   ageLabel = Math.round(ageMs / 60000) + 'm ago';
+      else if (ageHours < 48)  ageLabel = Math.round(ageHours) + 'h ago';
+      else                     ageLabel = Math.round(ageHours / 24) + 'd ago';
+      var cls = ageHours >= 72 ? 'mtd-prod-freshness-stale'
+              : ageHours >= 24 ? 'mtd-prod-freshness-aging'
+              : 'mtd-prod-freshness-fresh';
+      var prefix = ageHours >= 24 ? '⚠ ' : '';
+      var hint = ageHours >= 24
+        ? '\\nCache may be missing recent invoices — run `python3 loaders/merge_invoices.py <new export>` to reconcile.'
+        : '';
+      var ttip = 'cache-invoices.json updated ' + ut.toLocaleString() + hint;
+      freshnessHtml =
+        '<span class="mtd-prod-header-sep">·</span>' +
+        '<span class="mtd-prod-header-freshness ' + cls + '" title="' + escapeHtml(ttip) + '">' +
+          prefix + 'Source data ' + escapeHtml(ageLabel) +
+        '</span>';
+    }
+  }
+
   var headerStrip =
     '<div class="mtd-prod-header-strip">' +
       '<span class="mtd-prod-header-date">' + escapeHtml(todayLabel) + '</span>' +
@@ -4381,6 +4423,7 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       '<span class="mtd-prod-header-pct"><strong>' + pctMonth + '%</strong> of month complete</span>' +
       '<span class="mtd-prod-header-sep">·</span>' +
       '<span class="mtd-prod-header-range">' + escapeHtml(rangeLabel) + '</span>' +
+      freshnessHtml +
     '</div>';
 
   // Daily production needed per company — Budget (w/ CGW) ÷ total working days
