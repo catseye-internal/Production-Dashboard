@@ -529,10 +529,15 @@
   @media (max-width: 1100px) {
     .tech-charts-row { grid-template-columns: 1fr; }
   }
-  /* Two-column layout where each column stacks cards vertically and the
-     bottom card flex-grows to fill leftover space. Joe directive 2026-05-22:
-     Callbacks-by-Branch needs more vertical room when Forecast Totals is
-     compact, since they live in the same left column. */
+  /* Single-column stack (Joe directive 2026-05-23) — replaces the 2-column
+     grid for the top half of the Dashboard view. Cards stack vertically. */
+  .tech-charts-stack {
+    display: flex; flex-direction: column;
+    gap: 14px; margin-bottom: 18px;
+  }
+  .tech-charts-stack > .chart-card { width: 100%; }
+
+  /* Legacy two-column layout — kept in case future views use it. */
   .tech-charts-grid {
     grid-column: 1 / -1;
     display: grid;
@@ -2861,25 +2866,16 @@ function renderTechView_() {
       '<div class="chart-meta">MTD completed revenue ÷ active techs per branch</div>' +
       renderRevPerTechHbars_(byBranch) +
     '</div>';
-  // Wrap the existing mtdBanner in a card frame so it can stack inside the left
-  // column with the same look as the chart cards. Joe directive 2026-05-22.
-  var cardRevenueBanner =
-    '<div class="chart-card revenue-banner-card">' +
-      '<h3 class="chart-title">PRODUCTION</h3>' +
-      '<div class="chart-meta">MTD production (IN + PR + CM · excludes PI auto-bills) · field · office-credited · total</div>' +
-      mtdBanner +
-    '</div>';
+  // Single-column stack (Joe directive 2026-05-23). The MTD production banner
+  // card has been removed entirely. Order: Forecast Totals → Completed vs
+  // Budget → Revenue per Tech by Branch → Callbacks by Branch. Master tech
+  // cards (Catseye Techs, USX Pest Techs) follow below outside this grid.
   var chartsGrid =
-    '<div class="tech-charts-grid">' +
-      '<div class="tech-charts-col">' +
-        cardRevenueBanner +
-        cardForecastTotals +
-        cardCallbacksByBranch +
-        cardRevPerTech +
-      '</div>' +
-      '<div class="tech-charts-col">' +
-        cardMtdProduction +
-      '</div>' +
+    '<div class="tech-charts-stack">' +
+      cardForecastTotals +
+      cardMtdProduction +
+      cardRevPerTech +
+      cardCallbacksByBranch +
     '</div>';
 
   // Master cards — one per company (Catseye + USX Pest), full-width
@@ -4431,9 +4427,12 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     headerStrip +
     dailyHeader +
     datePicker +
+    // Combined Total now sits at the TOP (Joe 2026-05-23) — gives an
+    // at-a-glance roll-up before drilling into Catseye + USX individually.
+    combinedBlock +
+    (combinedBlock ? '<div class="mtd-prod-divider"></div>' : '') +
     catseyeBlock +
     usxBlock +
-    (combinedBlock ? '<div class="mtd-prod-divider"></div>' + combinedBlock : '') +
   '</div>';
 }
 
