@@ -827,6 +827,30 @@
   .mtd-prod-branch-total .mtd-prod-metric { font-size: 12px; }
   .mtd-prod-branch-total .mtd-prod-metric-bar { height: 11px; }
   .mtd-prod-branch-total .mtd-prod-metric-value { font-size: 13px; }
+
+  /* Nested branch children (revealed when a company row is expanded) —
+     indented + slightly smaller than the company row but bigger than a category line.
+     Joe directive 2026-05-23 — 3-level drill structure. */
+  .mtd-prod-branch-child {
+    margin: 8px 0 8px 12px;
+    padding: 8px 10px;
+    border-left: 2px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.015);
+    border-radius: 0 4px 4px 0;
+  }
+  .mtd-prod-branch-child + .mtd-prod-branch-child { margin-top: 6px; }
+  .mtd-prod-branch-child .mtd-prod-branch-label {
+    font-size: 11px; font-weight: 700; color: var(--text);
+  }
+  .mtd-prod-branch-child .mtd-prod-metric { font-size: 11px; }
+  .mtd-prod-branch-child .mtd-prod-metric-bar { height: 8px; }
+  .mtd-prod-branch-child .mtd-prod-metric-value { font-size: 11px; }
+  .mtd-prod-branch-child .mtd-prod-pacing { font-size: 9px; }
+  /* When a child branch is itself expanded, give it a faint highlight */
+  .mtd-prod-branch-child.expanded {
+    background: rgba(244, 123, 32, 0.04);
+    border-left-color: var(--orange);
+  }
   .mini-donut-svg { width: 170px; height: 170px; overflow: visible; }
   .mini-donut-center {
     font-size: 22px; font-weight: 700; fill: #E5E7EB;
@@ -3510,15 +3534,18 @@ function renderTechView_() {
     });
   });
 
-  // ── MTD Production card: click branch row to expand category drill-down ──
-  // Joe directive 2026-05-23. Each .mtd-prod-branch is the toggle target.
-  // Drill-down content is pre-rendered (hidden) so the click handler is
-  // a simple classList toggle — no async work, no re-render.
+  // ── MTD Production card: nested click-to-expand (Joe 2026-05-23) ──
+  // Three levels of clickable rows: Company → Branch → (categories are static).
+  // We MUST stop propagation after toggling so clicking a child branch row
+  // doesn't also collapse the parent company row that contains it.
   document.querySelectorAll('#techView .mtd-prod-clickable').forEach(function(card) {
     card.addEventListener('click', function(ev) {
-      // Avoid swallowing clicks on tooltips or interactive children
       if (ev.target.closest('a, button, input, select')) return;
+      // Only toggle if the click's nearest clickable ancestor is THIS element —
+      // i.e. the user clicked our header, not a deeper child's header.
+      if (ev.target.closest('.mtd-prod-clickable') !== card) return;
       card.classList.toggle('expanded');
+      ev.stopPropagation();
     });
   });
 
@@ -4018,12 +4045,17 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     return '$' + Math.round(n);
   }
 
-  // ── Build one branch/company block (5 metric lines + optional drill-down) ──
-  function renderBranchBlock_(item, isCompanyTotal) {
+  // ── Build one row block (5 metric lines + optional nested drill) ──
+  // mode:
+  //   'company'   — top-level Catseye/USX row, drill contains nested branch blocks
+  //   'branch'    — child branch row (inside a company drill), drill contains
+  //                 the 4-category breakdown
+  //   'combined'  — bottom Combined Total row, NOT clickable, no drill
+  // `nestedHtml` is the pre-rendered HTML for whatever the drill should contain
+  // (passed in by the caller for the 'company' mode).
+  function renderRowBlock_(item, mode, nestedHtml) {
     var brandColor = item.usx ? '#60A5FA' : '#F47B20';
     var hasBudget  = item.budgetWithCgw > 0;
-    // Pacing vs the WITH-CGW budget (that's the comparable apples-to-apples
-    // number now that on-pace includes CGW).
     var pacingPct  = hasBudget ? ((item.onPaceWithCgw - item.budgetWithCgw) / item.budgetWithCgw) * 100 : null;
     var pacingCls  = (pacingPct === null) ? 'pace-unset'
                    : pacingPct >= 0       ? 'pace-ahead'
@@ -4032,8 +4064,6 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     var pacingLabel = (pacingPct === null) ? 'No budget set'
                     : (pacingPct >= 0 ? '+' : '') + pacingPct.toFixed(1) + '% vs budget w/ CGW';
 
-    // Shared x-axis scale (max + 5% headroom) across all 5 lines so the
-    // visual comparison stays direct.
     var scaleMax = Math.max(item.mtdAll, item.onPaceWithCgw, item.budgetWithCgw) * 1.05;
     if (scaleMax <= 0) scaleMax = 1;
     function widthPct(v) { return Math.max(0, (v / scaleMax) * 100); }
@@ -4060,7 +4090,6 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     }
 
     var rows = '';
-    // Actual (single line, in branch brand color)
     rows += '<div class="mtd-prod-metric" title="MTD field-tech revenue across all 5 dashboard categories">' +
       '<span class="mtd-prod-metric-label">Actual</span>' +
       '<span class="mtd-prod-metric-value">' + fmtK(item.mtdAll) + '</span>' +
@@ -4069,70 +4098,111 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       '</div>' +
       '<span class="mtd-prod-metric-pct">' + pctOfBudget(item.mtdAll) + '</span>' +
     '</div>';
-    // On Pace (no CGW) — yellow ; On Pace w/ CGW — green
     rows += metricRow('On Pace',        item.onPaceProd,    'fill-pace-no-cgw',  paceTip);
     rows += metricRow('On Pace w/ CGW', item.onPaceWithCgw, 'fill-pace-with-cgw', paceTip);
     if (hasBudget) {
-      // Budget (no CGW) — purple ; Budget w/ CGW — pink
       rows += metricRow('Budget',        item.budgetNoCgw,   'fill-bdgt-no-cgw',   null);
       rows += metricRow('Budget w/ CGW', item.budgetWithCgw, 'fill-bdgt-with-cgw', null);
     } else {
       rows += '<div class="mtd-prod-metric-empty">No budget set for this month</div>';
     }
 
-    // Per-category drill-down (only the 4 production categories — CGW is
-    // already broken out in the lines above).
-    var maxCatVal = DRILL_CATS.reduce(function(m, c) {
-      return Math.max(m, item.budgetCats[c] || 0, item.actualCats[c] || 0);
-    }, 0) * 1.05;
-    if (maxCatVal <= 0) maxCatVal = 1;
-    function catWidth(v) { return Math.max(0, (v / maxCatVal) * 100); }
-
-    var drillRowsHtml = DRILL_CATS.map(function(cat) {
-      var actual = Number(item.actualCats[cat]) || 0;
-      var budget = Number(item.budgetCats[cat]) || 0;
-      var pct    = budget > 0 ? Math.round((actual / budget) * 100) + '% of bdgt' : '';
-      return '<div class="mtd-prod-cat">' +
-        '<div class="mtd-prod-cat-label">' + escapeHtml(CAT_LABEL[cat]) + '</div>' +
-        '<div class="mtd-prod-cat-row">' +
-          '<span class="mtd-prod-cat-line-label">Actual</span>' +
-          '<span class="mtd-prod-cat-value">' + fmtK(actual) + '</span>' +
-          '<div class="mtd-prod-metric-bar">' +
-            '<div class="mtd-prod-metric-fill fill-actual" style="width:' + catWidth(actual).toFixed(1) + '%;background:' + brandColor + '"></div>' +
+    // Per-category drill (4 production categories) — used in 'branch' mode
+    function categoryDrillHtml_() {
+      var maxCatVal = DRILL_CATS.reduce(function(m, c) {
+        return Math.max(m, item.budgetCats[c] || 0, item.actualCats[c] || 0);
+      }, 0) * 1.05;
+      if (maxCatVal <= 0) maxCatVal = 1;
+      function catWidth(v) { return Math.max(0, (v / maxCatVal) * 100); }
+      return DRILL_CATS.map(function(cat) {
+        var actual = Number(item.actualCats[cat]) || 0;
+        var budget = Number(item.budgetCats[cat]) || 0;
+        var pct    = budget > 0 ? Math.round((actual / budget) * 100) + '% of bdgt' : '';
+        return '<div class="mtd-prod-cat">' +
+          '<div class="mtd-prod-cat-label">' + escapeHtml(CAT_LABEL[cat]) + '</div>' +
+          '<div class="mtd-prod-cat-row">' +
+            '<span class="mtd-prod-cat-line-label">Actual</span>' +
+            '<span class="mtd-prod-cat-value">' + fmtK(actual) + '</span>' +
+            '<div class="mtd-prod-metric-bar">' +
+              '<div class="mtd-prod-metric-fill fill-actual" style="width:' + catWidth(actual).toFixed(1) + '%;background:' + brandColor + '"></div>' +
+            '</div>' +
+            '<span class="mtd-prod-cat-pct">' + pct + '</span>' +
           '</div>' +
-          '<span class="mtd-prod-cat-pct">' + pct + '</span>' +
-        '</div>' +
-        '<div class="mtd-prod-cat-row">' +
-          '<span class="mtd-prod-cat-line-label">Budget</span>' +
-          '<span class="mtd-prod-cat-value">' + fmtK(budget) + '</span>' +
-          '<div class="mtd-prod-metric-bar">' +
-            '<div class="mtd-prod-metric-fill fill-bdgt-no-cgw" style="width:' + catWidth(budget).toFixed(1) + '%"></div>' +
+          '<div class="mtd-prod-cat-row">' +
+            '<span class="mtd-prod-cat-line-label">Budget</span>' +
+            '<span class="mtd-prod-cat-value">' + fmtK(budget) + '</span>' +
+            '<div class="mtd-prod-metric-bar">' +
+              '<div class="mtd-prod-metric-fill fill-bdgt-no-cgw" style="width:' + catWidth(budget).toFixed(1) + '%"></div>' +
+            '</div>' +
+            '<span class="mtd-prod-cat-pct"></span>' +
           '</div>' +
-          '<span class="mtd-prod-cat-pct"></span>' +
-        '</div>' +
-      '</div>';
-    }).join('');
+        '</div>';
+      }).join('');
+    }
 
-    var totalCls = isCompanyTotal ? (' mtd-prod-branch-total ' + (item.usx ? 'usx' : (item.isCombined ? 'combined' : 'catseye'))) : '';
-    return '<div class="mtd-prod-branch mtd-prod-clickable' + totalCls + '">' +
+    // Class list assembly — kind determines visual treatment + click behavior
+    var blockClasses = ['mtd-prod-branch'];
+    var chevron = '';
+    var drillHtml = '';
+    var drillTitle = '';
+
+    if (mode === 'company') {
+      blockClasses.push('mtd-prod-clickable');
+      blockClasses.push('mtd-prod-branch-total');
+      blockClasses.push(item.usx ? 'usx' : 'catseye');
+      chevron = '<span class="mtd-prod-chevron">▸</span>';
+      drillTitle = 'Branch breakdown · click any branch for category detail';
+      drillHtml = nestedHtml || '';
+    } else if (mode === 'combined') {
+      blockClasses.push('mtd-prod-branch-total');
+      blockClasses.push('combined');
+      // No chevron, no drill, not clickable
+    } else { // 'branch'
+      blockClasses.push('mtd-prod-clickable');
+      blockClasses.push('mtd-prod-branch-child');
+      chevron = '<span class="mtd-prod-chevron">▸</span>';
+      drillTitle = 'Production category breakdown · MTD';
+      drillHtml = categoryDrillHtml_();
+    }
+
+    var drillSection = drillHtml
+      ? ('<div class="mtd-prod-drill">' +
+           (drillTitle ? '<div class="mtd-prod-drill-title">' + escapeHtml(drillTitle) + '</div>' : '') +
+           drillHtml +
+         '</div>')
+      : '';
+
+    return '<div class="' + blockClasses.join(' ') + '">' +
       '<div class="mtd-prod-branch-header">' +
-        '<span class="mtd-prod-chevron">▸</span>' +
+        chevron +
         '<span class="mtd-prod-branch-label">' + escapeHtml(item.label) + '</span>' +
         '<span class="mtd-prod-pacing ' + pacingCls + '">' + escapeHtml(pacingLabel) + '</span>' +
       '</div>' +
       rows +
-      '<div class="mtd-prod-drill">' +
-        '<div class="mtd-prod-drill-title">Production category breakdown · MTD</div>' +
-        drillRowsHtml +
-      '</div>' +
+      drillSection +
     '</div>';
   }
 
-  var branchBlocks   = branches.map(function(b) { return renderBranchBlock_(b, false); }).join('');
-  var companyBlocks  = [catseyeAgg, usxAgg].filter(function(c) { return c.mtdAll > 0 || c.budgetWithCgw > 0; })
-                                            .map(function(c) { return renderBranchBlock_(c, true); }).join('');
-  var combinedBlock  = (combinedAgg.mtdAll > 0 || combinedAgg.budgetWithCgw > 0)
-                       ? renderBranchBlock_(combinedAgg, true) : '';
+  // Build the 3-level structure:
+  //   Level 1: Catseye, USX, Combined (top of card)
+  //   Level 2: Branches inside Catseye + USX drill
+  //   Level 3: Category breakdown inside each branch drill
+  var catseyeBranches = branches.filter(function(b) { return !b.usx; });
+  var usxBranches     = branches.filter(function(b) {  return  b.usx; });
+
+  var catseyeChildrenHtml = catseyeBranches.map(function(b) {
+    return renderRowBlock_(b, 'branch');
+  }).join('');
+  var usxChildrenHtml = usxBranches.map(function(b) {
+    return renderRowBlock_(b, 'branch');
+  }).join('');
+
+  var catseyeBlock  = (catseyeAgg.mtdAll > 0 || catseyeAgg.budgetWithCgw > 0)
+                      ? renderRowBlock_(catseyeAgg, 'company', catseyeChildrenHtml) : '';
+  var usxBlock      = (usxAgg.mtdAll > 0 || usxAgg.budgetWithCgw > 0)
+                      ? renderRowBlock_(usxAgg, 'company', usxChildrenHtml) : '';
+  var combinedBlock = (combinedAgg.mtdAll > 0 || combinedAgg.budgetWithCgw > 0)
+                      ? renderRowBlock_(combinedAgg, 'combined') : '';
 
   // Header strip — today's date · working day #X of Y · Z% complete.
   // Joe directive 2026-05-23. Positioned top-right of the card body so the
@@ -4152,8 +4222,8 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
 
   return '<div class="mtd-prod-card">' +
     headerStrip +
-    branchBlocks +
-    (companyBlocks ? '<div class="mtd-prod-divider"></div>' + companyBlocks : '') +
+    catseyeBlock +
+    usxBlock +
     (combinedBlock ? '<div class="mtd-prod-divider"></div>' + combinedBlock : '') +
   '</div>';
 }
