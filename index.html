@@ -3900,18 +3900,24 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     var techs   = byBranch[b] || [];
     var mtdAll  = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
     var catActuals = mtdByBranchCategory && mtdByBranchCategory[b] || {};
-    var mtdCgw  = Number(catActuals.cgw_generated) || 0;
-    var mtdProd = mtdAll - mtdCgw;
-    var onPaceProd     = (mtdProd / elapsedForPace) * workingTotal;
-    var onPaceWithCgw  = onPaceProd + mtdCgw;
-    // Budget — split into "no CGW" (4 cats) vs "w/ CGW" (4 + cgw_generated)
+    // Pre-billed CGW is treated as guaranteed monthly revenue — the "+CGW"
+    // line adds the FULL ENHANCED budget value (not the MTD actual). MTD
+    // actual CGW is still stripped from `mtdProd` so it's not double-counted
+    // in the production-side pace. Joe directive 2026-05-23.
     var budgetCats = getMonthlyBudgetByCategory(STATE.budgets, b, year, month);
+    var enhancedCgw = Number(budgetCats.cgw_generated) || 0;
+    var mtdCgwActual = Number(catActuals.cgw_generated) || 0;
+    var mtdProd = mtdAll - mtdCgwActual;
+    var onPaceProd     = (mtdProd / elapsedForPace) * workingTotal;
+    var onPaceWithCgw  = onPaceProd + enhancedCgw;
+    // Budget — split into "no CGW" (4 cats) vs "w/ CGW" (4 + cgw_generated)
     var budgetNoCgw = DRILL_CATS.reduce(function(s, c) { return s + (budgetCats[c] || 0); }, 0);
-    var budgetWithCgw = budgetNoCgw + (budgetCats.cgw_generated || 0);
+    var budgetWithCgw = budgetNoCgw + enhancedCgw;
     return {
       branch: b,
       label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
-      mtdAll: mtdAll, mtdProd: mtdProd, mtdCgw: mtdCgw,
+      mtdAll: mtdAll, mtdProd: mtdProd, mtdCgw: mtdCgwActual,
+      enhancedCgw: enhancedCgw,
       onPaceProd: onPaceProd, onPaceWithCgw: onPaceWithCgw,
       budgetNoCgw: budgetNoCgw, budgetWithCgw: budgetWithCgw,
       budgetCats: budgetCats, actualCats: catActuals,
@@ -3926,6 +3932,7 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       mtdAll:        subset.reduce(function(s,x){ return s + x.mtdAll; }, 0),
       mtdProd:       subset.reduce(function(s,x){ return s + x.mtdProd; }, 0),
       mtdCgw:        subset.reduce(function(s,x){ return s + x.mtdCgw; }, 0),
+      enhancedCgw:   subset.reduce(function(s,x){ return s + (x.enhancedCgw || 0); }, 0),
       onPaceProd:    subset.reduce(function(s,x){ return s + x.onPaceProd; }, 0),
       onPaceWithCgw: subset.reduce(function(s,x){ return s + x.onPaceWithCgw; }, 0),
       budgetNoCgw:   subset.reduce(function(s,x){ return s + x.budgetNoCgw; }, 0),
@@ -3986,7 +3993,8 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     var paceTip = workingElapsed + ' of ' + workingTotal + ' working days elapsed · ' +
                   fmt$(item.mtdProd / elapsedForPace) + '/day prod · projects to ' +
                   fmt$(item.onPaceProd) + ' end-of-month (prod) · +' +
-                  fmt$(item.mtdCgw) + ' CGW MTD';
+                  fmt$(item.enhancedCgw || 0) + ' enhanced CGW budget (guaranteed pre-bill) · ' +
+                  fmt$(item.mtdCgw) + ' CGW MTD-to-date';
 
     function metricRow(label, value, fillClass, tip) {
       var tipAttr = tip ? ' title="' + escapeHtml(tip) + '"' : '';
