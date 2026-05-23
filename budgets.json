@@ -13,7 +13,7 @@
       "true",
       "enhanced"
     ],
-    "updated": "2026-05-23T15:23:41.733Z",
+    "updated": "2026-05-23T15:24:50.736Z",
     "updatedBy": "admin"
   },
   "Eastern Mass": {
@@ -53,6 +53,22 @@
         "recurring_commercial": 64791,
         "recurring_total_platinum": 9900,
         "cgw_generated": 11089
+      }
+    }
+  },
+  "Rhode Island": {
+    "2026-05": {
+      "true": {
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0
+      },
+      "enhanced": {
+        "cg_nwl": 12000,
+        "pest_rodent_initial": 15000,
+        "recurring_residential": 8660,
+        "recurring_commercial": 12348,
+        "recurring_total_platinum": 1600,
+        "cgw_generated": 0
       }
     }
   }
