@@ -492,6 +492,74 @@ function getMonthlyBudget(budgets, branch, year, monthIdx) {
   return Number(monthEntry) || 0;
 }
 
+// Same shape as getMonthlyBudget but returns ALL 6 ENHANCED categories so the
+// MTD Production card can compute per-category budget rows + the CGW-aware
+// "Budget w/ CGW" and "Budget w/out CGW" lines without re-walking budgets.json.
+// Returns: { cg_nwl, pest_rodent_initial, recurring_residential,
+//            recurring_commercial, recurring_total_platinum, cgw_generated }
+function getMonthlyBudgetByCategory(budgets, branch, year, monthIdx) {
+  var empty = {};
+  BUDGET_CATEGORIES.forEach(function(c) { empty[c] = 0; });
+  if (!budgets || !branch) return empty;
+  var key = String(year) + '-' + String(monthIdx + 1).padStart(2, '0');
+  var entry = budgets[branch] && budgets[branch][key];
+  if (!entry || !entry.enhanced) return empty;
+  BUDGET_CATEGORIES.forEach(function(c) {
+    empty[c] = Number(entry.enhanced[c]) || 0;
+  });
+  return empty;
+}
+
+// ── Production-category classifier (Joe 2026-05-23) ──
+// Maps an invoice/order record to one of the 5 buckets the MTD Production card
+// tracks. Used for the per-branch drill-down (Budget vs Actual per category)
+// and for splitting MTD actual into "production" (4 cats) vs "CGW generated"
+// so the card can render its CGW-aware on-pace and budget lines.
+//
+// Categories returned:
+//   'cg_nwl'                  — CG installs + NWL wildlife work (NOT warranties)
+//   'pest_rodent_initial'     — Pest/Rodent initial setups (one-off, not recurring)
+//   'recurring_residential'   — Residential recurring program revenue
+//   'recurring_commercial'    — Commercial recurring program revenue
+//   'cgw_generated'           — CatGuard Warranty pipeline (CG WARR 1YR, RESEAL, etc.)
+//   'other'                   — couldn't classify (rare; should be near zero)
+//
+// Authoritative CGW warranty service codes — these are the field-tech-credited
+// records that generate CatGuard Warranty pipeline value. Auto-renewal codes
+// (CGW AUTO-RENEW, USX WAR AUTOREN) are already excluded as office events
+// upstream, so they won't reach this classifier on the Tech-view path.
+const CGW_GENERATED_CODES = new Set([
+  'CG WARR 1YR',
+  'CGW AUTO-BILL',
+  'CGW AUTO-PAY',
+  'CGW RESEAL',
+  'USX WARR 1YR',
+  'USX WAR RESEAL',
+]);
+
+function classifyProductionCategory(rec) {
+  if (!rec) return 'other';
+  var code = String(rec.ServiceCode || '').toUpperCase().trim();
+
+  // CGW warranty pipeline takes precedence — these are CG-division records but
+  // bucket separately from initial CG/NWL installs.
+  if (code && CGW_GENERATED_CODES.has(code)) return 'cgw_generated';
+
+  var div = classifyDivision(rec);
+
+  // CG/NWL division (excluding warranty codes handled above) → initial CG/NWL
+  if (div === 'cg' || div === 'nwl') return 'cg_nwl';
+
+  // Pest side splits by recurring vs initial, then resi vs comm for recurring
+  var recurring = isRecurring(rec);
+  if (recurring) {
+    if (div === 'pest-commerc') return 'recurring_commercial';
+    return 'recurring_residential';
+  }
+  // Non-recurring pest work = initial / one-off
+  return 'pest_rodent_initial';
+}
+
 // Invoice Type code → friendly label and color (confirmed with Joe 2026-05-20)
 const INVOICE_TYPE_LABEL = {
   'IN': 'Invoice',     // standard completed work

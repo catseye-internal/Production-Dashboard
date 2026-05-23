@@ -731,20 +731,22 @@
     height: 100%; border-radius: 4px;
     transition: width 0.3s ease;
   }
-  /* Bar palette — chosen for high mutual contrast against orange + blue brand
-     colors. Joe directive 2026-05-22: previous orange/yellow/grey blended too
-     much. New: brand color (Actual) → purple (On Pace) → bright grey (Budget). */
-  .mtd-prod-metric-fill.fill-on-pace {
-    background: #A78BFA;
-    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.55);
-  }
-  .mtd-prod-metric-fill.fill-budget  {
+  /* Bar palette — Joe directive 2026-05-23. Five metric lines:
+     Actual = branch brand color (orange or blue inline)
+     On Pace (no CGW)  = yellow         #FBBF24
+     On Pace w/ CGW    = green          #34D399
+     Budget (no CGW)   = purple         #A78BFA
+     Budget w/ CGW     = pink           #EC4899                             */
+  .mtd-prod-metric-fill.fill-pace-no-cgw    { background: #FBBF24; }
+  .mtd-prod-metric-fill.fill-pace-with-cgw  { background: #34D399; }
+  .mtd-prod-metric-fill.fill-bdgt-no-cgw    { background: #A78BFA; }
+  .mtd-prod-metric-fill.fill-bdgt-with-cgw  {
     background: repeating-linear-gradient(
       45deg,
-      rgba(255, 255, 255, 0.30),
-      rgba(255, 255, 255, 0.30) 4px,
-      rgba(255, 255, 255, 0.50) 4px,
-      rgba(255, 255, 255, 0.50) 8px
+      #EC4899,
+      #EC4899 4px,
+      #F472B6 4px,
+      #F472B6 8px
     );
   }
   .mtd-prod-metric-pct {
@@ -756,15 +758,57 @@
   }
   .mtd-prod-divider { height: 1px; background: var(--border); margin: 6px 0; }
 
-  /* Company sub-cards (Catseye Total / USX Pest Total) — larger + tinted */
+  /* Clickable branch row + chevron rotation when expanded */
+  .mtd-prod-branch.mtd-prod-clickable { cursor: pointer; }
+  .mtd-prod-branch.mtd-prod-clickable .mtd-prod-branch-header { gap: 6px; }
+  .mtd-prod-chevron {
+    display: inline-block; color: var(--text-dim); font-size: 11px;
+    transition: transform 0.15s ease; margin-right: 4px;
+  }
+  .mtd-prod-branch.expanded > .mtd-prod-branch-header .mtd-prod-chevron {
+    transform: rotate(90deg); color: var(--orange);
+  }
+  /* Drill-down — hidden by default, revealed when parent .mtd-prod-branch.expanded */
+  .mtd-prod-drill {
+    display: none;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.10);
+  }
+  .mtd-prod-branch.expanded > .mtd-prod-drill { display: block; }
+  .mtd-prod-drill-title {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.6px;
+    text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;
+  }
+  .mtd-prod-cat {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  }
+  .mtd-prod-cat:last-child { border-bottom: none; }
+  .mtd-prod-cat-label {
+    font-size: 11px; font-weight: 600; color: var(--text);
+    margin-bottom: 3px;
+  }
+  .mtd-prod-cat-row {
+    display: grid;
+    grid-template-columns: 50px 64px 1fr 64px;
+    gap: 8px; align-items: center;
+    padding: 2px 0;
+  }
+  .mtd-prod-cat-line-label { font-size: 10px; color: var(--text-dim); }
+  .mtd-prod-cat-value { font-size: 11px; font-weight: 700; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  .mtd-prod-cat-pct   { font-size: 10px; color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Company sub-cards (Catseye Total / USX Pest Total / Combined Total) — larger + tinted */
   .mtd-prod-branch-total {
     padding: 12px 12px;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.025);
     margin-top: 4px;
   }
-  .mtd-prod-branch-total.catseye .mtd-prod-branch-label { color: #F47B20; font-size: 13px; font-weight: 800; }
-  .mtd-prod-branch-total.usx     .mtd-prod-branch-label { color: #60A5FA; font-size: 13px; font-weight: 800; }
+  .mtd-prod-branch-total.catseye  .mtd-prod-branch-label { color: #F47B20; font-size: 13px; font-weight: 800; }
+  .mtd-prod-branch-total.usx      .mtd-prod-branch-label { color: #60A5FA; font-size: 13px; font-weight: 800; }
+  .mtd-prod-branch-total.combined { background: rgba(167, 139, 250, 0.06); }
+  .mtd-prod-branch-total.combined .mtd-prod-branch-label { color: #C4B5FD; font-size: 13px; font-weight: 800; }
   .mtd-prod-branch-total .mtd-prod-metric { font-size: 12px; }
   .mtd-prod-branch-total .mtd-prod-metric-bar { height: 11px; }
   .mtd-prod-branch-total .mtd-prod-metric-value { font-size: 13px; }
@@ -820,6 +864,13 @@
   .mini-donut-empty {
     font-size: 9px; color: var(--text-dim); padding: 4px 0;
   }
+  /* CB rate line below each donut — count / total · % (Joe 2026-05-23) */
+  .mini-donut-rate {
+    font-size: 9px; color: var(--text-dim); padding-top: 6px;
+    margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.04);
+    font-variant-numeric: tabular-nums; text-align: center;
+  }
+  .mini-donut-rate strong { color: var(--text); font-weight: 700; }
 
   /* ── Footer status ── */
   .footer-status {
@@ -976,9 +1027,9 @@
     <div class="header-title">Production <span>Dashboard</span></div>
   </div>
   <nav class="tabs" id="tabs">
-    <button class="tab active" data-view="tech">Tech</button>
+    <button class="tab active" data-view="tech">Dashboard</button>
     <button class="tab" data-view="orders">Forecast</button>
-    <button class="tab" data-view="invoices">Completed</button>
+    <button class="tab" data-view="invoices">Production</button>
     <button class="tab" data-view="summary">Summary</button>
   </nav>
   <div class="header-right">
@@ -997,7 +1048,7 @@
   <span class="sub-tabs-label">Invoice lens:</span>
   <div class="sub-tab-group" id="invoiceModeGroup">
     <button class="sub-tab active" data-mode="all">All Invoices</button>
-    <button class="sub-tab" data-mode="production">Production <span class="sub-tab-hint">IN · PR · CM</span></button>
+    <button class="sub-tab" data-mode="production">Completed <span class="sub-tab-hint">IN · PR · CM</span></button>
     <button class="sub-tab" data-mode="revenue">Revenue <span class="sub-tab-hint">IN · PI · CM</span></button>
   </div>
 </div>
@@ -2249,6 +2300,11 @@ function renderTechView_() {
   // mtdDays = number of completed days this month so far (1st through yesterday inclusive)
   var mtdDays = Math.round((yestDate - somDate) / 86400000) + 1;
   if (mtdDays < 1) mtdDays = 1;
+  // Working-days elapsed (Mon–Fri minus holidays) — drives the per-tech
+  // "$/Day MTD" column. Joe directive 2026-05-23. Floor at 1 to avoid
+  // div-by-zero on the 1st of a month.
+  var workingElapsedMtd = (yestDate >= somDate) ? workingDaysBetween_(somDate, yestDate) : 0;
+  if (workingElapsedMtd < 1) workingElapsedMtd = 1;
 
   // techRows: techCode → { branchVotes, roleVotes, MTD + 4 forecast days with
   // revenue/count/callback counts, drive points }
@@ -2354,12 +2410,29 @@ function renderTechView_() {
     }
   }
 
+  // Per-branch MTD actuals split by production category — powers the MTD
+  // Production card's drill-down (Budget vs Actual per cat) and the CGW-aware
+  // on-pace lines. Joe directive 2026-05-23.
+  var mtdByBranchCategory = {};
+  function bumpCategory_(branch, category, amount) {
+    if (!branch || !category) return;
+    if (!mtdByBranchCategory[branch]) mtdByBranchCategory[branch] = {};
+    mtdByBranchCategory[branch][category] = (mtdByBranchCategory[branch][category] || 0) + amount;
+  }
+  // MTD total order count per branch — powers the Callbacks-by-Branch %
+  // rate (callbacks ÷ total orders MTD). Joe directive 2026-05-23.
+  var mtdOrdersByBranch = {};
+
   // Completed (MTD) — invoice cache, 1st of month through yesterday.
   // PRODUCTION lens (IN+PR+CM+CB only) — excludes PI auto-bills.
   productionInvoices_().forEach(function(inv) {
     var date = String(inv.InvoiceDate || '').substring(0, 10);
     if (date < dSom || date > dYest) return;
     var amount = Number(inv.SubTotal) || 0;
+    // Total MTD orders per branch (used for the callback-rate %). Counted
+    // BEFORE the office-event route so the denominator matches what
+    // Summary shows.
+    if (inv.Branch) mtdOrdersByBranch[inv.Branch] = (mtdOrdersByBranch[inv.Branch] || 0) + 1;
     // ── Office-credited routing (auto-renewals, credit memos, non-tech codes) ──
     if (shouldRouteToOffice_(inv, inv.Tech)) {
       var bk = officeBucketFor_(inv.Branch);
@@ -2371,6 +2444,9 @@ function renderTechView_() {
       noteOfficeCode_(bk, inv.ServiceCode, amount);
       return;
     }
+    // Per-category MTD actual (field-credited only — office-event revenue
+    // already routed away above)
+    bumpCategory_(inv.Branch, classifyProductionCategory(inv), amount);
     var role = roleOf(inv);
     attribute('completed', inv.Branch, role, amount, inv.Tech, inv.Tech2);
     var t1 = inv.Tech, t2 = inv.Tech2;
@@ -2660,14 +2736,14 @@ function renderTechView_() {
   var cardCallbacksByBranch =
     '<div class="chart-card chart-card-grow">' +
       '<h3 class="chart-title">CALLBACKS BY BRANCH</h3>' +
-      '<div class="chart-meta">MTD callbacks broken down by service per branch</div>' +
-      renderCallbacksByBranchDonuts_(callbacksByBranchService) +
+      '<div class="chart-meta">MTD callbacks broken down by service per branch · rate = CB ÷ total MTD orders</div>' +
+      renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBranch) +
     '</div>';
   var cardMtdProduction =
     '<div class="chart-card">' +
       '<h3 class="chart-title">MTD PRODUCTION</h3>' +
-      '<div class="chart-meta">Field-tech revenue MTD · pacing vs monthly budget</div>' +
-      renderMtdProductionCard_(byBranch, todayD) +
+      '<div class="chart-meta">Field-tech revenue MTD · pacing vs monthly budget · click a branch for category breakdown</div>' +
+      renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) +
     '</div>';
   var cardRevPerTech =
     '<div class="chart-card">' +
@@ -2787,6 +2863,7 @@ function renderTechView_() {
         '<td><span class="pill-role ' + pillCls + '">' + pillTxt + '</span></td>' +
         // MTD block
         moneyCell(d.completed, 0, false, false) +
+        moneyCell(d.completed / workingElapsedMtd, 0, false, false) +
         countCell(d.completedCount) +
         countCell(d.completedCallbacks) +
         distCell(d.driveDistMtd) +
@@ -2870,6 +2947,7 @@ function renderTechView_() {
         '<td></td>' +
         '<td></td>' +
         moneyCell(office.completed, 0, false, false) +
+        moneyCell(office.completed / workingElapsedMtd, 0, false, false) +
         countCell(office.completedCount) +
         countCell(office.completedCallbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
@@ -2898,6 +2976,7 @@ function renderTechView_() {
       '<td></td>' +
       '<td></td>' +
       moneyCell(totals.completed, 0, false, true) +
+      moneyCell(totals.completed / workingElapsedMtd, 0, false, true) +
       countCell(totals.completedCount) +
       countCell(totals.completedCallbacks) +
       distCell(totals.driveDistMtd) +
@@ -2932,6 +3011,7 @@ function renderTechView_() {
         sortableTh_('role',               'Class',     '',                                                                                       sortState, false) +
         // ── MTD ──
         sortableTh_('completed',          'Completed', '<br><span style="font-weight:400;color:var(--text-dim)">$ MTD</span>',                  sortState, true) +
+        sortableTh_('avgDayMtd',          '$/Day',     '<br><span style="font-weight:400;color:var(--text-dim)">MTD avg</span>',                sortState, true) +
         sortableTh_('completedCount',     'Orders',    '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
         sortableTh_('completedCallbacks', 'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
         sortableTh_('driveDistMtd',       'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
@@ -3002,6 +3082,14 @@ function renderTechView_() {
       return l || f || '';
     }
 
+    // Build a PestPac location-edit URL for either a LocationID (preferred)
+    // or a LocationCode fallback. Returns null if both are missing.
+    function locHref_(locId, locCode) {
+      if (locId != null && locId !== '') return 'https://app.pestpac.com/location/edit.asp?Mode=Detail&LocationID=' + locId;
+      if (locCode) return 'https://app.pestpac.com/location/edit.asp?Mode=Detail&LocationCode=' + encodeURIComponent(locCode);
+      return null;
+    }
+
     // MTD invoices for this tech — invoices have CustomerName + City directly.
     // PRODUCTION lens (excludes PI auto-bills).
     productionInvoices_().forEach(function(inv) {
@@ -3010,17 +3098,26 @@ function renderTechView_() {
       var t1 = String(inv.Tech  || '').toUpperCase();
       var t2 = String(inv.Tech2 || '').toUpperCase();
       if (t1 !== techCode && t2 !== techCode) return;
+      // Lat/lng from locations cache (keyed by LocationCode for invoices)
+      var loc = (STATE.locationsByCode && inv.LocationCode != null)
+        ? STATE.locationsByCode[String(inv.LocationCode)] : null;
+      var lat = loc && loc.Latitude  ? Number(loc.Latitude)  : null;
+      var lng = loc && loc.Longitude ? Number(loc.Longitude) : null;
+      var locId = loc ? loc.LocationID : null;
       records.push({
         kind: 'INV',
         date: d,
-        sortKey: String(inv.InvoiceDate || ''),
+        sortKey: String(inv.WorkDate || inv.InvoiceDate || ''),
         time: extractTime_(inv.WorkDate),   // most invoices won't have a time
         customer: String(inv.CustomerName || '').trim(),
         city: String(inv.City || '').trim(),
         serviceCode: inv.ServiceCode || '',
         serviceClass: inv.ServiceClass || inv._Class || '',
         amount: Number(inv.SubTotal) || 0,
-        typeCode: inv.InvoiceType || ''
+        typeCode: inv.InvoiceType || '',
+        locationCode: inv.LocationCode || '',
+        locationHref: locHref_(locId, inv.LocationCode),
+        lat: lat, lng: lng
       });
     });
 
@@ -3040,6 +3137,8 @@ function renderTechView_() {
         if (t1 !== techCode && t2 !== techCode) return;
         var loc = (STATE.locationsMap && o.LocationID != null)
           ? STATE.locationsMap[String(o.LocationID)] : null;
+        var lat = loc && loc.Latitude  ? Number(loc.Latitude)  : null;
+        var lng = loc && loc.Longitude ? Number(loc.Longitude) : null;
         records.push({
           kind: 'SO',
           date: d,
@@ -3050,10 +3149,47 @@ function renderTechView_() {
           serviceCode: o.ServiceCode || '',
           serviceClass: o._Class || '',
           amount: Number(o.SubTotal) || 0,
-          typeCode: o.OrderType || ''
+          typeCode: o.OrderType || '',
+          locationCode: (loc && loc.LocationCode) || o.LocationCode || '',
+          locationHref: locHref_(o.LocationID, (loc && loc.LocationCode) || o.LocationCode),
+          lat: lat, lng: lng
         });
       });
     }
+
+    // ── Distance + time from previous stop ──
+    // Within each day, sort chronologically and walk consecutive stops to
+    // compute haversine distance (×1.4 road approximation, matches the upstream
+    // driveDist calc) + minutes since the prior stop. First stop of each day
+    // has no prior — distFromPrev/minutesFromPrev stay null. Joe 2026-05-23.
+    var recordsByDay = {};
+    records.forEach(function(r) {
+      if (!recordsByDay[r.date]) recordsByDay[r.date] = [];
+      recordsByDay[r.date].push(r);
+    });
+    Object.keys(recordsByDay).forEach(function(day) {
+      var stops = recordsByDay[day].slice().sort(function(a, b) {
+        return String(a.sortKey || '').localeCompare(String(b.sortKey || ''));
+      });
+      for (var i = 1; i < stops.length; i++) {
+        var prev = stops[i - 1];
+        var cur  = stops[i];
+        if (prev.lat != null && prev.lng != null && cur.lat != null && cur.lng != null) {
+          cur.distFromPrev = haversineMiles_(prev.lat, prev.lng, cur.lat, cur.lng) * 1.4;
+        }
+        // Time gap from prior stop (minutes) — only when both have a real
+        // timestamp (sortKey contains a 'T' for ISO datetimes).
+        var prevTs = String(prev.sortKey || '');
+        var curTs  = String(cur.sortKey  || '');
+        if (prevTs.indexOf('T') > 0 && curTs.indexOf('T') > 0) {
+          var pd = new Date(prevTs);
+          var cd = new Date(curTs);
+          if (!isNaN(pd) && !isNaN(cd) && cd > pd) {
+            cur.minutesFromPrev = (cd - pd) / 60000;
+          }
+        }
+      }
+    });
 
     // Sort desc by sortKey (full timestamp), fall back to date
     records.sort(function(a, b) {
@@ -3095,15 +3231,38 @@ function renderTechView_() {
       var classCell = r.serviceClass
         ? '<span class="drill-class">' + escapeHtml(r.serviceClass) + '</span>'
         : '<span style="color:var(--text-dim)">—</span>';
+      // Loc # — link to PestPac when we have a URL, plain text otherwise
+      var locCell = '<span style="color:var(--text-dim)">—</span>';
+      if (r.locationCode) {
+        locCell = r.locationHref
+          ? '<a href="' + r.locationHref + '" target="_blank" rel="noopener" class="pp-link">' + escapeHtml(String(r.locationCode)) + '</a>'
+          : '<span>' + escapeHtml(String(r.locationCode)) + '</span>';
+      }
+      // Dist + Time from prior stop — blank for the first stop of each day
+      var distCellHtml = (r.distFromPrev != null)
+        ? '<span>' + r.distFromPrev.toFixed(1) + ' mi</span>'
+        : '<span style="color:var(--text-dim)">—</span>';
+      var timeGapCellHtml = '<span style="color:var(--text-dim)">—</span>';
+      if (r.minutesFromPrev != null) {
+        var mins = Math.round(r.minutesFromPrev);
+        if (mins >= 60) {
+          timeGapCellHtml = '<span>' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm</span>';
+        } else {
+          timeGapCellHtml = '<span>' + mins + 'm</span>';
+        }
+      }
       return '<tr>' +
         '<td>' + fmtShort(r.date) + '</td>' +
         '<td>' + dim_(r.time) + '</td>' +
         '<td><span class="drill-pill ' + pillCls + '">' + r.kind + '</span></td>' +
         '<td>' + dim_(r.typeCode) + '</td>' +
+        '<td>' + locCell + '</td>' +
         '<td>' + dim_(r.city) + '</td>' +
         '<td>' + dim_(r.customer) + '</td>' +
         '<td>' + dim_(r.serviceCode) + '</td>' +
         '<td>' + classCell + '</td>' +
+        '<td class="num">' + distCellHtml + '</td>' +
+        '<td class="num">' + timeGapCellHtml + '</td>' +
         '<td class="num">' + (r.amount !== 0 ? '$' + Math.round(r.amount).toLocaleString() : '<span style="color:var(--text-dim)">—</span>') + '</td>' +
       '</tr>';
     }).join('');
@@ -3117,10 +3276,13 @@ function renderTechView_() {
             '<th>Time</th>' +
             '<th>Type</th>' +
             '<th>Sub</th>' +
+            '<th>Loc #</th>' +
             '<th>City</th>' +
             '<th>Customer</th>' +
             '<th>Service</th>' +
             '<th>Class</th>' +
+            '<th class="num" title="Distance from prior stop (×1.4 road approximation). Blank for first stop of each day.">Δ Dist</th>' +
+            '<th class="num" title="Minutes elapsed since the prior stop on the same day.">Δ Time</th>' +
             '<th class="num">Amount</th>' +
           '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
         '</div>' +
@@ -3333,6 +3495,18 @@ function renderTechView_() {
     });
   });
 
+  // ── MTD Production card: click branch row to expand category drill-down ──
+  // Joe directive 2026-05-23. Each .mtd-prod-branch is the toggle target.
+  // Drill-down content is pre-rendered (hidden) so the click handler is
+  // a simple classList toggle — no async work, no re-render.
+  document.querySelectorAll('#techView .mtd-prod-clickable').forEach(function(card) {
+    card.addEventListener('click', function(ev) {
+      // Avoid swallowing clicks on tooltips or interactive children
+      if (ev.target.closest('a, button, input, select')) return;
+      card.classList.toggle('expanded');
+    });
+  });
+
   // ── Interactive donut hover (Joe directive 2026-05-22) ──
   // For each slice in the Callbacks-by-Branch donuts: dim siblings, swap the
   // center number for the hovered slice's service / count / %, and show a
@@ -3536,6 +3710,15 @@ function compareTechsByKey_(a, c, key, dirStr) {
     cv = c.role || '';
     return av < cv ? -1 * dir : (av > cv ? 1 * dir : 0);
   }
+  // Special: $/Day MTD is a DERIVED value (completed ÷ working days elapsed).
+  // Working-days elapsed is constant across all techs in this comparison,
+  // so sorting by avgDayMtd is equivalent to sorting by completed — but we
+  // still expose the key explicitly for clarity. Joe 2026-05-23.
+  if (key === 'avgDayMtd') {
+    av = Number(a.data.completed) || 0;
+    cv = Number(c.data.completed) || 0;
+    return (av - cv) * dir;
+  }
   // All remaining numeric columns read directly off the data object:
   // completed, completedCount, completedCallbacks, today, todayCallbacks,
   // tmrw, tmrwCallbacks, d2, d2Callbacks, d3, d3Callbacks, driveDist, driveTime
@@ -3679,12 +3862,18 @@ function renderTechChartsRow_(fcTotals, byBranch, todayD, dateLabel) {
   '</div>';
 }
 
-// MTD Production card — per-branch and per-company progress bars showing
-// completed field-tech revenue MTD, projected end-of-month at current pace,
-// and the monthly budget from budgets.json. Joe directive 2026-05-22.
-// Each branch is rendered as 3 stacked rows (Actual / On Pace / Budget),
-// all sharing the same x-axis scale so the comparison is visually direct.
-function renderMtdProductionCard_(byBranch, todayD) {
+// MTD Production card — per-branch and per-company progress bars. Per Joe
+// directive 2026-05-23 each branch row now shows FIVE metric lines so the
+// CGW pipeline value is broken out from production revenue:
+//   Actual           — MTD field-tech revenue across all 5 dashboard categories
+//   On Pace (no CGW) — production-side projection from working-day pace
+//   On Pace w/ CGW   — production projection + raw MTD CGW generated (flat add)
+//   Budget (no CGW)  — sum of 4 enhanced categories (CG/NWL + Pest Initial + Resi + Comm)
+//   Budget w/ CGW    — above 4 + cgw_generated enhanced
+// Each branch row is clickable to expand a per-category Budget-vs-Actual
+// drill-down for the 4 production categories. A combined CATSEYE + USX
+// company total + a COMBINED TOTAL row are appended below.
+function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   if (!byBranch || !todayD) return '<div class="cb-empty">Loading…</div>';
 
   var year   = todayD.getFullYear();
@@ -3695,34 +3884,75 @@ function renderMtdProductionCard_(byBranch, todayD) {
   var workingTotal   = workingDaysInMonth_(year, month);
   var elapsedForPace = Math.max(1, workingElapsed);  // avoid div-by-zero on the 1st
 
+  // The 4 production categories that the drill-down breaks out (CGW lives in
+  // its own row and intentionally isn't part of this list).
+  var DRILL_CATS = ['cg_nwl', 'pest_rodent_initial', 'recurring_residential', 'recurring_commercial'];
+  var CAT_LABEL  = {
+    cg_nwl:                'CG / NWL',
+    pest_rodent_initial:   'Pest / Rodent Initial',
+    recurring_residential: 'Recurring · Residential',
+    recurring_commercial:  'Recurring · Commercial'
+  };
+
   // Per-branch MTD (field-tech only; office-credited revenue is shown in
   // the master cards' Office-credited row and reconciled in the top banner)
   var branches = BRANCH_ALL.map(function(b) {
-    var techs = byBranch[b] || [];
-    var mtd     = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
-    var onPace  = (mtd / elapsedForPace) * workingTotal;
-    var budget  = getMonthlyBudget(STATE.budgets, b, year, month);
+    var techs   = byBranch[b] || [];
+    var mtdAll  = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
+    var catActuals = mtdByBranchCategory && mtdByBranchCategory[b] || {};
+    var mtdCgw  = Number(catActuals.cgw_generated) || 0;
+    var mtdProd = mtdAll - mtdCgw;
+    var onPaceProd     = (mtdProd / elapsedForPace) * workingTotal;
+    var onPaceWithCgw  = onPaceProd + mtdCgw;
+    // Budget — split into "no CGW" (4 cats) vs "w/ CGW" (4 + cgw_generated)
+    var budgetCats = getMonthlyBudgetByCategory(STATE.budgets, b, year, month);
+    var budgetNoCgw = DRILL_CATS.reduce(function(s, c) { return s + (budgetCats[c] || 0); }, 0);
+    var budgetWithCgw = budgetNoCgw + (budgetCats.cgw_generated || 0);
     return {
       branch: b,
       label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
-      mtd: mtd, onPace: onPace, budget: budget,
+      mtdAll: mtdAll, mtdProd: mtdProd, mtdCgw: mtdCgw,
+      onPaceProd: onPaceProd, onPaceWithCgw: onPaceWithCgw,
+      budgetNoCgw: budgetNoCgw, budgetWithCgw: budgetWithCgw,
+      budgetCats: budgetCats, actualCats: catActuals,
       usx: isUsxBranch(b)
     };
   });
 
-  // Per-company totals (Catseye + USX Pest)
-  var companies = [
-    { key: 'catseye', label: 'CATSEYE TOTAL', usx: false },
-    { key: 'usx',     label: 'USX PEST TOTAL', usx: true  }
-  ];
-  companies.forEach(function(c) {
-    var subset = branches.filter(function(b) { return b.usx === c.usx; });
-    c.mtd    = subset.reduce(function(s, x) { return s + x.mtd; }, 0);
-    c.onPace = subset.reduce(function(s, x) { return s + x.onPace; }, 0);
-    c.budget = subset.reduce(function(s, x) { return s + x.budget; }, 0);
-  });
+  // Helper to build an aggregate roll-up item from a list of branch items
+  function aggregate_(label, subset) {
+    var agg = {
+      label: label,
+      mtdAll:        subset.reduce(function(s,x){ return s + x.mtdAll; }, 0),
+      mtdProd:       subset.reduce(function(s,x){ return s + x.mtdProd; }, 0),
+      mtdCgw:        subset.reduce(function(s,x){ return s + x.mtdCgw; }, 0),
+      onPaceProd:    subset.reduce(function(s,x){ return s + x.onPaceProd; }, 0),
+      onPaceWithCgw: subset.reduce(function(s,x){ return s + x.onPaceWithCgw; }, 0),
+      budgetNoCgw:   subset.reduce(function(s,x){ return s + x.budgetNoCgw; }, 0),
+      budgetWithCgw: subset.reduce(function(s,x){ return s + x.budgetWithCgw; }, 0),
+      budgetCats:    {},
+      actualCats:    {},
+      isAggregate: true
+    };
+    // Aggregate per-cat budget + actual for the drill-down
+    BUDGET_CATEGORIES.forEach(function(c) {
+      agg.budgetCats[c] = subset.reduce(function(s, x) { return s + (x.budgetCats[c] || 0); }, 0);
+      agg.actualCats[c] = subset.reduce(function(s, x) { return s + (x.actualCats[c] || 0); }, 0);
+    });
+    return agg;
+  }
 
-  // Format helpers
+  // Per-company aggregates (Catseye, USX Pest)
+  var catseyeAgg = aggregate_('CATSEYE TOTAL', branches.filter(function(b){ return !b.usx; }));
+  catseyeAgg.usx = false;
+  var usxAgg     = aggregate_('USX PEST TOTAL', branches.filter(function(b){ return  b.usx; }));
+  usxAgg.usx = true;
+  // Combined (both companies) — same shape so renderBranchBlock_ Just Works
+  var combinedAgg = aggregate_('COMBINED TOTAL', branches);
+  combinedAgg.usx = false;
+  combinedAgg.isCombined = true;
+
+  // ── Format helpers ──
   function fmt$(n) { return '$' + Math.round(n).toLocaleString(); }
   function fmtK(n) {
     if (n === 0) return '$0';
@@ -3730,69 +3960,125 @@ function renderMtdProductionCard_(byBranch, todayD) {
     return '$' + Math.round(n);
   }
 
-  function renderBranchBlock_(item, isTotal) {
+  // ── Build one branch/company block (5 metric lines + optional drill-down) ──
+  function renderBranchBlock_(item, isCompanyTotal) {
     var brandColor = item.usx ? '#60A5FA' : '#F47B20';
-    var hasBudget  = item.budget > 0;
-    var pacingPct  = hasBudget ? ((item.onPace - item.budget) / item.budget) * 100 : null;
+    var hasBudget  = item.budgetWithCgw > 0;
+    // Pacing vs the WITH-CGW budget (that's the comparable apples-to-apples
+    // number now that on-pace includes CGW).
+    var pacingPct  = hasBudget ? ((item.onPaceWithCgw - item.budgetWithCgw) / item.budgetWithCgw) * 100 : null;
     var pacingCls  = (pacingPct === null) ? 'pace-unset'
                    : pacingPct >= 0       ? 'pace-ahead'
                    : pacingPct >= -10     ? 'pace-warn'
                                           : 'pace-behind';
     var pacingLabel = (pacingPct === null) ? 'No budget set'
-                    : (pacingPct >= 0 ? '+' : '') + pacingPct.toFixed(1) + '% vs budget';
+                    : (pacingPct >= 0 ? '+' : '') + pacingPct.toFixed(1) + '% vs budget w/ CGW';
 
-    // Bar scale — all three bars share the same x-axis (max + 5% headroom)
-    // so visual comparison between Actual / On Pace / Budget is direct.
-    var scaleMax = Math.max(item.mtd, item.onPace, item.budget) * 1.05;
+    // Shared x-axis scale (max + 5% headroom) across all 5 lines so the
+    // visual comparison stays direct.
+    var scaleMax = Math.max(item.mtdAll, item.onPaceWithCgw, item.budgetWithCgw) * 1.05;
     if (scaleMax <= 0) scaleMax = 1;
     function widthPct(v) { return Math.max(0, (v / scaleMax) * 100); }
     function pctOfBudget(v) {
       if (!hasBudget) return '';
-      return Math.round((v / item.budget) * 100) + '% of bdgt';
+      return Math.round((v / item.budgetWithCgw) * 100) + '% of bdgt';
     }
     var paceTip = workingElapsed + ' of ' + workingTotal + ' working days elapsed · ' +
-                  fmt$(item.mtd / elapsedForPace) + '/day · projects to ' +
-                  fmt$(item.onPace) + ' end-of-month';
+                  fmt$(item.mtdProd / elapsedForPace) + '/day prod · projects to ' +
+                  fmt$(item.onPaceProd) + ' end-of-month (prod) · +' +
+                  fmt$(item.mtdCgw) + ' CGW MTD';
 
-    function metricRow(label, value, fillClass, color, tip) {
+    function metricRow(label, value, fillClass, tip) {
       var tipAttr = tip ? ' title="' + escapeHtml(tip) + '"' : '';
-      var bg = color ? ('background:' + color) : '';
       return '<div class="mtd-prod-metric"' + tipAttr + '>' +
         '<span class="mtd-prod-metric-label">' + label + '</span>' +
         '<span class="mtd-prod-metric-value">' + fmtK(value) + '</span>' +
         '<div class="mtd-prod-metric-bar">' +
-          '<div class="mtd-prod-metric-fill ' + fillClass + '" style="width:' + widthPct(value).toFixed(1) + '%;' + bg + '"></div>' +
+          '<div class="mtd-prod-metric-fill ' + fillClass + '" style="width:' + widthPct(value).toFixed(1) + '%"></div>' +
         '</div>' +
         '<span class="mtd-prod-metric-pct">' + pctOfBudget(value) + '</span>' +
       '</div>';
     }
 
     var rows = '';
-    rows += metricRow('Actual',  item.mtd,    'fill-actual',  brandColor, null);
-    rows += metricRow('On Pace', item.onPace, 'fill-on-pace', null,       paceTip);
+    // Actual (single line, in branch brand color)
+    rows += '<div class="mtd-prod-metric" title="MTD field-tech revenue across all 5 dashboard categories">' +
+      '<span class="mtd-prod-metric-label">Actual</span>' +
+      '<span class="mtd-prod-metric-value">' + fmtK(item.mtdAll) + '</span>' +
+      '<div class="mtd-prod-metric-bar">' +
+        '<div class="mtd-prod-metric-fill fill-actual" style="width:' + widthPct(item.mtdAll).toFixed(1) + '%;background:' + brandColor + '"></div>' +
+      '</div>' +
+      '<span class="mtd-prod-metric-pct">' + pctOfBudget(item.mtdAll) + '</span>' +
+    '</div>';
+    // On Pace (no CGW) — yellow ; On Pace w/ CGW — green
+    rows += metricRow('On Pace',        item.onPaceProd,    'fill-pace-no-cgw',  paceTip);
+    rows += metricRow('On Pace w/ CGW', item.onPaceWithCgw, 'fill-pace-with-cgw', paceTip);
     if (hasBudget) {
-      rows += metricRow('Budget', item.budget, 'fill-budget', null, null);
+      // Budget (no CGW) — purple ; Budget w/ CGW — pink
+      rows += metricRow('Budget',        item.budgetNoCgw,   'fill-bdgt-no-cgw',   null);
+      rows += metricRow('Budget w/ CGW', item.budgetWithCgw, 'fill-bdgt-with-cgw', null);
     } else {
-      rows += '<div class="mtd-prod-metric-empty">No budget set for this month — edit budgets.json</div>';
+      rows += '<div class="mtd-prod-metric-empty">No budget set for this month</div>';
     }
 
-    var totalCls = isTotal ? (' mtd-prod-branch-total ' + (item.usx ? 'usx' : 'catseye')) : '';
-    return '<div class="mtd-prod-branch' + totalCls + '">' +
+    // Per-category drill-down (only the 4 production categories — CGW is
+    // already broken out in the lines above).
+    var maxCatVal = DRILL_CATS.reduce(function(m, c) {
+      return Math.max(m, item.budgetCats[c] || 0, item.actualCats[c] || 0);
+    }, 0) * 1.05;
+    if (maxCatVal <= 0) maxCatVal = 1;
+    function catWidth(v) { return Math.max(0, (v / maxCatVal) * 100); }
+
+    var drillRowsHtml = DRILL_CATS.map(function(cat) {
+      var actual = Number(item.actualCats[cat]) || 0;
+      var budget = Number(item.budgetCats[cat]) || 0;
+      var pct    = budget > 0 ? Math.round((actual / budget) * 100) + '% of bdgt' : '';
+      return '<div class="mtd-prod-cat">' +
+        '<div class="mtd-prod-cat-label">' + escapeHtml(CAT_LABEL[cat]) + '</div>' +
+        '<div class="mtd-prod-cat-row">' +
+          '<span class="mtd-prod-cat-line-label">Actual</span>' +
+          '<span class="mtd-prod-cat-value">' + fmtK(actual) + '</span>' +
+          '<div class="mtd-prod-metric-bar">' +
+            '<div class="mtd-prod-metric-fill fill-actual" style="width:' + catWidth(actual).toFixed(1) + '%;background:' + brandColor + '"></div>' +
+          '</div>' +
+          '<span class="mtd-prod-cat-pct">' + pct + '</span>' +
+        '</div>' +
+        '<div class="mtd-prod-cat-row">' +
+          '<span class="mtd-prod-cat-line-label">Budget</span>' +
+          '<span class="mtd-prod-cat-value">' + fmtK(budget) + '</span>' +
+          '<div class="mtd-prod-metric-bar">' +
+            '<div class="mtd-prod-metric-fill fill-bdgt-no-cgw" style="width:' + catWidth(budget).toFixed(1) + '%"></div>' +
+          '</div>' +
+          '<span class="mtd-prod-cat-pct"></span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    var totalCls = isCompanyTotal ? (' mtd-prod-branch-total ' + (item.usx ? 'usx' : (item.isCombined ? 'combined' : 'catseye'))) : '';
+    return '<div class="mtd-prod-branch mtd-prod-clickable' + totalCls + '">' +
       '<div class="mtd-prod-branch-header">' +
+        '<span class="mtd-prod-chevron">▸</span>' +
         '<span class="mtd-prod-branch-label">' + escapeHtml(item.label) + '</span>' +
         '<span class="mtd-prod-pacing ' + pacingCls + '">' + escapeHtml(pacingLabel) + '</span>' +
       '</div>' +
       rows +
+      '<div class="mtd-prod-drill">' +
+        '<div class="mtd-prod-drill-title">Production category breakdown · MTD</div>' +
+        drillRowsHtml +
+      '</div>' +
     '</div>';
   }
 
-  var branchBlocks  = branches.map(function(b) { return renderBranchBlock_(b, false); }).join('');
-  var companyBlocks = companies.filter(function(c) { return c.mtd > 0 || c.budget > 0; })
-                               .map(function(c) { return renderBranchBlock_(c, true); }).join('');
+  var branchBlocks   = branches.map(function(b) { return renderBranchBlock_(b, false); }).join('');
+  var companyBlocks  = [catseyeAgg, usxAgg].filter(function(c) { return c.mtdAll > 0 || c.budgetWithCgw > 0; })
+                                            .map(function(c) { return renderBranchBlock_(c, true); }).join('');
+  var combinedBlock  = (combinedAgg.mtdAll > 0 || combinedAgg.budgetWithCgw > 0)
+                       ? renderBranchBlock_(combinedAgg, true) : '';
 
   return '<div class="mtd-prod-card">' +
     branchBlocks +
     (companyBlocks ? '<div class="mtd-prod-divider"></div>' + companyBlocks : '') +
+    (combinedBlock ? '<div class="mtd-prod-divider"></div>' + combinedBlock : '') +
   '</div>';
 }
 
@@ -3816,7 +4102,9 @@ function renderTechChartsRow2_(callbacksByBranchService, byBranch) {
 // Top 5 services rendered as full slices; remaining services bucketed as
 // "OTHER" to keep the pie readable. Service colors stay consistent across
 // branches so the same code is the same color everywhere.
-function renderCallbacksByBranchDonuts_(callbacksByBranchService) {
+// `mtdOrdersByBranch` (optional) is { branch: totalMtdInvoiceCount } and
+// drives the "CB / total · %" rate line under each donut. Joe 2026-05-23.
+function renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBranch) {
   // Total per branch (for sorting + empty state)
   var branchOrder = BRANCH_ALL.slice();
   var branchTotals = {};
@@ -3845,14 +4133,21 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService) {
   });
   var OTHER_COLOR = '#6B645A';
 
+  var ordersByBranch = mtdOrdersByBranch || {};
   // Render one donut per branch
   return '<div class="mini-donut-grid">' + branchOrder.map(function(b) {
     var label = (BRANCH_DISPLAY[b] || b).toUpperCase();
     var total = branchTotals[b] || 0;
+    var totalOrders = ordersByBranch[b] || 0;
+    var ratePct = totalOrders > 0 ? (total / totalOrders) * 100 : 0;
+    var rateLine = totalOrders > 0
+      ? '<div class="mini-donut-rate">' + total.toLocaleString() + ' / ' + totalOrders.toLocaleString() + ' MTD · <strong>' + ratePct.toFixed(1) + '%</strong></div>'
+      : '';
     if (total === 0) {
       return '<div class="mini-donut">' +
         '<div class="mini-donut-label">' + escapeHtml(label) + '</div>' +
         '<div class="mini-donut-empty">no callbacks</div>' +
+        rateLine +
       '</div>';
     }
     var serviceMap = callbacksByBranchService[b] || {};
@@ -3912,6 +4207,7 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService) {
         '<text x="' + cx + '" y="' + (cy + 6) + '" text-anchor="middle" class="mini-donut-center" data-default="' + total + '">' + total + '</text>' +
       '</svg>' +
       '<div class="mini-donut-legend">' + legendItems + '</div>' +
+      rateLine +
     '</div>';
   }).join('') + '</div>';
 }

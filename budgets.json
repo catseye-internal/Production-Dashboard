@@ -59,8 +59,12 @@
   "Rhode Island": {
     "2026-05": {
       "true": {
+        "cg_nwl": 0,
         "pest_rodent_initial": 0,
-        "recurring_residential": 0
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
       },
       "enhanced": {
         "cg_nwl": 12000,
