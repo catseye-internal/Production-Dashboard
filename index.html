@@ -700,13 +700,79 @@
     font-size: 11px; color: var(--text-dim);
     border-bottom: 1px dashed rgba(255,255,255,0.06);
     margin-bottom: 4px;
+    flex-wrap: wrap;
   }
   .mtd-prod-header-strip strong { color: var(--text); font-weight: 700; }
   .mtd-prod-header-date { color: var(--text); font-weight: 700; }
   .mtd-prod-header-sep  { opacity: 0.4; }
+  .mtd-prod-header-range { font-style: italic; }
   @media (max-width: 720px) {
     .mtd-prod-header-strip { flex-wrap: wrap; justify-content: flex-start; }
   }
+
+  /* Daily production needed grid — 3 tiles (Catseye / USX / Combined)
+     Each tile shows Needed/day vs Actual/day with a % diff chip.
+     Joe directive 2026-05-23. */
+  .cvb-daily-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; margin-bottom: 8px;
+  }
+  @media (max-width: 720px) { .cvb-daily-grid { grid-template-columns: 1fr; } }
+  .cvb-daily-tile {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px;
+    border-left-width: 3px;
+  }
+  .cvb-daily-tile.catseye  { border-left-color: #F47B20; }
+  .cvb-daily-tile.usx      { border-left-color: #60A5FA; }
+  .cvb-daily-tile.combined { border-left-color: #C4B5FD; background: rgba(167, 139, 250, 0.04); }
+  .cvb-daily-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.6px;
+    text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;
+  }
+  .cvb-daily-row {
+    display: flex; align-items: baseline; gap: 6px; padding: 1px 0;
+  }
+  .cvb-daily-key { font-size: 10px; color: var(--text-dim); flex: 1; }
+  .cvb-daily-val { font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .cvb-daily-diff { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+  .cvb-daily-diff.pace-ahead  { color: #34D399; background: rgba(52, 211, 153, 0.10); }
+  .cvb-daily-diff.pace-warn   { color: #FBBF24; background: rgba(251, 191, 36, 0.10); }
+  .cvb-daily-diff.pace-behind { color: #F87171; background: rgba(248, 113, 113, 0.10); }
+  .cvb-daily-diff.pace-unset  { color: var(--text-dim); }
+
+  /* Inline date range picker — From / To inputs + Apply / Reset buttons */
+  .cvb-daterange {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 4px; margin-bottom: 8px;
+    border-bottom: 1px dashed rgba(255,255,255,0.06);
+    flex-wrap: wrap;
+  }
+  .cvb-daterange-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  .cvb-daterange-input {
+    background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 4px 6px; font-size: 11px; font-family: inherit;
+    color-scheme: dark;
+  }
+  .cvb-daterange-input:focus { outline: none; border-color: var(--orange); }
+  .cvb-daterange-btn {
+    background: var(--orange); color: #fff;
+    border: none; border-radius: 4px;
+    padding: 4px 10px; font-size: 11px; font-weight: 700;
+    cursor: pointer; letter-spacing: 0.4px;
+  }
+  .cvb-daterange-btn:hover { background: #E36A0F; }
+  .cvb-daterange-reset {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .cvb-daterange-reset:hover { color: var(--text); border-color: var(--text-dim); background: rgba(255,255,255,0.04); }
   .mtd-prod-branch {
     display: flex; flex-direction: column; gap: 4px;
     padding: 10px 0;
@@ -1263,6 +1329,11 @@ var STATE = {
   budgets: null,              // { Branch: { 'YYYY-MM': dollars } } from budgets.json
   budgetsLoadPromise: null,
   techCardSort: {},           // branch → { key, dir } — per-card sort on Tech view
+  // Completed vs Budget card — optional custom date range. null = default to
+  // SOM-through-yesterday MTD. If set, the card recomputes its actuals from
+  // productionInvoices_() filtered to this window and reframes pace/budget
+  // against the month containing the end date. Joe directive 2026-05-23.
+  cvbRange: null,             // null | { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
 };
 
 // Per-view period button definitions
@@ -2780,8 +2851,8 @@ function renderTechView_() {
     '</div>';
   var cardMtdProduction =
     '<div class="chart-card">' +
-      '<h3 class="chart-title">MTD PRODUCTION</h3>' +
-      '<div class="chart-meta">Field-tech revenue MTD · pacing vs monthly budget · click a branch for category breakdown</div>' +
+      '<h3 class="chart-title">Completed vs Budget</h3>' +
+      '<div class="chart-meta">Field-tech revenue vs monthly budget · custom date range supported · click a row to drill in</div>' +
       renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) +
     '</div>';
   var cardRevPerTech =
@@ -3549,6 +3620,29 @@ function renderTechView_() {
     });
   });
 
+  // ── Completed vs Budget card: custom date-range filter (Joe 2026-05-23) ──
+  // Apply button reads the two date inputs and commits them to STATE.cvbRange,
+  // then re-renders the Tech view so the card recomputes actuals from the
+  // chosen range. Reset button clears the range back to default MTD.
+  var cvbApplyBtn = document.getElementById('cvbApply');
+  if (cvbApplyBtn) {
+    cvbApplyBtn.addEventListener('click', function() {
+      var s = document.getElementById('cvbStart').value;
+      var e = document.getElementById('cvbEnd').value;
+      if (!s || !e) return;
+      if (s > e) { alert('From date must be on or before To date.'); return; }
+      STATE.cvbRange = { start: s, end: e };
+      render();
+    });
+  }
+  var cvbResetBtn = document.getElementById('cvbReset');
+  if (cvbResetBtn) {
+    cvbResetBtn.addEventListener('click', function() {
+      STATE.cvbRange = null;
+      render();
+    });
+  }
+
   // ── Interactive donut hover (Joe directive 2026-05-22) ──
   // For each slice in the Callbacks-by-Branch donuts: dim siblings, swap the
   // center number for the hovered slice's service / count / %, and show a
@@ -3918,13 +4012,61 @@ function renderTechChartsRow_(fcTotals, byBranch, todayD, dateLabel) {
 function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   if (!byBranch || !todayD) return '<div class="cb-empty">Loading…</div>';
 
-  var year   = todayD.getFullYear();
-  var month  = todayD.getMonth();
+  // ── Date range — defaults to SOM through yesterday (MTD) unless the user
+  // picked a custom From/To via the inline date inputs at the top of the card.
+  // When custom, we recompute actuals + category breakdown from invoices on
+  // the fly, and reframe pace/budget against the month containing the END date.
+  // Joe directive 2026-05-23.
+  var defaultStart = new Date(todayD.getFullYear(), todayD.getMonth(), 1);
+  var defaultEnd   = new Date(todayD); defaultEnd.setDate(defaultEnd.getDate() - 1);
+  function parseYmd_(s) {
+    if (!s) return null;
+    var p = String(s).split('-'); if (p.length !== 3) return null;
+    return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  }
+  var rangeStart = parseYmd_(STATE.cvbRange && STATE.cvbRange.start) || defaultStart;
+  var rangeEnd   = parseYmd_(STATE.cvbRange && STATE.cvbRange.end)   || defaultEnd;
+  var isCustom   = !!(STATE.cvbRange && (STATE.cvbRange.start || STATE.cvbRange.end));
+  var startYmd   = fmtDate(rangeStart);
+  var endYmd     = fmtDate(rangeEnd);
+
+  // Budget month = month containing the END date (budgets are monthly)
+  var year   = rangeEnd.getFullYear();
+  var month  = rangeEnd.getMonth();
   var som    = new Date(year, month, 1);
-  var yest   = new Date(todayD);  yest.setDate(yest.getDate() - 1);
-  var workingElapsed = (yest >= som) ? workingDaysBetween_(som, yest) : 0;
+  // For pace math: working days in [rangeStart, rangeEnd] is "elapsed";
+  // working days in month-of-rangeEnd is "total". Projects current range pace
+  // through the rest of the month.
+  var workingElapsed = workingDaysBetween_(rangeStart, rangeEnd);
+  if (workingElapsed < 0) workingElapsed = 0;
   var workingTotal   = workingDaysInMonth_(year, month);
-  var elapsedForPace = Math.max(1, workingElapsed);  // avoid div-by-zero on the 1st
+  var elapsedForPace = Math.max(1, workingElapsed);
+
+  // When the user sets a custom range, recompute per-branch MTD + per-category
+  // actuals from productionInvoices_() over [startYmd, endYmd] — overriding
+  // the MTD-based data passed in by the caller. The non-customized path uses
+  // the upstream data (avoids a second pass over the invoice cache).
+  if (isCustom && STATE.invoiceCache) {
+    var localByBranch = {};
+    var localByBranchCat = {};
+    BRANCH_ALL.forEach(function(b) { localByBranch[b] = []; localByBranchCat[b] = {}; });
+    productionInvoices_().forEach(function(inv) {
+      var date = String(inv.InvoiceDate || '').substring(0, 10);
+      if (date < startYmd || date > endYmd) return;
+      // Office-event filter mirrors the upstream attribution rule
+      if (isOfficeEvent(inv)) return;
+      if (isNonTechCode(inv.Tech)) return;
+      var br = inv.Branch || '';
+      if (!localByBranch[br]) return;
+      var amt = Number(inv.SubTotal) || 0;
+      // Fake-tech bucket — only used to sum revenue per branch.
+      localByBranch[br].push({ data: { completed: amt } });
+      var cat = classifyProductionCategory(inv);
+      localByBranchCat[br][cat] = (localByBranchCat[br][cat] || 0) + amt;
+    });
+    byBranch = localByBranch;
+    mtdByBranchCategory = localByBranchCat;
+  }
 
   // The 4 production categories that the drill-down breaks out (CGW lives in
   // its own row and intentionally isn't part of this list).
@@ -4211,6 +4353,9 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     weekday: 'short', month: 'short', day: 'numeric'
   });
   var pctMonth = workingTotal > 0 ? Math.round((workingElapsed / workingTotal) * 100) : 0;
+  var rangeLabel = isCustom
+    ? ('Custom range: ' + startYmd + ' → ' + endYmd)
+    : ('MTD · ' + startYmd + ' → ' + endYmd);
   var headerStrip =
     '<div class="mtd-prod-header-strip">' +
       '<span class="mtd-prod-header-date">' + escapeHtml(todayLabel) + '</span>' +
@@ -4218,10 +4363,61 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       '<span class="mtd-prod-header-day">Working day <strong>' + workingElapsed + '</strong> of ' + workingTotal + '</span>' +
       '<span class="mtd-prod-header-sep">·</span>' +
       '<span class="mtd-prod-header-pct"><strong>' + pctMonth + '%</strong> of month complete</span>' +
+      '<span class="mtd-prod-header-sep">·</span>' +
+      '<span class="mtd-prod-header-range">' + escapeHtml(rangeLabel) + '</span>' +
+    '</div>';
+
+  // Daily production needed per company — Budget (w/ CGW) ÷ total working days
+  // in the month. Joe directive 2026-05-23 — a per-day target that lets him
+  // see at a glance whether each branch's daily output is on track.
+  var catseyeDailyNeeded = workingTotal > 0 ? catseyeAgg.budgetWithCgw / workingTotal : 0;
+  var usxDailyNeeded     = workingTotal > 0 ? usxAgg.budgetWithCgw     / workingTotal : 0;
+  var combinedDailyNeeded = workingTotal > 0 ? combinedAgg.budgetWithCgw / workingTotal : 0;
+  // Actual daily production = MTD actuals ÷ working days elapsed in the range
+  var catseyeDailyActual  = elapsedForPace > 0 ? catseyeAgg.mtdAll / elapsedForPace : 0;
+  var usxDailyActual      = elapsedForPace > 0 ? usxAgg.mtdAll     / elapsedForPace : 0;
+  var combinedDailyActual = elapsedForPace > 0 ? combinedAgg.mtdAll / elapsedForPace : 0;
+  function dailyTile_(label, needed, actual, brandClass) {
+    var diffPct = needed > 0 ? ((actual - needed) / needed * 100) : 0;
+    var diffCls = needed === 0 ? 'pace-unset' : (diffPct >= 0 ? 'pace-ahead' : (diffPct >= -10 ? 'pace-warn' : 'pace-behind'));
+    var diffLabel = needed === 0 ? '—' : (diffPct >= 0 ? '+' : '') + diffPct.toFixed(0) + '%';
+    return '<div class="cvb-daily-tile ' + brandClass + '">' +
+      '<div class="cvb-daily-label">' + escapeHtml(label) + '</div>' +
+      '<div class="cvb-daily-row">' +
+        '<span class="cvb-daily-key">Needed/day</span>' +
+        '<span class="cvb-daily-val">' + fmtK(needed) + '</span>' +
+      '</div>' +
+      '<div class="cvb-daily-row">' +
+        '<span class="cvb-daily-key">Actual/day</span>' +
+        '<span class="cvb-daily-val">' + fmtK(actual) + '</span>' +
+        '<span class="cvb-daily-diff ' + diffCls + '">' + diffLabel + '</span>' +
+      '</div>' +
+    '</div>';
+  }
+  var dailyHeader =
+    '<div class="cvb-daily-grid">' +
+      dailyTile_('Catseye',  catseyeDailyNeeded,  catseyeDailyActual,  'catseye') +
+      dailyTile_('USX Pest', usxDailyNeeded,      usxDailyActual,      'usx') +
+      dailyTile_('Combined', combinedDailyNeeded, combinedDailyActual, 'combined') +
+    '</div>';
+
+  // Inline date range pickers — From / To. Defaults to MTD. Clearing resets.
+  // The "Apply" button commits the change and triggers a re-render. JS handler
+  // is attached after the Tech view renders (see wireup section).
+  var datePicker =
+    '<div class="cvb-daterange">' +
+      '<label class="cvb-daterange-label">From</label>' +
+      '<input type="date" class="cvb-daterange-input" id="cvbStart" value="' + startYmd + '">' +
+      '<label class="cvb-daterange-label">To</label>' +
+      '<input type="date" class="cvb-daterange-input" id="cvbEnd" value="' + endYmd + '">' +
+      '<button class="cvb-daterange-btn" id="cvbApply">Apply</button>' +
+      (isCustom ? '<button class="cvb-daterange-btn cvb-daterange-reset" id="cvbReset">Reset to MTD</button>' : '') +
     '</div>';
 
   return '<div class="mtd-prod-card">' +
     headerStrip +
+    dailyHeader +
+    datePicker +
     catseyeBlock +
     usxBlock +
     (combinedBlock ? '<div class="mtd-prod-divider"></div>' + combinedBlock : '') +
