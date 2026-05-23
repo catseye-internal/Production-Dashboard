@@ -13,7 +13,7 @@
       "true",
       "enhanced"
     ],
-    "updated": "2026-05-23T15:20:13.106Z",
+    "updated": "2026-05-23T15:23:41.733Z",
     "updatedBy": "admin"
   },
   "Eastern Mass": {
@@ -33,6 +33,26 @@
         "recurring_commercial": 104272,
         "recurring_total_platinum": 18080,
         "cgw_generated": 14641
+      }
+    }
+  },
+  "Connecticut": {
+    "2026-05": {
+      "true": {
+        "cg_nwl": 186960,
+        "pest_rodent_initial": 105600,
+        "recurring_residential": 214065,
+        "recurring_commercial": 73014,
+        "recurring_total_platinum": 1091,
+        "cgw_generated": 11813
+      },
+      "enhanced": {
+        "cg_nwl": 230000,
+        "pest_rodent_initial": 110000,
+        "recurring_residential": 198645,
+        "recurring_commercial": 64791,
+        "recurring_total_platinum": 9900,
+        "cgw_generated": 11089
       }
     }
   }
