@@ -204,17 +204,24 @@ const CG_SERVICE_CODES = new Set([
   'CGW NO RENEWAL', 'CGW RESEAL',
   'CONTINUE EXCLUS', 'CONTINUE REPAIR',
   'EXCLUSION INIT', 'EXTENDED REPAIR', 'FINAL WALK', 'GENERAL CG', 'LIFT',
+  'QUALITY CONTROL',  // CG warranty QC visits — defaulted to CG 2026-05-22; revisit if some QC is on pest accounts
   'USX ATTIC ABATE', 'USX BASEMENT', 'USX CONT EXCLU', 'USX CONT REPAIR',
   'USX EXCLUS INIT', 'USX FULL INIT', 'USX GENERAL CG',
   'USX LOWER INIT', 'USX TRENCH INIT', 'USX UPPER INIT',
   'USX WAR AUTOREN', 'USX WAR RESEAL', 'USX WARR 1YR'
 ]);
+// ServiceClasses that don't carry division info — PestPac uses CALL BACK for
+// any callback regardless of whether the underlying work was pest, CG, or NWL.
+// When we hit one of these, defer to ServiceCode-based classification instead.
+const AMBIGUOUS_SERVICE_CLASSES = new Set(['CALL BACK']);
 // Fallback patterns for ServiceOrder codes not yet seen in invoice data.
 // NWL fallback matches wildlife-specific terms (BAT, WOODPECKER, NWL, NW[FI]).
 // CG fallback matches Cat-Guard construction terms. NWL is checked first.
 const NWL_CODE_PATTERN = /\b(NWL|NWFU|NWI|BAT|WOODPECKER)\b/;
 const CG_CODE_PATTERN  = /\b(CG|CGW|CATGUARD|RIDGE|TRENCH|RESEAL|EXCLUS|EVICT|CONTINUE|EXTENDED|FINAL\s*WALK|GENERAL\s*CG)\b/;
-const COMMERC_CODE_PATTERN = /^COMM/;
+// Commercial codes — both pure-commercial (starts with COMM) and callback
+// variants (COURT COMM, etc.). Word boundary catches both cases.
+const COMMERC_CODE_PATTERN = /\bCOMM\b/;
 
 // Codes that contain "TOTAL PLAT" are Total Platinum pest service tiers
 // (even when bundled with CGW). They are pest, NOT CG/NWL.
@@ -231,7 +238,10 @@ function classifyDivision(rec) {
     if (sc && COMMERC_CLASSES.has(sc)) return 'pest-commerc';
     return 'pest-resi';
   }
-  if (sc) {
+  // Use ServiceClass unless it's an ambiguous class (CALL BACK) — those
+  // need to defer to ServiceCode below so callbacks are tagged correctly
+  // (Quality Control on a CG account is CG, not pest).
+  if (sc && !AMBIGUOUS_SERVICE_CLASSES.has(sc)) {
     if (NWL_CLASSES.has(sc))     return 'nwl';
     if (CG_CLASSES.has(sc))      return 'cg';
     if (COMMERC_CLASSES.has(sc)) return 'pest-commerc';
