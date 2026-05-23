@@ -325,6 +325,11 @@
   .summary-table, .tech-table {
     width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed;
   }
+  /* Summary tables sit in narrow cards (half of grouped-view); use auto layout
+     so columns size to content rather than overflowing on mobile. The tech
+     master tables on the Dashboard view stay fixed-layout (they have many
+     numeric columns and need predictable widths). Joe 2026-05-23. */
+  .summary-table { table-layout: auto; }
   .summary-table th, .tech-table th {
     text-align: left; padding: 4px 6px; font-size: 9px; font-weight: 700;
     letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-dim);
@@ -333,6 +338,11 @@
   .summary-table td, .tech-table td {
     padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.04);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* Summary-table cells get word-break on the first column (ServiceClass label)
+     so long labels wrap rather than truncate-with-ellipsis on narrow screens. */
+  .summary-table td:first-child {
+    white-space: normal; overflow-wrap: anywhere; word-break: break-word;
   }
   .summary-table tr:last-child td, .tech-table tr:last-child td { border-bottom: none; }
   .summary-table .num, .tech-table .num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -1149,6 +1159,10 @@
       padding: 2px 3px; font-size: 7px;
     }
     .summary-table td, .tech-table td { padding: 2px 3px; }
+    /* Allow horizontal scroll on the master tables inside group blocks if
+       they'd otherwise overflow. Summary tables already use table-layout:auto
+       which handles content sizing; this is a backstop for the tech tables. */
+    .group-block { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .cell-sub { font-size: 8px; margin-top: 1px; }
     .score-pill { padding: 1px 4px; font-size: 9px; border-radius: 8px; }
     .pill-role { font-size: 7px; padding: 0px 4px; }
@@ -1191,8 +1205,8 @@
 <div class="sub-tabs" id="invoiceModeBar" style="display:none">
   <span class="sub-tabs-label">Invoice lens:</span>
   <div class="sub-tab-group" id="invoiceModeGroup">
-    <button class="sub-tab active" data-mode="all">All Invoices</button>
-    <button class="sub-tab" data-mode="production">Completed <span class="sub-tab-hint">IN · PR · CM</span></button>
+    <button class="sub-tab" data-mode="all">All Invoices</button>
+    <button class="sub-tab active" data-mode="production">Completed <span class="sub-tab-hint">IN · PR · CM · excl plat_nonbillable</span></button>
     <button class="sub-tab" data-mode="revenue">Revenue <span class="sub-tab-hint">IN · PI · CM</span></button>
   </div>
 </div>
@@ -1337,7 +1351,7 @@
 // Use var for globals (BDC "Never Show Zeros" rule §5.2 — avoid TDZ kills)
 var STATE = {
   view: 'tech',            // 'tech' | 'orders' | 'invoices' | 'summary'
-  invoiceMode: 'all',      // 'all' | 'production' | 'revenue'
+  invoiceMode: 'production',  // 'all' | 'production' | 'revenue'  — default to Completed (Joe 2026-05-23)
   // Per-view date state — switching tabs preserves each tab's selection
   ordersPeriod: 'tomorrow', // 'today' | 'tomorrow' | 'next3' | 'next7' | 'custom'
   invoicesPeriod: 'mtd',   // 'today' | 'yesterday' | 'wk' | 'mtd' | 'ytd' | 'custom'
@@ -2039,6 +2053,10 @@ function updateTabCounts() {
       var invFiltered = nonEstimateInvoices_().filter(function(r) {
         if (!dateInPeriod(r.InvoiceDate, invRange)) return false;
         if (lens && !lens.has(r.InvoiceType)) return false;
+        if (STATE.invoiceMode === 'production') {
+          var sc = String(r.ServiceClass || '').toUpperCase().trim();
+          if (r.InvoiceType === 'PR' && (sc === 'PG CG' || sc === 'PG CG PRE')) return false;
+        }
         return true;
       });
       invEl.textContent = invFiltered.length.toLocaleString();
@@ -2055,6 +2073,10 @@ function updateTabCounts() {
       var sumFiltered = nonEstimateInvoices_().filter(function(r) {
         if (!dateInPeriod(r.InvoiceDate, sumRange)) return false;
         if (sumLens && !sumLens.has(r.InvoiceType)) return false;
+        if (STATE.invoiceMode === 'production') {
+          var sc = String(r.ServiceClass || '').toUpperCase().trim();
+          if (r.InvoiceType === 'PR' && (sc === 'PG CG' || sc === 'PG CG PRE')) return false;
+        }
         return true;
       });
       sumEl.textContent = sumFiltered.length.toLocaleString();
@@ -2177,6 +2199,13 @@ function applyFilters(records, columns) {
     if (!dateInPeriod(r[dateKey], range)) return false;
     // Invoice lens — restrict to the types the current mode includes
     if (isInvoices && invoiceLens && !invoiceLens.has(r.InvoiceType)) return false;
+    // Completed (production) lens: also exclude plat_nonbillable courtesy
+    // visits (PR on PG CG / PG CG PRE) to match the Completed vs Budget
+    // card's revenue methodology. Joe directive 2026-05-23.
+    if (isInvoices && STATE.invoiceMode === 'production') {
+      var _sc = String(r.ServiceClass || '').toUpperCase().trim();
+      if (r.InvoiceType === 'PR' && (_sc === 'PG CG' || _sc === 'PG CG PRE')) return false;
+    }
     // Company filter (overrides individual branch filter when active)
     if (STATE.company === 'catseye' && isUsxBranch(r.Branch)) return false;
     if (STATE.company === 'usx'     && !isUsxBranch(r.Branch)) return false;
@@ -2377,25 +2406,31 @@ function renderSummaryView_() {
              '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
              '<div class="group-block-meta">No invoices in period</div></div></div>';
     }
+    // First pass — compute card totals so we can show each row's % share
     var totalCount = 0, totalSubtotal = 0;
-    var bodyRows = classes.map(function(c) {
+    classes.forEach(function(c) {
       totalCount    += rows[c].count;
       totalSubtotal += rows[c].subtotal;
+    });
+    var bodyRows = classes.map(function(c) {
+      var pct = totalSubtotal > 0 ? (rows[c].subtotal / totalSubtotal) * 100 : 0;
       return '<tr>' +
         '<td>' + escapeHtml(c) + '</td>' +
         '<td class="num">' + rows[c].count.toLocaleString() + '</td>' +
         '<td class="num">$' + Math.round(rows[c].subtotal).toLocaleString() + '</td>' +
+        '<td class="num">' + pct.toFixed(1) + '%</td>' +
       '</tr>';
     }).join('');
     var totalRow = '<tr class="total-row">' +
         '<td>Total</td>' +
         '<td class="num">' + totalCount.toLocaleString() + '</td>' +
         '<td class="num">$' + Math.round(totalSubtotal).toLocaleString() + '</td>' +
+        '<td class="num">100.0%</td>' +
       '</tr>';
     return '<div class="' + blockCls + '">' +
       '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
       '<div class="group-block-meta">' + totalCount.toLocaleString() + ' inv · $' + Math.round(totalSubtotal).toLocaleString() + '</div></div>' +
-      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Count</th><th class="num">Subtotal</th></tr></thead>' +
+      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Count</th><th class="num">Subtotal</th><th class="num">% of Total</th></tr></thead>' +
       '<tbody>' + bodyRows + totalRow + '</tbody></table></div>';
   }).join('');
 
