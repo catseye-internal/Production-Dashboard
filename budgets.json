@@ -13,7 +13,7 @@
       "true",
       "enhanced"
     ],
-    "updated": "2026-05-23T15:28:23.214Z",
+    "updated": "2026-05-23T15:30:11.690Z",
     "updatedBy": "admin"
   },
   "Eastern Mass": {
@@ -88,6 +88,26 @@
         "recurring_commercial": 3964,
         "recurring_total_platinum": 2000,
         "cgw_generated": 1344
+      }
+    }
+  },
+  "USX - Upstate New York": {
+    "2026-05": {
+      "true": {
+        "cg_nwl": 17800,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 23719,
+        "recurring_commercial": 12017,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 350
+      },
+      "enhanced": {
+        "recurring_residential": 24090,
+        "cg_nwl": 23000,
+        "pest_rodent_initial": 17000,
+        "recurring_commercial": 14401,
+        "recurring_total_platinum": 2460,
+        "cgw_generated": 375
       }
     }
   }
