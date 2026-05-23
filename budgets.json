@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "Monthly production budgets per branch. Six categories × two tiers (TRUE = private; ENHANCED = team-facing stretch goal). Dashboard displays the sum of ENHANCED categories. Edit via the /admin.html page — direct editing supported but not recommended.",
+    "description": "Monthly production budgets per branch. Six categories \u00d7 two tiers (TRUE = private; ENHANCED = team-facing stretch goal). Dashboard displays the sum of ENHANCED categories. Edit via the /admin.html page \u2014 direct editing supported but not recommended.",
     "categories": [
       "cg_nwl",
       "pest_rodent_initial",
@@ -13,18 +13,62 @@
       "true",
       "enhanced"
     ],
-    "updated": "2026-05-23T15:33:10.671Z",
-    "updatedBy": "admin"
+    "updated": "2026-05-23T00:00:00.000Z",
+    "updatedBy": "all-2026 TRUE backfill from source sheets"
   },
   "Eastern Mass": {
+    "2026-01": {
+      "true": {
+        "cg_nwl": 215817,
+        "pest_rodent_initial": 69696,
+        "recurring_residential": 190000,
+        "recurring_commercial": 118000,
+        "recurring_total_platinum": 818,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-02": {
+      "true": {
+        "cg_nwl": 167660,
+        "pest_rodent_initial": 63888,
+        "recurring_residential": 192850,
+        "recurring_commercial": 118269,
+        "recurring_total_platinum": 750,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-03": {
+      "true": {
+        "cg_nwl": 195492,
+        "pest_rodent_initial": 87120,
+        "recurring_residential": 197437,
+        "recurring_commercial": 119540,
+        "recurring_total_platinum": 682,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-04": {
+      "true": {
+        "cg_nwl": 215842,
+        "pest_rodent_initial": 98736,
+        "recurring_residential": 209651,
+        "recurring_commercial": 121283,
+        "recurring_total_platinum": 1159,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
     "2026-05": {
       "true": {
         "cg_nwl": 215960,
-        "cgw_generated": 12600,
         "pest_rodent_initial": 105600,
         "recurring_residential": 218100,
         "recurring_commercial": 123283,
-        "recurring_total_platinum": 1091
+        "recurring_total_platinum": 1091,
+        "cgw_generated": 12600
       },
       "enhanced": {
         "cg_nwl": 230000,
@@ -34,9 +78,130 @@
         "recurring_total_platinum": 18080,
         "cgw_generated": 14641
       }
+    },
+    "2026-06": {
+      "true": {
+        "cg_nwl": 243960,
+        "pest_rodent_initial": 105600,
+        "recurring_residential": 224245,
+        "recurring_commercial": 125249,
+        "recurring_total_platinum": 1091,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-07": {
+      "true": {
+        "cg_nwl": 243474,
+        "pest_rodent_initial": 105600,
+        "recurring_residential": 234422,
+        "recurring_commercial": 130176,
+        "recurring_total_platinum": 1091,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-08": {
+      "true": {
+        "cg_nwl": 249611,
+        "pest_rodent_initial": 112200,
+        "recurring_residential": 241412,
+        "recurring_commercial": 132276,
+        "recurring_total_platinum": 1500,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-09": {
+      "true": {
+        "cg_nwl": 249611,
+        "pest_rodent_initial": 112200,
+        "recurring_residential": 247147,
+        "recurring_commercial": 134339,
+        "recurring_total_platinum": 1432,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-10": {
+      "true": {
+        "cg_nwl": 262488,
+        "pest_rodent_initial": 118800,
+        "recurring_residential": 253952,
+        "recurring_commercial": 136632,
+        "recurring_total_platinum": 1500,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-11": {
+      "true": {
+        "cg_nwl": 236465,
+        "pest_rodent_initial": 112200,
+        "recurring_residential": 248251,
+        "recurring_commercial": 138613,
+        "recurring_total_platinum": 1432,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
+    },
+    "2026-12": {
+      "true": {
+        "cg_nwl": 214012,
+        "pest_rodent_initial": 92928,
+        "recurring_residential": 253188,
+        "recurring_commercial": 139757,
+        "recurring_total_platinum": 1091,
+        "cgw_generated": 12600
+      },
+      "enhanced": {}
     }
   },
   "Connecticut": {
+    "2026-01": {
+      "true": {
+        "cg_nwl": 186417,
+        "pest_rodent_initial": 69696,
+        "recurring_residential": 185000,
+        "recurring_commercial": 63500,
+        "recurring_total_platinum": 818,
+        "cgw_generated": 9713
+      },
+      "enhanced": {}
+    },
+    "2026-02": {
+      "true": {
+        "cg_nwl": 144660,
+        "pest_rodent_initial": 63888,
+        "recurring_residential": 187925,
+        "recurring_commercial": 64859,
+        "recurring_total_platinum": 750,
+        "cgw_generated": 7613
+      },
+      "enhanced": {}
+    },
+    "2026-03": {
+      "true": {
+        "cg_nwl": 169092,
+        "pest_rodent_initial": 87120,
+        "recurring_residential": 192586,
+        "recurring_commercial": 67198,
+        "recurring_total_platinum": 1364,
+        "cgw_generated": 10500
+      },
+      "enhanced": {}
+    },
+    "2026-04": {
+      "true": {
+        "cg_nwl": 187242,
+        "pest_rodent_initial": 98736,
+        "recurring_residential": 205555,
+        "recurring_commercial": 69988,
+        "recurring_total_platinum": 1159,
+        "cgw_generated": 12338
+      },
+      "enhanced": {}
+    },
     "2026-05": {
       "true": {
         "cg_nwl": 186960,
@@ -54,9 +219,130 @@
         "recurring_total_platinum": 9900,
         "cgw_generated": 11089
       }
+    },
+    "2026-06": {
+      "true": {
+        "cg_nwl": 210960,
+        "pest_rodent_initial": 105600,
+        "recurring_residential": 220270,
+        "recurring_commercial": 75986,
+        "recurring_total_platinum": 1091,
+        "cgw_generated": 11813
+      },
+      "enhanced": {}
+    },
+    "2026-07": {
+      "true": {
+        "cg_nwl": 210474,
+        "pest_rodent_initial": 105600,
+        "recurring_residential": 230507,
+        "recurring_commercial": 81898,
+        "recurring_total_platinum": 1091,
+        "cgw_generated": 11813
+      },
+      "enhanced": {}
+    },
+    "2026-08": {
+      "true": {
+        "cg_nwl": 216011,
+        "pest_rodent_initial": 112200,
+        "recurring_residential": 237556,
+        "recurring_commercial": 84963,
+        "recurring_total_platinum": 1500,
+        "cgw_generated": 11813
+      },
+      "enhanced": {}
+    },
+    "2026-09": {
+      "true": {
+        "cg_nwl": 216011,
+        "pest_rodent_initial": 112200,
+        "recurring_residential": 243349,
+        "recurring_commercial": 87972,
+        "recurring_total_platinum": 1432,
+        "cgw_generated": 11813
+      },
+      "enhanced": {}
+    },
+    "2026-10": {
+      "true": {
+        "cg_nwl": 227288,
+        "pest_rodent_initial": 118800,
+        "recurring_residential": 250211,
+        "recurring_commercial": 91193,
+        "recurring_total_platinum": 1500,
+        "cgw_generated": 11813
+      },
+      "enhanced": {}
+    },
+    "2026-11": {
+      "true": {
+        "cg_nwl": 204465,
+        "pest_rodent_initial": 112200,
+        "recurring_residential": 244566,
+        "recurring_commercial": 94083,
+        "recurring_total_platinum": 1432,
+        "cgw_generated": 11813
+      },
+      "enhanced": {}
+    },
+    "2026-12": {
+      "true": {
+        "cg_nwl": 185412,
+        "pest_rodent_initial": 92928,
+        "recurring_residential": 249558,
+        "recurring_commercial": 96117,
+        "recurring_total_platinum": 1091,
+        "cgw_generated": 11813
+      },
+      "enhanced": {}
     }
   },
   "Rhode Island": {
+    "2026-01": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-02": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-03": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-04": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
     "2026-05": {
       "true": {
         "cg_nwl": 0,
@@ -74,16 +360,138 @@
         "recurring_total_platinum": 1600,
         "cgw_generated": 0
       }
+    },
+    "2026-06": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-07": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-08": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-09": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-10": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-11": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-12": {
+      "true": {
+        "cg_nwl": 0,
+        "pest_rodent_initial": 0,
+        "recurring_residential": 0,
+        "recurring_commercial": 0,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
     }
   },
   "USX - Western Mass": {
+    "2026-01": {
+      "true": {
+        "cg_nwl": 16170,
+        "pest_rodent_initial": 7770,
+        "recurring_residential": 23000,
+        "recurring_commercial": 3600,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1050
+      },
+      "enhanced": {}
+    },
+    "2026-02": {
+      "true": {
+        "cg_nwl": 13475,
+        "pest_rodent_initial": 6475,
+        "recurring_residential": 23901,
+        "recurring_commercial": 3796,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 350
+      },
+      "enhanced": {}
+    },
+    "2026-03": {
+      "true": {
+        "cg_nwl": 19160,
+        "pest_rodent_initial": 10360,
+        "recurring_residential": 24457,
+        "recurring_commercial": 3939,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 700
+      },
+      "enhanced": {}
+    },
+    "2026-04": {
+      "true": {
+        "cg_nwl": 21750,
+        "pest_rodent_initial": 12950,
+        "recurring_residential": 26237,
+        "recurring_commercial": 4117,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 350
+      },
+      "enhanced": {}
+    },
     "2026-05": {
       "true": {
         "cg_nwl": 23540,
         "pest_rodent_initial": 15540,
         "recurring_residential": 27484,
         "recurring_commercial": 4331,
-        "recurring_total_platinum": 0
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
       },
       "enhanced": {
         "recurring_residential": 24871,
@@ -93,9 +501,130 @@
         "recurring_total_platinum": 2000,
         "cgw_generated": 1344
       }
+    },
+    "2026-06": {
+      "true": {
+        "cg_nwl": 24340,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 29470,
+        "recurring_commercial": 4545,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1340
+      },
+      "enhanced": {}
+    },
+    "2026-07": {
+      "true": {
+        "cg_nwl": 24340,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 30692,
+        "recurring_commercial": 4759,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1850
+      },
+      "enhanced": {}
+    },
+    "2026-08": {
+      "true": {
+        "cg_nwl": 23940,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 31899,
+        "recurring_commercial": 4973,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
+    },
+    "2026-09": {
+      "true": {
+        "cg_nwl": 23940,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 32841,
+        "recurring_commercial": 5187,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
+    },
+    "2026-10": {
+      "true": {
+        "cg_nwl": 24340,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 33269,
+        "recurring_commercial": 5401,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
+    },
+    "2026-11": {
+      "true": {
+        "cg_nwl": 23540,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 31934,
+        "recurring_commercial": 5615,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
+    },
+    "2026-12": {
+      "true": {
+        "cg_nwl": 20455,
+        "pest_rodent_initial": 11655,
+        "recurring_residential": 32494,
+        "recurring_commercial": 5775,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
     }
   },
   "USX - Upstate New York": {
+    "2026-01": {
+      "true": {
+        "cg_nwl": 18690,
+        "pest_rodent_initial": 7770,
+        "recurring_residential": 19000,
+        "recurring_commercial": 12000,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 350
+      },
+      "enhanced": {}
+    },
+    "2026-02": {
+      "true": {
+        "cg_nwl": 15800,
+        "pest_rodent_initial": 6475,
+        "recurring_residential": 19961,
+        "recurring_commercial": 11760,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 0
+      },
+      "enhanced": {}
+    },
+    "2026-03": {
+      "true": {
+        "cg_nwl": 19580,
+        "pest_rodent_initial": 10360,
+        "recurring_residential": 20576,
+        "recurring_commercial": 11734,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 700
+      },
+      "enhanced": {}
+    },
+    "2026-04": {
+      "true": {
+        "cg_nwl": 19580,
+        "pest_rodent_initial": 12950,
+        "recurring_residential": 22414,
+        "recurring_commercial": 11835,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 350
+      },
+      "enhanced": {}
+    },
     "2026-05": {
       "true": {
         "cg_nwl": 17800,
@@ -113,6 +642,83 @@
         "recurring_total_platinum": 2460,
         "cgw_generated": 375
       }
+    },
+    "2026-06": {
+      "true": {
+        "cg_nwl": 19580,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 25762,
+        "recurring_commercial": 12279,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 700
+      },
+      "enhanced": {}
+    },
+    "2026-07": {
+      "true": {
+        "cg_nwl": 19580,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 27039,
+        "recurring_commercial": 12537,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 395
+      },
+      "enhanced": {}
+    },
+    "2026-08": {
+      "true": {
+        "cg_nwl": 18690,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 28300,
+        "recurring_commercial": 12789,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
+    },
+    "2026-09": {
+      "true": {
+        "cg_nwl": 18690,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 29297,
+        "recurring_commercial": 13036,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
+    },
+    "2026-10": {
+      "true": {
+        "cg_nwl": 19580,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 29778,
+        "recurring_commercial": 13278,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
+    },
+    "2026-11": {
+      "true": {
+        "cg_nwl": 17800,
+        "pest_rodent_initial": 15540,
+        "recurring_residential": 28495,
+        "recurring_commercial": 13515,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
+    },
+    "2026-12": {
+      "true": {
+        "cg_nwl": 19580,
+        "pest_rodent_initial": 11655,
+        "recurring_residential": 29107,
+        "recurring_commercial": 13747,
+        "recurring_total_platinum": 0,
+        "cgw_generated": 1000
+      },
+      "enhanced": {}
     }
   }
 }
