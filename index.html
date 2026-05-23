@@ -819,40 +819,44 @@
   .mtd-prod-pacing.pace-unset  { color: var(--text-dim); font-weight: 500; }
 
   .mtd-prod-metric {
-    display: grid; grid-template-columns: 64px 70px 1fr 76px;
-    gap: 8px; align-items: center; font-size: 11px;
+    display: grid; grid-template-columns: 80px 70px 1fr 76px;
+    gap: 10px; align-items: center; font-size: 11px;
     font-variant-numeric: tabular-nums;
+    padding: 2px 0;
   }
   .mtd-prod-metric-label {
-    font-size: 9px; font-weight: 700; color: var(--text-dim);
-    text-transform: uppercase; letter-spacing: 0.4px;
+    font-size: 10px; font-weight: 600; color: var(--text-dim);
+    letter-spacing: 0.2px;
   }
-  .mtd-prod-metric-value { font-weight: 700; color: var(--text); }
+  .mtd-prod-metric-value { font-weight: 600; color: var(--text); }
   .mtd-prod-metric-bar {
-    height: 10px; background: rgba(255, 255, 255, 0.05); border-radius: 5px;
-    overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.06);
+    height: 7px; background: rgba(255, 255, 255, 0.04); border-radius: 4px;
+    overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.05);
   }
   .mtd-prod-metric-fill {
-    height: 100%; border-radius: 4px;
+    height: 100%; border-radius: 3px;
     transition: width 0.3s ease;
   }
-  /* Bar palette — Joe directive 2026-05-23. Five metric lines:
-     Actual = branch brand color (orange or blue inline)
-     On Pace (no CGW)  = yellow         #FBBF24
-     On Pace w/ CGW    = green          #34D399
-     Budget (no CGW)   = purple         #A78BFA
-     Budget w/ CGW     = pink           #EC4899                             */
-  .mtd-prod-metric-fill.fill-pace-no-cgw    { background: #FBBF24; }
-  .mtd-prod-metric-fill.fill-pace-with-cgw  { background: #34D399; }
-  .mtd-prod-metric-fill.fill-bdgt-no-cgw    { background: #A78BFA; }
+  /* Refined palette — Joe directive 2026-05-23 (v2). Goal: less visual noise,
+     better hierarchy. Actual is the eye-catcher (brand color, full sat).
+     Pace lines use desaturated warm/cool variants. Budget lines read as
+     reference targets via lower saturation + outlined treatment.
+       Actual              = branch brand color (inline)
+       On Pace (no CGW)    = muted gold       #B89651
+       On Pace w/ CGW      = muted teal-green #62A990
+       Budget (no CGW)     = muted lavender   #8779C2
+       Budget w/ CGW       = muted rose       #B66798 */
+  .mtd-prod-metric-fill.fill-pace-no-cgw    { background: #B89651; opacity: 0.85; }
+  .mtd-prod-metric-fill.fill-pace-with-cgw  { background: #62A990; opacity: 0.85; }
+  .mtd-prod-metric-fill.fill-bdgt-no-cgw    {
+    background: rgba(135, 121, 194, 0.35);
+    border: 1px solid rgba(135, 121, 194, 0.65);
+    box-sizing: border-box;
+  }
   .mtd-prod-metric-fill.fill-bdgt-with-cgw  {
-    background: repeating-linear-gradient(
-      45deg,
-      #EC4899,
-      #EC4899 4px,
-      #F472B6 4px,
-      #F472B6 8px
-    );
+    background: rgba(182, 103, 152, 0.30);
+    border: 1px dashed rgba(182, 103, 152, 0.70);
+    box-sizing: border-box;
   }
   .mtd-prod-metric-pct {
     font-size: 10px; color: var(--text-dim); text-align: right; font-weight: 500;
