@@ -72,6 +72,14 @@ function doPost(e) {
   var t0 = new Date();
   try {
     var body = JSON.parse(e.postData.contents || '{}');
+
+    // ─── Admin save route (Joe directive 2026-05-23) ───
+    // admin.html POSTs { action: "saveBudgets", password, branch, month, data }
+    // to update budgets.json. Distinct from PestPac webhooks below.
+    if (body.action === 'saveBudgets') {
+      return handleSaveBudgets_(body);
+    }
+
     var entityType = body.EntityType || '';
     var entityId   = body.EntityId;
     var action     = body.Action || ''; // not always present
@@ -324,4 +332,115 @@ function _markInvoiceVoidedInner_(invoiceId) {
     }),
     muteHttpExceptions: true
   });
+}
+
+// ──────────────────────────────────────────────────────────────
+// Admin budget-save handler (Joe directive 2026-05-23)
+// admin.html POSTs JSON with action=saveBudgets. We validate the shared-
+// secret password, read budgets.json from GitHub, merge the new branch+
+// month data into it, and PUT the file back.
+// ──────────────────────────────────────────────────────────────
+const GH_PATH_BUDGETS = 'budgets.json';
+
+function handleSaveBudgets_(body) {
+  function reply(obj) {
+    return ContentService.createTextOutput(JSON.stringify(obj))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 1. Password check
+  var expected = PropertiesService.getScriptProperties().getProperty('ADMIN_BUDGET_PASSWORD');
+  if (!expected) {
+    Logger.log('⛔ ADMIN_BUDGET_PASSWORD not set in Apps Script properties');
+    return reply({ ok: false, error: 'admin password not configured' });
+  }
+  if (body.password !== expected) {
+    Logger.log('⛔ Wrong admin password attempt');
+    return reply({ ok: false, error: 'unauthorized' });
+  }
+
+  // 2. Validate payload
+  var branch = String(body.branch || '').trim();
+  var month  = String(body.month  || '').trim();
+  var data   = body.data;
+  if (!branch || !month || !data || typeof data !== 'object') {
+    return reply({ ok: false, error: 'missing branch/month/data' });
+  }
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return reply({ ok: false, error: 'month must be YYYY-MM' });
+  }
+  if (!data['true'] || !data['enhanced']) {
+    return reply({ ok: false, error: 'data must have true + enhanced tiers' });
+  }
+
+  // 3. Acquire lock so concurrent admin saves + webhook saves don't collide
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(60 * 1000)) {
+    return reply({ ok: false, error: 'busy — try again' });
+  }
+
+  try {
+    var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+    if (!token) return reply({ ok: false, error: 'GITHUB_TOKEN not configured' });
+    var headers = { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json' };
+    var apiBase = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
+    var getUrl  = apiBase + '/contents/' + GH_PATH_BUDGETS + '?ref=' + GH_BRANCH;
+
+    // 4. Fetch current budgets.json + sha (or treat as empty if 404)
+    var getResp = UrlFetchApp.fetch(getUrl, { method: 'get', headers: headers, muteHttpExceptions: true });
+    var sha = null;
+    var budgets = {};
+    if (getResp.getResponseCode() === 200) {
+      var meta = JSON.parse(getResp.getContentText());
+      sha = meta.sha;
+      var current = Utilities.newBlob(Utilities.base64Decode(meta.content)).getDataAsString();
+      try { budgets = JSON.parse(current); } catch (e) { budgets = {}; }
+    } else if (getResp.getResponseCode() !== 404) {
+      return reply({ ok: false, error: 'github read failed: ' + getResp.getResponseCode() });
+    }
+
+    // 5. Merge the new entry
+    if (!budgets[branch]) budgets[branch] = {};
+    budgets[branch][month] = {
+      'true':     data['true'],
+      'enhanced': data['enhanced']
+    };
+    // Stamp metadata
+    budgets._meta = budgets._meta || {};
+    budgets._meta.updated   = new Date().toISOString();
+    budgets._meta.updatedBy = body.user || 'admin';
+
+    // 6. PUT back to GitHub
+    var payloadStr = JSON.stringify(budgets, null, 2) + '\n';
+    var newContent = Utilities.base64Encode(payloadStr, Utilities.Charset.UTF_8);
+    var putBody = {
+      message: 'Admin budget update: ' + branch + ' / ' + month,
+      content: newContent,
+      branch:  GH_BRANCH
+    };
+    if (sha) putBody.sha = sha;
+
+    var putResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_BUDGETS, {
+      method: 'put', headers: headers, contentType: 'application/json',
+      payload: JSON.stringify(putBody), muteHttpExceptions: true
+    });
+    var putCode = putResp.getResponseCode();
+    if (putCode >= 200 && putCode < 300) {
+      Logger.log('✅ Saved budget: ' + branch + ' / ' + month);
+      return reply({ ok: true, branch: branch, month: month });
+    }
+    Logger.log('❌ GitHub PUT failed: ' + putCode + ' ' + putResp.getContentText());
+    return reply({ ok: false, error: 'github write failed: ' + putCode });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Optional GET endpoint so we can sanity-check the admin endpoint from a browser
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    ok: true,
+    endpoint: 'Production Dashboard Apps Script',
+    routes: ['POST { EntityType, EntityId, Action } — webhook handler', 'POST { action: "saveBudgets", password, branch, month, data } — admin save']
+  })).setMimeType(ContentService.MimeType.JSON);
 }

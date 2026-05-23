@@ -289,8 +289,8 @@
     // Apps Script Web App endpoint that handles { action: "saveBudgets", ... }
     // and PUTs budgets.json to GitHub. Same /exec URL as the existing webhook
     // handler (the doPost has been extended to branch on body.action).
-    // ⚠️ PASTE YOUR DEPLOYMENT URL HERE (Apps Script → Deploy → Manage deployments → Web App URL):
-    var ADMIN_ENDPOINT = 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE';
+    // Production Dashboard Apps Script Web App URL (set 2026-05-23)
+    var ADMIN_ENDPOINT = 'https://script.google.com/macros/s/AKfycbzIBJ6wOsKK7hv83F-VLfY3qxHgfA_9j1FFKLC9_4qLn0_MSMsLcSiOD5GGbugd16Meeg/exec';
     var BUDGETS_URL    = './budgets.json';
 
     // Branch list MUST match the PestPac Branch field exactly (and BRANCH_ALL in config.js)
