@@ -178,6 +178,43 @@
     table.budget-grid tr.total-row .total-value.tier-true     { color: var(--red); }
     table.budget-grid tr.total-row .total-value.tier-enhanced { color: var(--green); }
 
+    /* Month summary — 4-up grid of Catseye/USX × True/Enhanced totals */
+    .month-summary {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px 20px; margin-bottom: 18px;
+    }
+    .month-summary-header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+    }
+    .month-summary h3 {
+      margin: 0; font-size: 12px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim);
+    }
+    .month-summary-sub { font-size: 10px; color: var(--text-dim); }
+    .month-summary-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    }
+    @media (max-width: 720px) { .month-summary-grid { grid-template-columns: repeat(2, 1fr); } }
+    .ms-card {
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: 6px; padding: 10px 12px;
+    }
+    .ms-card.ms-catseye { border-left: 3px solid var(--orange); }
+    .ms-card.ms-usx     { border-left: 3px solid var(--blue); }
+    .ms-card-label {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.6px;
+      text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;
+    }
+    .ms-card-value {
+      font-size: 18px; font-weight: 800; color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .ms-card-sub {
+      font-size: 10px; color: var(--text-dim); margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+
     .preview-card {
       background: var(--bg-card); border: 1px solid var(--border);
       border-radius: 10px; padding: 18px 22px; margin-bottom: 18px;
@@ -250,6 +287,37 @@
         <button id="save-btn" disabled>Save</button>
       </div>
 
+      <!-- Month-wide summary: Catseye vs USX, TRUE vs ENHANCED.
+           Updates as the user changes month or saves any branch. -->
+      <div class="month-summary">
+        <div class="month-summary-header">
+          <h3 id="summary-title">Month Summary</h3>
+          <span id="summary-sub" class="month-summary-sub">All 6 categories · dashboard subtotal in parentheses</span>
+        </div>
+        <div class="month-summary-grid">
+          <div class="ms-card ms-catseye">
+            <div class="ms-card-label">Catseye · True</div>
+            <div class="ms-card-value" id="ms-cat-true">$0</div>
+            <div class="ms-card-sub" id="ms-cat-true-sub">Dashboard: $0</div>
+          </div>
+          <div class="ms-card ms-catseye">
+            <div class="ms-card-label">Catseye · Enhanced</div>
+            <div class="ms-card-value" id="ms-cat-enh">$0</div>
+            <div class="ms-card-sub" id="ms-cat-enh-sub">Dashboard: $0</div>
+          </div>
+          <div class="ms-card ms-usx">
+            <div class="ms-card-label">USX Pest · True</div>
+            <div class="ms-card-value" id="ms-usx-true">$0</div>
+            <div class="ms-card-sub" id="ms-usx-true-sub">Dashboard: $0</div>
+          </div>
+          <div class="ms-card ms-usx">
+            <div class="ms-card-label">USX Pest · Enhanced</div>
+            <div class="ms-card-value" id="ms-usx-enh">$0</div>
+            <div class="ms-card-sub" id="ms-usx-enh-sub">Dashboard: $0</div>
+          </div>
+        </div>
+      </div>
+
       <div class="preview-card">
         <h3>Dashboard Preview · ENHANCED Total</h3>
         <div class="sub">What the MTD Production card will show as "Budget" for the selected branch + month. Excludes Recurring — Total Platinum (1st yr free) since it carries no revenue.</div>
@@ -296,7 +364,13 @@
     // Branch list MUST match the PestPac Branch field exactly (and BRANCH_ALL in config.js)
     var BRANCHES = (typeof BRANCH_ALL !== 'undefined') ? BRANCH_ALL : [
       'Eastern Mass', 'Connecticut', 'Rhode Island',
-      'USX-Western Mass', 'USX-Upstate NY'
+      'USX - Western Mass', 'USX - Upstate New York'
+    ];
+    var CATSEYE_BRANCHES = (typeof BRANCH_CATSEYE !== 'undefined') ? BRANCH_CATSEYE : [
+      'Eastern Mass', 'Connecticut', 'Rhode Island'
+    ];
+    var USX_BRANCHES = (typeof BRANCH_USX !== 'undefined') ? BRANCH_USX : [
+      'USX - Western Mass', 'USX - Upstate New York'
     ];
 
     var CATEGORIES = (typeof BUDGET_CATEGORIES !== 'undefined') ? BUDGET_CATEGORIES : [
@@ -522,6 +596,44 @@
       $('total-true').textContent     = fmtMoney(totalTrue);
       $('total-enhanced').textContent = fmtMoney(totalEnhanced);
       $('preview-total').textContent  = fmtMoney(dashboardEnhanced);
+      recomputeMonthSummary();
+    }
+
+    // Month-wide summary across both companies. Sums every branch's entry
+    // for the currently-selected month. Updates on month change + save.
+    function recomputeMonthSummary() {
+      var ym = state.currentMonth;
+      $('summary-title').textContent = 'Month Summary · ' + ($('month-select').selectedOptions[0] ? $('month-select').selectedOptions[0].text : ym);
+
+      function sumBranches(branchList, tier, cats) {
+        var total = 0;
+        branchList.forEach(function(b) {
+          var entry = state.budgets[b] && state.budgets[b][ym];
+          if (!entry || !entry[tier]) return;
+          cats.forEach(function(c) {
+            total += Number(entry[tier][c]) || 0;
+          });
+        });
+        return total;
+      }
+
+      var catTrue6     = sumBranches(CATSEYE_BRANCHES, 'true',     CATEGORIES);
+      var catEnh6      = sumBranches(CATSEYE_BRANCHES, 'enhanced', CATEGORIES);
+      var catTrue5     = sumBranches(CATSEYE_BRANCHES, 'true',     DASHBOARD_CATEGORIES);
+      var catEnh5      = sumBranches(CATSEYE_BRANCHES, 'enhanced', DASHBOARD_CATEGORIES);
+      var usxTrue6     = sumBranches(USX_BRANCHES,     'true',     CATEGORIES);
+      var usxEnh6      = sumBranches(USX_BRANCHES,     'enhanced', CATEGORIES);
+      var usxTrue5     = sumBranches(USX_BRANCHES,     'true',     DASHBOARD_CATEGORIES);
+      var usxEnh5      = sumBranches(USX_BRANCHES,     'enhanced', DASHBOARD_CATEGORIES);
+
+      $('ms-cat-true').textContent     = fmtMoney(catTrue6);
+      $('ms-cat-true-sub').textContent = 'Dashboard: ' + fmtMoney(catTrue5);
+      $('ms-cat-enh').textContent      = fmtMoney(catEnh6);
+      $('ms-cat-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(catEnh5);
+      $('ms-usx-true').textContent     = fmtMoney(usxTrue6);
+      $('ms-usx-true-sub').textContent = 'Dashboard: ' + fmtMoney(usxTrue5);
+      $('ms-usx-enh').textContent      = fmtMoney(usxEnh6);
+      $('ms-usx-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(usxEnh5);
     }
 
     function markDirty() {
