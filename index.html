@@ -692,6 +692,21 @@
      three stacked metric rows for Actual / On Pace / Budget, all sharing the
      same x-axis so visual comparison is direct.) */
   .mtd-prod-card { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+  /* Header strip — date + working day + % complete (Joe 2026-05-23).
+     Right-aligned, sits above the first branch row. */
+  .mtd-prod-header-strip {
+    display: flex; justify-content: flex-end; align-items: baseline;
+    gap: 8px; padding: 2px 4px 8px;
+    font-size: 11px; color: var(--text-dim);
+    border-bottom: 1px dashed rgba(255,255,255,0.06);
+    margin-bottom: 4px;
+  }
+  .mtd-prod-header-strip strong { color: var(--text); font-weight: 700; }
+  .mtd-prod-header-date { color: var(--text); font-weight: 700; }
+  .mtd-prod-header-sep  { opacity: 0.4; }
+  @media (max-width: 720px) {
+    .mtd-prod-header-strip { flex-wrap: wrap; justify-content: flex-start; }
+  }
   .mtd-prod-branch {
     display: flex; flex-direction: column; gap: 4px;
     padding: 10px 0;
@@ -3896,7 +3911,7 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
 
   // Per-branch MTD (field-tech only; office-credited revenue is shown in
   // the master cards' Office-credited row and reconciled in the top banner)
-  var branches = BRANCH_ALL.map(function(b) {
+  var rawBranches = BRANCH_ALL.map(function(b) {
     var techs   = byBranch[b] || [];
     var mtdAll  = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
     var catActuals = mtdByBranchCategory && mtdByBranchCategory[b] || {};
@@ -3924,6 +3939,42 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       usx: isUsxBranch(b)
     };
   });
+
+  // Merge Eastern Mass + Rhode Island into a single row on the MTD Production
+  // card — RI doesn't have a TRUE budget of its own (it's combined with MA on
+  // the source budget sheet), so showing it as a separate row creates a
+  // misleading "no budget" picture. The combined row is labeled "E. MASS + RI"
+  // and aggregates actuals, budgets, and per-category breakdowns. Joe directive
+  // 2026-05-23. Other cards (Callbacks-by-Branch, Revenue per Tech, the tech
+  // table) keep RI separate — only this card merges.
+  var emItem = rawBranches.find(function(x){ return x.branch === 'Eastern Mass'; });
+  var riItem = rawBranches.find(function(x){ return x.branch === 'Rhode Island'; });
+  var branches = rawBranches.filter(function(x){
+    return x.branch !== 'Eastern Mass' && x.branch !== 'Rhode Island';
+  });
+  if (emItem || riItem) {
+    var merged = {
+      branch: 'Eastern Mass + Rhode Island',
+      label:  'E. MASS + RI',
+      usx:    false,
+      mtdAll:        (emItem ? emItem.mtdAll : 0)        + (riItem ? riItem.mtdAll : 0),
+      mtdProd:       (emItem ? emItem.mtdProd : 0)       + (riItem ? riItem.mtdProd : 0),
+      mtdCgw:        (emItem ? emItem.mtdCgw : 0)        + (riItem ? riItem.mtdCgw : 0),
+      enhancedCgw:   (emItem ? emItem.enhancedCgw : 0)   + (riItem ? riItem.enhancedCgw : 0),
+      onPaceProd:    (emItem ? emItem.onPaceProd : 0)    + (riItem ? riItem.onPaceProd : 0),
+      onPaceWithCgw: (emItem ? emItem.onPaceWithCgw : 0) + (riItem ? riItem.onPaceWithCgw : 0),
+      budgetNoCgw:   (emItem ? emItem.budgetNoCgw : 0)   + (riItem ? riItem.budgetNoCgw : 0),
+      budgetWithCgw: (emItem ? emItem.budgetWithCgw : 0) + (riItem ? riItem.budgetWithCgw : 0),
+      budgetCats:    {},
+      actualCats:    {}
+    };
+    BUDGET_CATEGORIES.forEach(function(c) {
+      merged.budgetCats[c] = (emItem ? (emItem.budgetCats[c] || 0) : 0) + (riItem ? (riItem.budgetCats[c] || 0) : 0);
+      merged.actualCats[c] = (emItem ? (emItem.actualCats[c] || 0) : 0) + (riItem ? (riItem.actualCats[c] || 0) : 0);
+    });
+    // Insert at the front so the visual order stays: E.Mass+RI → CT → USX-WM → USX-UNY
+    branches.unshift(merged);
+  }
 
   // Helper to build an aggregate roll-up item from a list of branch items
   function aggregate_(label, subset) {
@@ -4083,7 +4134,24 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   var combinedBlock  = (combinedAgg.mtdAll > 0 || combinedAgg.budgetWithCgw > 0)
                        ? renderBranchBlock_(combinedAgg, true) : '';
 
+  // Header strip — today's date · working day #X of Y · Z% complete.
+  // Joe directive 2026-05-23. Positioned top-right of the card body so the
+  // chart-card's existing <h3> title stays untouched.
+  var todayLabel = todayD.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric'
+  });
+  var pctMonth = workingTotal > 0 ? Math.round((workingElapsed / workingTotal) * 100) : 0;
+  var headerStrip =
+    '<div class="mtd-prod-header-strip">' +
+      '<span class="mtd-prod-header-date">' + escapeHtml(todayLabel) + '</span>' +
+      '<span class="mtd-prod-header-sep">·</span>' +
+      '<span class="mtd-prod-header-day">Working day <strong>' + workingElapsed + '</strong> of ' + workingTotal + '</span>' +
+      '<span class="mtd-prod-header-sep">·</span>' +
+      '<span class="mtd-prod-header-pct"><strong>' + pctMonth + '%</strong> of month complete</span>' +
+    '</div>';
+
   return '<div class="mtd-prod-card">' +
+    headerStrip +
     branchBlocks +
     (companyBlocks ? '<div class="mtd-prod-divider"></div>' + companyBlocks : '') +
     (combinedBlock ? '<div class="mtd-prod-divider"></div>' + combinedBlock : '') +
