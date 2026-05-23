@@ -540,6 +540,18 @@ const CGW_GENERATED_CODES = new Set([
 function classifyProductionCategory(rec) {
   if (!rec) return 'other';
   var code = String(rec.ServiceCode || '').toUpperCase().trim();
+  var cls  = String(rec.ServiceClass || '').toUpperCase().trim();
+  var typ  = String(rec.InvoiceType || '').toUpperCase().trim();
+
+  // Plat nonbillable — PR-type invoices on PG CG or PG CG PRE service classes.
+  // These represent courtesy platinum visits: tech work happens but Catseye
+  // doesn't bill the customer (annual plan already covers it). Daily Recap
+  // excludes these from MTD Total; Completed vs Budget card on the dashboard
+  // does the same. Tech-level views still credit the work. Joe directive
+  // 2026-05-23.
+  if (typ === 'PR' && (cls === 'PG CG' || cls === 'PG CG PRE')) {
+    return 'plat_nonbillable';
+  }
 
   // CGW warranty pipeline takes precedence — these are CG-division records but
   // bucket separately from initial CG/NWL installs.

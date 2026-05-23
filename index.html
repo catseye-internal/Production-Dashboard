@@ -2852,7 +2852,7 @@ function renderTechView_() {
   var cardMtdProduction =
     '<div class="chart-card">' +
       '<h3 class="chart-title">Completed vs Budget</h3>' +
-      '<div class="chart-meta">Field-tech revenue vs monthly budget · custom date range supported · click a row to drill in</div>' +
+      '<div class="chart-meta">Billable revenue vs monthly budget · excludes PR courtesy-platinum visits (PG CG, PG CG PRE) · custom date range supported · click a row to drill in</div>' +
       renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) +
     '</div>';
   var cardRevPerTech =
@@ -4059,10 +4059,17 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       var br = inv.Branch || '';
       if (!localByBranch[br]) return;
       var amt = Number(inv.SubTotal) || 0;
-      // Fake-tech bucket — only used to sum revenue per branch.
-      localByBranch[br].push({ data: { completed: amt } });
       var cat = classifyProductionCategory(inv);
+      // Tally the category breakdown (used for drill-down). plat_nonbillable
+      // lands in its own bucket and is excluded from the card's totals below.
       localByBranchCat[br][cat] = (localByBranchCat[br][cat] || 0) + amt;
+      // For the card's Actual line, exclude plat_nonbillable so the card
+      // matches the Daily Recap's revenue methodology. (Tech-level rows
+      // outside the card still see plat_nonbillable via the upstream
+      // byBranch aggregation.) Joe 2026-05-23.
+      if (cat !== 'plat_nonbillable') {
+        localByBranch[br].push({ data: { completed: amt } });
+      }
     });
     byBranch = localByBranch;
     mtdByBranchCategory = localByBranchCat;
@@ -4082,8 +4089,14 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   // the master cards' Office-credited row and reconciled in the top banner)
   var rawBranches = BRANCH_ALL.map(function(b) {
     var techs   = byBranch[b] || [];
-    var mtdAll  = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
+    var mtdAllRaw = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
     var catActuals = mtdByBranchCategory && mtdByBranchCategory[b] || {};
+    // Plat nonbillable (PR on PG CG / PG CG PRE) — courtesy platinum visits
+    // with no revenue impact. Excluded from the card's Actual line to match
+    // the Daily Recap's MTD Total methodology. Tech-level rows still include
+    // these records so utilization signal is preserved. Joe 2026-05-23.
+    var mtdPlatNonbillable = Number(catActuals.plat_nonbillable) || 0;
+    var mtdAll = mtdAllRaw - mtdPlatNonbillable;
     // Pre-billed CGW is treated as guaranteed monthly revenue — the "+CGW"
     // line adds the FULL ENHANCED budget value (not the MTD actual). MTD
     // actual CGW is still stripped from `mtdProd` so it's not double-counted
@@ -4232,7 +4245,7 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     }
 
     var rows = '';
-    rows += '<div class="mtd-prod-metric" title="MTD field-tech revenue across all 5 dashboard categories">' +
+    rows += '<div class="mtd-prod-metric" title="Billable MTD revenue: 5 dashboard categories minus PR courtesy-platinum visits (PG CG / PG CG PRE)">' +
       '<span class="mtd-prod-metric-label">Actual</span>' +
       '<span class="mtd-prod-metric-value">' + fmtK(item.mtdAll) + '</span>' +
       '<div class="mtd-prod-metric-bar">' +
