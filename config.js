@@ -437,16 +437,44 @@ function workingDaysInMonth_(year, monthIdx) {
   return workingDaysBetween_(first, last);
 }
 
-// ── Budget lookup ──
-// budgets.json is loaded into STATE.budgets at startup. This helper returns
-// the budget for a branch + month, or 0 if not set. Branch names must match
-// the PestPac Branch field exactly.
+// ── Budget lookup (new 6-category × 2-tier shape, 2026-05-23) ──
+// budgets.json structure:
+//   { Branch: { "YYYY-MM": { true: { cg_nwl, pest_rodent_initial, ... },
+//                             enhanced: { cg_nwl, ... } } } }
+// Dashboard displays the SUM of the 6 ENHANCED categories. TRUE is private
+// and never returned by this helper — it's only exposed inside admin.html.
+const BUDGET_CATEGORIES = [
+  'cg_nwl',
+  'pest_rodent_initial',
+  'recurring_residential',
+  'recurring_commercial',
+  'recurring_total_platinum',
+  'cgw_generated'
+];
+const BUDGET_CATEGORY_LABELS = {
+  cg_nwl:                   'CG / NWL',
+  pest_rodent_initial:      'Pest / Rodent Initial',
+  recurring_residential:    'Recurring — Residential',
+  recurring_commercial:     'Recurring — Commercial',
+  recurring_total_platinum: 'Recurring — Total Platinum (1st yr free)',
+  cgw_generated:            'CGW Generated'
+};
+
 function getMonthlyBudget(budgets, branch, year, monthIdx) {
   if (!budgets || !branch) return 0;
   var key = String(year) + '-' + String(monthIdx + 1).padStart(2, '0');
   var branchBudgets = budgets[branch];
   if (!branchBudgets) return 0;
-  return Number(branchBudgets[key]) || 0;
+  var monthEntry = branchBudgets[key];
+  if (!monthEntry) return 0;
+  // New shape: sum the 6 ENHANCED categories
+  if (monthEntry.enhanced && typeof monthEntry.enhanced === 'object') {
+    return BUDGET_CATEGORIES.reduce(function(sum, cat) {
+      return sum + (Number(monthEntry.enhanced[cat]) || 0);
+    }, 0);
+  }
+  // Legacy shape fallback: flat number value
+  return Number(monthEntry) || 0;
 }
 
 // Invoice Type code → friendly label and color (confirmed with Joe 2026-05-20)

@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Production Dashboard — Admin</title>
+  <link rel="icon" href="data:,">
+  <script src="config.js"></script>
+  <style>
+    :root {
+      --bg: #0F1116;
+      --bg-card: #1A1D24;
+      --bg-input: #0A0C10;
+      --border: #2A2F3A;
+      --text: #E5E7EB;
+      --text-dim: #9CA3AF;
+      --orange: #F47B20;
+      --blue: #60A5FA;
+      --green: #34D399;
+      --red: #F87171;
+      --purple: #A78BFA;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg); color: var(--text);
+      font-size: 14px; line-height: 1.4;
+    }
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 24px; border-bottom: 1px solid var(--border);
+      background: var(--bg-card);
+    }
+    .header h1 {
+      margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0.4px;
+    }
+    .header h1 .accent { color: var(--orange); }
+    .header .back {
+      color: var(--text-dim); text-decoration: none; font-size: 12px;
+      padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px;
+    }
+    .header .back:hover { color: var(--text); border-color: var(--text-dim); }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+    /* Password gate */
+    .lock-screen {
+      max-width: 360px; margin: 80px auto;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 28px;
+      text-align: center;
+    }
+    .lock-screen h2 {
+      margin: 0 0 6px; font-size: 16px; font-weight: 700;
+    }
+    .lock-screen p {
+      color: var(--text-dim); font-size: 12px; margin: 0 0 18px;
+    }
+    .lock-screen input {
+      width: 100%; padding: 10px 14px; font-size: 14px;
+      background: var(--bg-input); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      margin-bottom: 12px; font-family: inherit;
+    }
+    .lock-screen input:focus { outline: none; border-color: var(--orange); }
+    .lock-screen button {
+      width: 100%; padding: 10px 14px; font-size: 14px;
+      background: var(--orange); color: #fff; border: none; border-radius: 6px;
+      font-weight: 700; cursor: pointer;
+    }
+    .lock-screen button:hover { background: #E36A0F; }
+    .lock-screen .error {
+      color: var(--red); font-size: 12px; margin-top: 8px;
+      min-height: 16px;
+    }
+
+    /* Main editor */
+    .editor { display: none; }
+    .editor.visible { display: block; }
+
+    .controls {
+      display: flex; gap: 12px; align-items: center;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+    .controls label {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+      text-transform: uppercase; color: var(--text-dim);
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .controls select {
+      padding: 8px 12px; font-size: 13px;
+      background: var(--bg-input); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      font-family: inherit; min-width: 180px;
+      letter-spacing: normal; text-transform: none; font-weight: 500;
+    }
+    .controls select:focus { outline: none; border-color: var(--orange); }
+    .controls .spacer { flex: 1; }
+    .controls button {
+      padding: 10px 22px; font-size: 13px; font-weight: 700;
+      background: var(--green); color: #0F1116; border: none; border-radius: 6px;
+      cursor: pointer; letter-spacing: 0.4px;
+    }
+    .controls button:hover { background: #2CC288; }
+    .controls button:disabled { background: var(--text-dim); cursor: not-allowed; opacity: 0.6; }
+    .controls .save-status {
+      font-size: 11px; color: var(--text-dim);
+      align-self: flex-end; padding-bottom: 4px;
+    }
+    .controls .save-status.success { color: var(--green); }
+    .controls .save-status.error { color: var(--red); }
+
+    /* Budget grid */
+    .grid-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 20px 24px; margin-bottom: 18px;
+    }
+    .grid-card h3 {
+      margin: 0 0 14px; font-size: 12px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim);
+    }
+    .grid-card .branch-info {
+      font-size: 11px; color: var(--text-dim); margin-bottom: 14px;
+    }
+    .grid-card .branch-info strong { color: var(--text); font-weight: 700; }
+
+    table.budget-grid {
+      width: 100%; border-collapse: separate; border-spacing: 0;
+    }
+    table.budget-grid th {
+      text-align: left; padding: 8px 12px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+      text-transform: uppercase; color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+    }
+    table.budget-grid th.tier-true     { color: var(--red); }
+    table.budget-grid th.tier-enhanced { color: var(--green); }
+    table.budget-grid th.tier-true::before     { content: '\1F512  '; }
+    table.budget-grid th.tier-enhanced::before { content: '\2728  '; }
+    table.budget-grid td {
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    table.budget-grid td.cat-label {
+      font-weight: 600; color: var(--text);
+    }
+    table.budget-grid td.cat-label .cat-key {
+      display: block; font-size: 10px; font-weight: 500;
+      color: var(--text-dim); margin-top: 2px;
+    }
+    table.budget-grid td.input-cell {
+      width: 200px;
+    }
+    table.budget-grid input {
+      width: 100%; padding: 7px 10px; font-size: 14px;
+      background: var(--bg-input); color: var(--text);
+      border: 1px solid var(--border); border-radius: 5px;
+      font-family: inherit; text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    table.budget-grid input:focus { outline: none; border-color: var(--orange); }
+    table.budget-grid input.changed { border-color: var(--orange); }
+    table.budget-grid tr.total-row td {
+      padding-top: 14px; border-top: 2px solid var(--border);
+      border-bottom: none;
+    }
+    table.budget-grid tr.total-row .label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+      text-transform: uppercase; color: var(--text);
+    }
+    table.budget-grid tr.total-row .total-value {
+      font-size: 18px; font-weight: 800; text-align: right;
+      font-variant-numeric: tabular-nums; padding-right: 11px;
+    }
+    table.budget-grid tr.total-row .total-value.tier-true     { color: var(--red); }
+    table.budget-grid tr.total-row .total-value.tier-enhanced { color: var(--green); }
+
+    .preview-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px 22px; margin-bottom: 18px;
+    }
+    .preview-card h3 {
+      margin: 0 0 4px; font-size: 11px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim);
+    }
+    .preview-card .sub { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+    .preview-card .dashboard-value {
+      font-size: 26px; font-weight: 800; color: var(--green);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .info-note {
+      background: rgba(167, 139, 250, 0.06); border: 1px solid rgba(167, 139, 250, 0.25);
+      border-radius: 8px; padding: 12px 18px; font-size: 12px;
+      color: var(--text-dim); margin-bottom: 18px;
+    }
+    .info-note strong { color: var(--purple); }
+
+    .changelog {
+      margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border);
+      font-size: 11px; color: var(--text-dim);
+    }
+    .changelog strong { color: var(--text); }
+
+    @media (max-width: 720px) {
+      .container { padding: 14px; }
+      table.budget-grid td.input-cell { width: auto; }
+      .controls { flex-direction: column; align-items: stretch; }
+      .controls .spacer { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Production Dashboard <span class="accent">— Admin</span></h1>
+    <a href="./" class="back">← Back to dashboard</a>
+  </div>
+
+  <!-- Password gate -->
+  <div id="lock" class="lock-screen">
+    <h2>Sign in</h2>
+    <p>Enter the shared admin password to edit monthly budgets.</p>
+    <input id="pwd-input" type="password" placeholder="Password" autofocus>
+    <button id="pwd-btn">Unlock</button>
+    <div id="pwd-error" class="error"></div>
+  </div>
+
+  <!-- Editor (hidden until unlocked) -->
+  <div id="editor" class="editor">
+    <div class="container">
+      <div class="info-note">
+        <strong>TRUE budget</strong> is private — only visible here, never displayed on the dashboard.
+        <strong>ENHANCED budget</strong> (team-facing stretch goal) is what the dashboard shows as "Budget" on the MTD Production card. Edit either column independently.
+      </div>
+
+      <div class="controls">
+        <label>
+          Branch
+          <select id="branch-select"></select>
+        </label>
+        <label>
+          Month
+          <select id="month-select"></select>
+        </label>
+        <div class="spacer"></div>
+        <span id="save-status" class="save-status"></span>
+        <button id="save-btn" disabled>Save</button>
+      </div>
+
+      <div class="preview-card">
+        <h3>Dashboard Preview · ENHANCED Total</h3>
+        <div class="sub">This is what the MTD Production card will show as "Budget" for the selected branch + month.</div>
+        <div id="preview-total" class="dashboard-value">$0</div>
+      </div>
+
+      <div class="grid-card">
+        <h3 id="grid-title">Budget breakdown</h3>
+        <div id="branch-info" class="branch-info"></div>
+        <table class="budget-grid">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th class="tier-true">True (private)</th>
+              <th class="tier-enhanced">Enhanced (dashboard)</th>
+            </tr>
+          </thead>
+          <tbody id="grid-body"></tbody>
+          <tfoot>
+            <tr class="total-row">
+              <td class="label">Total</td>
+              <td class="total-value tier-true" id="total-true">$0</td>
+              <td class="total-value tier-enhanced" id="total-enhanced">$0</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="changelog">
+        Edits save to <strong>budgets.json</strong> in the GitHub repo. Git history preserves every change — to view past edits, see the commits log for that file.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Configuration ──
+    // Apps Script Web App endpoint that handles { action: "saveBudgets", ... }
+    // and PUTs budgets.json to GitHub. Same /exec URL as the existing webhook
+    // handler (the doPost has been extended to branch on body.action).
+    // ⚠️ PASTE YOUR DEPLOYMENT URL HERE (Apps Script → Deploy → Manage deployments → Web App URL):
+    var ADMIN_ENDPOINT = 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE';
+    var BUDGETS_URL    = './budgets.json';
+
+    // Branch list MUST match the PestPac Branch field exactly (and BRANCH_ALL in config.js)
+    var BRANCHES = (typeof BRANCH_ALL !== 'undefined') ? BRANCH_ALL : [
+      'Eastern Mass', 'Connecticut', 'Rhode Island',
+      'USX-Western Mass', 'USX-Upstate NY'
+    ];
+
+    var CATEGORIES = (typeof BUDGET_CATEGORIES !== 'undefined') ? BUDGET_CATEGORIES : [
+      'cg_nwl', 'pest_rodent_initial', 'recurring_residential',
+      'recurring_commercial', 'recurring_total_platinum', 'cgw_generated'
+    ];
+    var CATEGORY_LABELS = (typeof BUDGET_CATEGORY_LABELS !== 'undefined') ? BUDGET_CATEGORY_LABELS : {
+      cg_nwl:                   'CG / NWL',
+      pest_rodent_initial:      'Pest / Rodent Initial',
+      recurring_residential:    'Recurring — Residential',
+      recurring_commercial:     'Recurring — Commercial',
+      recurring_total_platinum: 'Recurring — Total Platinum (1st yr free)',
+      cgw_generated:            'CGW Generated'
+    };
+
+    var state = {
+      password: null,
+      budgets: null,       // full budgets.json object
+      currentBranch: null,
+      currentMonth: null,  // "YYYY-MM"
+      dirty: false
+    };
+
+    // ── DOM helpers ──
+    function $(id) { return document.getElementById(id); }
+    function el(tag, attrs, children) {
+      var e = document.createElement(tag);
+      if (attrs) Object.keys(attrs).forEach(function(k) {
+        if (k === 'class') e.className = attrs[k];
+        else if (k === 'text') e.textContent = attrs[k];
+        else e.setAttribute(k, attrs[k]);
+      });
+      (children || []).forEach(function(c) { e.appendChild(c); });
+      return e;
+    }
+    function fmtMoney(n) {
+      n = Math.round(Number(n) || 0);
+      return '$' + n.toLocaleString();
+    }
+    function parseMoney(s) {
+      if (!s) return 0;
+      // Strip $, commas, whitespace
+      var clean = String(s).replace(/[$,\s]/g, '');
+      var n = Number(clean);
+      return isNaN(n) ? 0 : n;
+    }
+
+    // ── Password gate ──
+    function unlock() {
+      var pwd = $('pwd-input').value.trim();
+      if (!pwd) {
+        $('pwd-error').textContent = 'Enter a password.';
+        return;
+      }
+      state.password = pwd;
+      $('lock').style.display = 'none';
+      $('editor').classList.add('visible');
+      loadBudgets();
+    }
+    $('pwd-btn').addEventListener('click', unlock);
+    $('pwd-input').addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter') unlock();
+    });
+
+    // ── Load budgets.json ──
+    function loadBudgets() {
+      fetch(BUDGETS_URL + '?t=' + Date.now(), { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          state.budgets = data || {};
+          buildSelectors();
+          renderGrid();
+        })
+        .catch(function(err) {
+          console.error('Could not load budgets.json:', err);
+          state.budgets = { _meta: {} };
+          buildSelectors();
+          renderGrid();
+        });
+    }
+
+    function buildSelectors() {
+      // Branch dropdown
+      var branchSel = $('branch-select');
+      branchSel.innerHTML = '';
+      BRANCHES.forEach(function(b) {
+        var o = el('option', { value: b, text: b }, []);
+        branchSel.appendChild(o);
+      });
+      branchSel.addEventListener('change', function() {
+        if (!confirmIfDirty()) { branchSel.value = state.currentBranch; return; }
+        state.currentBranch = branchSel.value;
+        renderGrid();
+      });
+
+      // Month dropdown — current month + next 11 months + previous 6 months
+      var monthSel = $('month-select');
+      monthSel.innerHTML = '';
+      var now = new Date();
+      var months = [];
+      // 6 months back through 11 months forward
+      for (var offset = -6; offset <= 11; offset++) {
+        var d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+        var ym = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+        var label = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+        if (offset === 0) label += ' (current)';
+        months.push({ ym: ym, label: label, offset: offset });
+      }
+      months.forEach(function(m) {
+        var o = el('option', { value: m.ym, text: m.label }, []);
+        if (m.offset === 0) o.selected = true;
+        monthSel.appendChild(o);
+      });
+      monthSel.addEventListener('change', function() {
+        if (!confirmIfDirty()) { monthSel.value = state.currentMonth; return; }
+        state.currentMonth = monthSel.value;
+        renderGrid();
+      });
+
+      state.currentBranch = branchSel.value;
+      state.currentMonth  = monthSel.value;
+    }
+
+    function confirmIfDirty() {
+      if (!state.dirty) return true;
+      return confirm('You have unsaved changes. Discard them?');
+    }
+
+    // ── Grid rendering ──
+    function getCurrentEntry() {
+      var branch = state.currentBranch;
+      var ym     = state.currentMonth;
+      if (!state.budgets[branch]) state.budgets[branch] = {};
+      if (!state.budgets[branch][ym]) {
+        state.budgets[branch][ym] = { 'true': {}, 'enhanced': {} };
+      }
+      var entry = state.budgets[branch][ym];
+      if (!entry['true'])     entry['true']     = {};
+      if (!entry['enhanced']) entry['enhanced'] = {};
+      return entry;
+    }
+
+    function renderGrid() {
+      var entry = getCurrentEntry();
+      var body  = $('grid-body');
+      body.innerHTML = '';
+
+      CATEGORIES.forEach(function(cat) {
+        var tr = el('tr', null, []);
+
+        var labelCell = el('td', { class: 'cat-label' }, [
+          document.createTextNode(CATEGORY_LABELS[cat] || cat)
+        ]);
+        var keyEl = el('span', { class: 'cat-key', text: cat }, []);
+        labelCell.appendChild(keyEl);
+        tr.appendChild(labelCell);
+
+        ['true', 'enhanced'].forEach(function(tier) {
+          var td = el('td', { class: 'input-cell' }, []);
+          var input = el('input', {
+            type: 'text',
+            inputmode: 'numeric',
+            placeholder: '$0',
+            'data-tier': tier,
+            'data-cat': cat,
+            value: (entry[tier][cat] ? fmtMoney(entry[tier][cat]) : '')
+          }, []);
+          input.addEventListener('focus', function() {
+            // strip formatting on focus for easier editing
+            var n = parseMoney(input.value);
+            input.value = n ? String(n) : '';
+          });
+          input.addEventListener('blur', function() {
+            var n = parseMoney(input.value);
+            input.value = n ? fmtMoney(n) : '';
+            entry[tier][cat] = n;
+            recomputeTotals();
+            markDirty();
+          });
+          input.addEventListener('input', function() {
+            // live-update totals as the user types
+            entry[tier][cat] = parseMoney(input.value);
+            recomputeTotals();
+            markDirty();
+          });
+          td.appendChild(input);
+          tr.appendChild(td);
+        });
+
+        body.appendChild(tr);
+      });
+
+      $('grid-title').textContent = state.currentBranch + ' · ' + $('month-select').selectedOptions[0].text;
+      $('branch-info').innerHTML = 'Editing budgets for <strong>' + escapeHtml(state.currentBranch) + '</strong>, month <strong>' + escapeHtml(state.currentMonth) + '</strong>.';
+      state.dirty = false;
+      $('save-btn').disabled = true;
+      $('save-status').textContent = '';
+      $('save-status').className = 'save-status';
+      recomputeTotals();
+    }
+
+    function recomputeTotals() {
+      var entry = getCurrentEntry();
+      var totalTrue = CATEGORIES.reduce(function(s, c) {
+        return s + (Number(entry['true'][c]) || 0);
+      }, 0);
+      var totalEnhanced = CATEGORIES.reduce(function(s, c) {
+        return s + (Number(entry['enhanced'][c]) || 0);
+      }, 0);
+      $('total-true').textContent     = fmtMoney(totalTrue);
+      $('total-enhanced').textContent = fmtMoney(totalEnhanced);
+      $('preview-total').textContent  = fmtMoney(totalEnhanced);
+    }
+
+    function markDirty() {
+      state.dirty = true;
+      $('save-btn').disabled = false;
+      $('save-status').textContent = 'unsaved changes';
+      $('save-status').className = 'save-status';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    // ── Save ──
+    $('save-btn').addEventListener('click', function() {
+      if (!state.dirty) return;
+      var entry = getCurrentEntry();
+      $('save-status').textContent = 'saving…';
+      $('save-status').className = 'save-status';
+      $('save-btn').disabled = true;
+
+      var payload = {
+        action:   'saveBudgets',
+        password: state.password,
+        branch:   state.currentBranch,
+        month:    state.currentMonth,
+        data:     entry
+      };
+
+      // Apps Script web apps require text/plain to avoid CORS preflight
+      fetch(ADMIN_ENDPOINT, {
+        method:  'POST',
+        mode:    'cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body:    JSON.stringify(payload)
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+          if (res && res.ok) {
+            $('save-status').textContent = '✓ saved at ' + new Date().toLocaleTimeString();
+            $('save-status').className = 'save-status success';
+            state.dirty = false;
+          } else if (res && res.error === 'unauthorized') {
+            $('save-status').textContent = '✗ wrong password — refresh to retry';
+            $('save-status').className = 'save-status error';
+            $('save-btn').disabled = true;
+          } else {
+            $('save-status').textContent = '✗ save failed: ' + (res && res.error ? res.error : 'unknown');
+            $('save-status').className = 'save-status error';
+            $('save-btn').disabled = false;
+          }
+        })
+        .catch(function(err) {
+          console.error('save error', err);
+          $('save-status').textContent = '✗ network error — see console';
+          $('save-status').className = 'save-status error';
+          $('save-btn').disabled = false;
+        });
+    });
+
+    // Warn on browser close with unsaved changes
+    window.addEventListener('beforeunload', function(ev) {
+      if (state.dirty) {
+        ev.preventDefault();
+        ev.returnValue = '';
+      }
+    });
+  </script>
+</body>
+</html>
