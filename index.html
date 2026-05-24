@@ -2486,8 +2486,22 @@ function render() {
   document.getElementById('kpiTotal').textContent = '$' + Math.round(total).toLocaleString();
 
   if (def.source === 'invoices') {
-    // Outstanding balance + average aging
-    var balanceSum = sorted.reduce(function(s, r) { return s + (Number(r.Balance) || 0); }, 0);
+    // Outstanding balance + average aging.
+    // Balance from PestPac is the customer's TOTAL A/R, repeated across all
+    // their invoices (Location Details level). Dedup by LocationCode (fallback
+    // BillToCode) before summing to avoid multi-counting. Joe directive
+    // 2026-05-24 — see memory: pestpac_balance_semantics.
+    var seen = {};
+    var balanceSum = 0;
+    sorted.forEach(function(r) {
+      var bal = Number(r.Balance) || 0;
+      if (bal <= 0) return;
+      var key = r.LocationCode || r.BillToCode;
+      if (!key) return;
+      if (seen[key]) return;
+      seen[key] = true;
+      balanceSum += bal;
+    });
     document.getElementById('kpiConfirmed').textContent = '$' + Math.round(balanceSum).toLocaleString();
     document.querySelector('.kpi-card:nth-child(3) .kpi-label').textContent = 'Outstanding';
     var openCount = sorted.filter(function(r) { return (Number(r.Balance) || 0) > 0; }).length;
@@ -2626,8 +2640,21 @@ function renderSummaryView_() {
   // Total $ sums SubTotal so the KPI matches the per-bucket Subtotal columns exactly
   var grandTotal = filtered.reduce(function(s, r) { return s + (Number(r.SubTotal) || 0); }, 0);
   document.getElementById('kpiTotal').textContent = '$' + Math.round(grandTotal).toLocaleString();
-  // Outstanding: total unpaid balance across the filtered invoices (A/R)
-  var balanceSum = filtered.reduce(function(s, r) { return s + (Number(r.Balance) || 0); }, 0);
+  // Outstanding: customer A/R total. Balance from PestPac is customer-level
+  // and repeats across each customer's invoices — dedup by LocationCode
+  // (fallback BillToCode) before summing. Joe 2026-05-24 — see memory:
+  // pestpac_balance_semantics.
+  var seenBal = {};
+  var balanceSum = 0;
+  filtered.forEach(function(r) {
+    var bal = Number(r.Balance) || 0;
+    if (bal <= 0) return;
+    var key = r.LocationCode || r.BillToCode;
+    if (!key) return;
+    if (seenBal[key]) return;
+    seenBal[key] = true;
+    balanceSum += bal;
+  });
   document.getElementById('kpiConfirmed').textContent = '$' + Math.round(balanceSum).toLocaleString();
   document.querySelector('.kpi-card:nth-child(3) .kpi-label').textContent = 'Outstanding';
   document.getElementById('kpiConfirmedRate').textContent = '';
