@@ -2,10 +2,10 @@
 """
 Production Dashboard — Invoice MERGE Loader
 
-Parses a PestPac "Invoice List" report (tab-delimited despite .xls extension)
+Parses a PestPac invoice export (any supported format — see parse_invoices.py)
 and merges it into the EXISTING cache-invoices.json without overwriting
-unrelated records. Use this for one-time backfills when webhook drops have
-created gaps.
+unrelated records. Use this for weekly cache reconciliation OR ad-hoc
+backfills when webhook drops have created gaps.
 
 Key difference vs parse_invoices.py:
   parse_invoices.py  — REPLACES the whole cache (used for the original YTD seed).
@@ -13,9 +13,17 @@ Key difference vs parse_invoices.py:
                        all unrelated existing records are preserved).
 
 USAGE
-  python3 merge_invoices.py <input.xls> [<cache-invoices.json>]
+  python3 merge_invoices.py <input.csv|xls|xlsx> [<cache-invoices.json>]
 
   Default output target: PRODUCTION DASHBOARD/cache-invoices.json
+
+SUPPORTED INPUT FORMATS (auto-detected)
+  - PestPac quick-export tab-delimited .xls
+  - Report Writer CSV (.csv)
+  - Report Writer Excel (.xlsx)
+
+Column naming differences between the two export tools are absorbed by
+parse_invoices.py's FIELD_ALIASES — no manual normalization needed.
 """
 
 import json
@@ -23,54 +31,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Reuse all the parsing logic from the original loader
+# Reuse the parsing logic from the loader
 sys.path.insert(0, str(Path(__file__).parent))
-from parse_invoices import find_header_row, clean, to_number, to_iso_date, FIELD_MAP, NUMERIC_FIELDS, DATE_FIELDS
-import csv
-
-def parse_report(input_path):
-    """Returns a list of curated invoice dicts."""
-    header_row = find_header_row(input_path)
-    print(f"  Header detected at row {header_row + 1}")
-
-    with open(input_path, 'r', encoding='utf-8', errors='replace', newline='') as f:
-        for _ in range(header_row):
-            f.readline()
-        reader = csv.reader(f, delimiter='\t')
-        headers = [h.strip() for h in next(reader)]
-
-        keep = []
-        for i, h in enumerate(headers):
-            if h in FIELD_MAP:
-                keep.append((i, FIELD_MAP[h]))
-        print(f"  Source columns: {len(headers)}  →  curated: {len(keep)}")
-
-        records = []
-        skipped = 0
-        for row in reader:
-            if not row or all(not c.strip() for c in row):
-                continue
-            if len(row) < max(i for i, _ in keep) + 1:
-                skipped += 1
-                continue
-            rec = {}
-            for i, out_key in keep:
-                val = clean(row[i])
-                if out_key in NUMERIC_FIELDS:
-                    n = to_number(val)
-                    if n is None or (n == 0 and out_key not in ('Total',)):
-                        continue
-                    rec[out_key] = n
-                elif out_key in DATE_FIELDS:
-                    d = to_iso_date(val)
-                    if d:
-                        rec[out_key] = d
-                else:
-                    if val:
-                        rec[out_key] = val
-            records.append(rec)
-        print(f"  Parsed: {len(records):,} records  (skipped {skipped} short rows)")
-        return records
+from parse_invoices import parse_report
 
 
 def merge(input_path, cache_path):
@@ -147,21 +110,22 @@ def merge(input_path, cache_path):
             counts_by_date[d] = counts_by_date.get(d, 0) + 1
 
     print(f"\n🔀 Merge result")
-    print(f"  Added new:       {added:,}")
-    print(f"  Updated existing:{updated:,}")
+    print(f"  Added new:        {added:,}")
+    print(f"  Updated existing: {updated:,}")
     if no_key:
         print(f"  Skipped (no InvoiceNumber): {no_key}")
-    print(f"  Final cache:     {len(merged):,} invoices  ({size_mb:.2f} MB)")
-    print(f"\n📊 Final count per date in report window:")
-    for d in target_dates:
-        print(f"  {d}: {counts_by_date.get(d, 0)}")
+    print(f"  Final cache:      {len(merged):,} invoices  ({size_mb:.2f} MB)")
+    if target_dates:
+        print(f"\n📊 Final count per date in report window:")
+        for d in target_dates:
+            print(f"  {d}: {counts_by_date.get(d, 0)}")
     print(f"\n✅ Wrote {cache_path}")
     return len(merged)
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print("Usage: python3 merge_invoices.py <input.xls> [<cache.json>]")
+        print("Usage: python3 merge_invoices.py <input.csv|xls|xlsx> [<cache.json>]")
         sys.exit(1)
     in_path = sys.argv[1]
     out_path = sys.argv[2] if len(sys.argv) >= 3 else \
