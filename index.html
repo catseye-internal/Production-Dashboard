@@ -2600,15 +2600,25 @@ function renderSummaryView_() {
       totalCbCount  += rows[c].cbCount;
       totalSubtotal += rows[c].subtotal;
     });
+    // CBK columns only make sense on lenses that include CB invoices. The
+    // COMPLETED (IN+PR+CM) and REVENUE (IN+PI+CM) lenses both exclude CB, so
+    // CBK Count would always be 0 there. Hide the columns entirely on those
+    // lenses to keep the table from being cluttered with empty cells.
+    // Joe directive 2026-05-24.
+    var showCbk = (STATE.invoiceMode === 'all');
+
     var bodyRows = classes.map(function(c) {
       var pct       = totalSubtotal > 0 ? (rows[c].subtotal / totalSubtotal) * 100 : 0;
       var avgTicket = rows[c].count > 0 ? rows[c].subtotal / rows[c].count : 0;
       var cbPct     = rows[c].count > 0 ? (rows[c].cbCount / rows[c].count) * 100 : 0;
+      var cbkCells  = showCbk
+        ? '<td class="num">' + (rows[c].cbCount > 0 ? rows[c].cbCount.toLocaleString() : '—') + '</td>' +
+          '<td class="num">' + (rows[c].cbCount > 0 ? cbPct.toFixed(1) + '%' : '—') + '</td>'
+        : '';
       return '<tr>' +
         '<td>' + escapeHtml(c) + '</td>' +
         '<td class="num">' + rows[c].count.toLocaleString() + '</td>' +
-        '<td class="num">' + (rows[c].cbCount > 0 ? rows[c].cbCount.toLocaleString() : '—') + '</td>' +
-        '<td class="num">' + (rows[c].cbCount > 0 ? cbPct.toFixed(1) + '%' : '—') + '</td>' +
+        cbkCells +
         '<td class="num">$' + Math.round(avgTicket).toLocaleString() + '</td>' +
         '<td class="num">' + pct.toFixed(1) + '%</td>' +
         '<td class="num">$' + Math.round(rows[c].subtotal).toLocaleString() + '</td>' +
@@ -2616,19 +2626,25 @@ function renderSummaryView_() {
     }).join('');
     var totalAvgTicket = totalCount > 0 ? totalSubtotal / totalCount : 0;
     var totalCbPct     = totalCount > 0 ? (totalCbCount / totalCount) * 100 : 0;
+    var totalCbkCells  = showCbk
+      ? '<td class="num">' + (totalCbCount > 0 ? totalCbCount.toLocaleString() : '—') + '</td>' +
+        '<td class="num">' + (totalCbCount > 0 ? totalCbPct.toFixed(1) + '%' : '—') + '</td>'
+      : '';
     var totalRow = '<tr class="total-row">' +
         '<td>Total</td>' +
         '<td class="num">' + totalCount.toLocaleString() + '</td>' +
-        '<td class="num">' + (totalCbCount > 0 ? totalCbCount.toLocaleString() : '—') + '</td>' +
-        '<td class="num">' + (totalCbCount > 0 ? totalCbPct.toFixed(1) + '%' : '—') + '</td>' +
+        totalCbkCells +
         '<td class="num">$' + Math.round(totalAvgTicket).toLocaleString() + '</td>' +
         '<td class="num">100.0%</td>' +
         '<td class="num">$' + Math.round(totalSubtotal).toLocaleString() + '</td>' +
       '</tr>';
+    var cbkHeaderCells = showCbk
+      ? '<th class="num">CBK Count</th><th class="num">CBK %</th>'
+      : '';
     return '<div class="' + blockCls + '">' +
       '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
       '<div class="group-block-meta">' + totalCount.toLocaleString() + ' inv · $' + Math.round(totalSubtotal).toLocaleString() + '</div></div>' +
-      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Total Count</th><th class="num">CBK Count</th><th class="num">CBK %</th><th class="num">Avg Ticket</th><th class="num">% of Total</th><th class="num">Subtotal</th></tr></thead>' +
+      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Total Count</th>' + cbkHeaderCells + '<th class="num">Avg Ticket</th><th class="num">% of Total</th><th class="num">Subtotal</th></tr></thead>' +
       '<tbody>' + bodyRows + totalRow + '</tbody></table></div>';
   }).join('');
 
