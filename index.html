@@ -662,6 +662,61 @@
     .cb-bars.cb-dollars .cb-row { grid-template-columns: 70px 1fr 90px; }
   }
 
+  /* Rev/Tech split sub-chart — Avg $/working day · Pest vs CG/NWL */
+  .rpt-split-divider {
+    height: 1px; background: rgba(255,255,255,0.06);
+    margin: 14px 0 10px;
+  }
+  .rpt-split-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 8px; gap: 8px; flex-wrap: wrap;
+  }
+  .rpt-split-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
+    color: var(--text-dim);
+  }
+  .rpt-split-sub {
+    font-size: 10px; color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .rpt-split-list { display: flex; flex-direction: column; gap: 8px; }
+  .rpt-split-branch {
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .rpt-split-branch-label {
+    font-size: 10px; font-weight: 700; color: var(--text);
+    letter-spacing: 0.4px; text-transform: uppercase; margin-bottom: 1px;
+  }
+  .rpt-split-row {
+    display: grid; grid-template-columns: 110px 1fr 90px;
+    align-items: center; gap: 8px;
+  }
+  .rpt-split-key {
+    font-size: 10px; font-weight: 600; color: var(--text);
+    letter-spacing: 0.3px;
+  }
+  .rpt-split-key .rpt-split-n {
+    color: var(--text-dim); font-weight: 500;
+  }
+  .rpt-split-track {
+    height: 10px; background: rgba(255,255,255,0.04);
+    border-radius: 3px; overflow: hidden;
+  }
+  .rpt-split-fill {
+    height: 100%; border-radius: 3px;
+    transition: width 0.35s ease;
+  }
+  .rpt-split-val {
+    font-size: 11px; font-weight: 700;
+    font-variant-numeric: tabular-nums; text-align: right;
+  }
+  @media (max-width: 640px) {
+    .rpt-split-row { grid-template-columns: 90px 1fr 76px; gap: 6px; }
+    .rpt-split-key { font-size: 9px; }
+    .rpt-split-val { font-size: 10px; }
+    .rpt-split-track { height: 8px; }
+  }
+
   /* Master tech cards (Catseye + USX) — span the full width of the grid.
      Allows horizontal scrolling if the column count exceeds available width. */
   .group-block.full-width { grid-column: 1 / -1; width: auto; margin: 0; overflow-x: auto; }
@@ -2932,8 +2987,8 @@ function renderTechView_() {
   var cardRevPerTech =
     '<div class="chart-card">' +
       '<h3 class="chart-title">REVENUE PER TECH BY BRANCH</h3>' +
-      '<div class="chart-meta">MTD completed revenue ÷ active techs per branch</div>' +
-      renderRevPerTechHbars_(byBranch) +
+      '<div class="chart-meta">MTD completed revenue ÷ active techs · plus avg $/working day per tech split by Pest vs CG/NWL</div>' +
+      renderRevPerTechHbars_(byBranch, workingElapsedMtd) +
     '</div>';
   // Single-column stack (Joe directive 2026-05-23). The MTD production banner
   // card has been removed entirely. Order: Forecast Totals → Completed vs
@@ -4539,7 +4594,8 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
 }
 
 // Second chart row — Callbacks by Branch (mini-donuts) + Revenue per Tech by Branch
-function renderTechChartsRow2_(callbacksByBranchService, byBranch) {
+// DEAD CODE — replaced by chartsGrid stack above. Kept for reference only.
+function renderTechChartsRow2_(callbacksByBranchService, byBranch, workingDays) {
   return '<div class="tech-charts-row">' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">CALLBACKS BY BRANCH</h3>' +
@@ -4548,8 +4604,8 @@ function renderTechChartsRow2_(callbacksByBranchService, byBranch) {
     '</div>' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">REVENUE PER TECH BY BRANCH</h3>' +
-      '<div class="chart-meta">MTD completed revenue ÷ active techs per branch</div>' +
-      renderRevPerTechHbars_(byBranch) +
+      '<div class="chart-meta">MTD completed revenue ÷ active techs · plus avg $/working day per tech split by Pest vs CG/NWL</div>' +
+      renderRevPerTechHbars_(byBranch, workingDays) +
     '</div>' +
   '</div>';
 }
@@ -4672,32 +4728,109 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBra
 // Office-credited revenue is filtered out upstream during the invoice +
 // service-order loops (routed to officeByCompany instead of techRows), so
 // byBranch contains only real field techs at this point. No extra filter needed.
-function renderRevPerTechHbars_(byBranch) {
+//
+// Second sub-chart (Joe directive 2026-05-23): per-branch avg $/working day
+// per tech, split by role (Pest vs CG/NWL). Each tech's role is the winner of
+// roleVotes; their revenue lands entirely in one bucket (no per-record split).
+// Denominator = (branch role-tech count) × workingDays.
+function renderRevPerTechHbars_(byBranch, workingDays) {
+  workingDays = Math.max(1, Number(workingDays) || 1);
+
   var rows = BRANCH_ALL.map(function(b) {
     var techs = (byBranch[b] || []);
-    var totalRev = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
+    var pestTechs  = techs.filter(function(t) { return t.role === 'pest';  });
+    var cgnwlTechs = techs.filter(function(t) { return t.role === 'cgnwl'; });
+    var pestRev    = pestTechs.reduce(function(s, t)  { return s + (t.data.completed || 0); }, 0);
+    var cgnwlRev   = cgnwlTechs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
+    var totalRev   = pestRev + cgnwlRev;
     var revPerTech = techs.length > 0 ? totalRev / techs.length : 0;
+    var pestPerDay  = (pestTechs.length  > 0) ? (pestRev  / pestTechs.length  / workingDays) : 0;
+    var cgnwlPerDay = (cgnwlTechs.length > 0) ? (cgnwlRev / cgnwlTechs.length / workingDays) : 0;
     return {
       branch: b,
       label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
-      revPerTech: revPerTech,
-      color: isUsxBranch(b) ? '#60A5FA' : '#F47B20'
+      color: isUsxBranch(b) ? '#60A5FA' : '#F47B20',
+      totalTechs: techs.length,
+      pestTechs:  pestTechs.length,
+      cgnwlTechs: cgnwlTechs.length,
+      revPerTech:  revPerTech,
+      pestPerDay:  pestPerDay,
+      cgnwlPerDay: cgnwlPerDay
     };
   });
-  rows.sort(function(a, b) { return b.revPerTech - a.revPerTech; });
-  var max = Math.max.apply(null, rows.map(function(r) { return r.revPerTech; })) || 1;
-  var anyData = rows.some(function(r) { return r.revPerTech > 0; });
-  if (!anyData) return '<div class="cb-empty">No completed revenue MTD yet</div>';
-  return '<div class="cb-bars cb-dollars">' + rows.map(function(r) {
-    var pct = (r.revPerTech / max) * 100;
-    return '<div class="cb-row">' +
-      '<div class="cb-label">' + escapeHtml(r.label) + '</div>' +
-      '<div class="cb-bar-track">' +
-        (r.revPerTech > 0 ? '<div class="cb-bar-fill" style="width:' + pct.toFixed(1) + '%;background:' + r.color + '"></div>' : '') +
+
+  // ── Top chart: MTD $/tech (existing behavior) ──
+  var topRows = rows.slice().sort(function(a, b) { return b.revPerTech - a.revPerTech; });
+  var maxTop = Math.max.apply(null, topRows.map(function(r) { return r.revPerTech; })) || 1;
+  var anyTop = topRows.some(function(r) { return r.revPerTech > 0; });
+
+  var topHtml = anyTop
+    ? '<div class="cb-bars cb-dollars">' + topRows.map(function(r) {
+        var pct = (r.revPerTech / maxTop) * 100;
+        return '<div class="cb-row">' +
+          '<div class="cb-label">' + escapeHtml(r.label) + '</div>' +
+          '<div class="cb-bar-track">' +
+            (r.revPerTech > 0 ? '<div class="cb-bar-fill" style="width:' + pct.toFixed(1) + '%;background:' + r.color + '"></div>' : '') +
+          '</div>' +
+          '<div class="cb-value">$' + Math.round(r.revPerTech).toLocaleString() + '</div>' +
+        '</div>';
+      }).join('') + '</div>'
+    : '<div class="cb-empty">No completed revenue MTD yet</div>';
+
+  // ── Sub-chart: Avg $/working day · Pest vs CG/NWL ──
+  // Sort branches to match the top chart's order so the eye can follow.
+  var orderMap = {};
+  topRows.forEach(function(r, i) { orderMap[r.branch] = i; });
+  var splitRows = rows.slice().sort(function(a, b) {
+    return (orderMap[a.branch] || 0) - (orderMap[b.branch] || 0);
+  });
+
+  var maxDay = 0;
+  splitRows.forEach(function(r) {
+    if (r.pestPerDay  > maxDay) maxDay = r.pestPerDay;
+    if (r.cgnwlPerDay > maxDay) maxDay = r.cgnwlPerDay;
+  });
+  if (maxDay <= 0) maxDay = 1;
+  var anyDay = splitRows.some(function(r) { return r.pestPerDay > 0 || r.cgnwlPerDay > 0; });
+
+  var splitHtml = '';
+  if (anyDay) {
+    splitHtml =
+      '<div class="rpt-split-divider"></div>' +
+      '<div class="rpt-split-header">' +
+        '<span class="rpt-split-title">AVG $ / WORKING DAY · PER TECH</span>' +
+        '<span class="rpt-split-sub">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD</span>' +
       '</div>' +
-      '<div class="cb-value">$' + Math.round(r.revPerTech).toLocaleString() + '</div>' +
-    '</div>';
-  }).join('') + '</div>';
+      '<div class="rpt-split-list">' + splitRows.map(function(r) {
+        if (r.pestTechs === 0 && r.cgnwlTechs === 0) return '';
+        var pPct = (r.pestPerDay  / maxDay) * 100;
+        var cPct = (r.cgnwlPerDay / maxDay) * 100;
+        var pestLine = r.pestTechs > 0
+          ? '<div class="rpt-split-row">' +
+              '<div class="rpt-split-key">Pest <span class="rpt-split-n">· ' + r.pestTechs + ' tech' + (r.pestTechs === 1 ? '' : 's') + '</span></div>' +
+              '<div class="rpt-split-track">' +
+                (r.pestPerDay > 0 ? '<div class="rpt-split-fill" style="width:' + pPct.toFixed(1) + '%;background:#F47B20"></div>' : '') +
+              '</div>' +
+              '<div class="rpt-split-val">$' + Math.round(r.pestPerDay).toLocaleString() + '</div>' +
+            '</div>'
+          : '';
+        var cgnwlLine = r.cgnwlTechs > 0
+          ? '<div class="rpt-split-row">' +
+              '<div class="rpt-split-key">CG/NWL <span class="rpt-split-n">· ' + r.cgnwlTechs + ' tech' + (r.cgnwlTechs === 1 ? '' : 's') + '</span></div>' +
+              '<div class="rpt-split-track">' +
+                (r.cgnwlPerDay > 0 ? '<div class="rpt-split-fill" style="width:' + cPct.toFixed(1) + '%;background:#60A5FA"></div>' : '') +
+              '</div>' +
+              '<div class="rpt-split-val">$' + Math.round(r.cgnwlPerDay).toLocaleString() + '</div>' +
+            '</div>'
+          : '';
+        return '<div class="rpt-split-branch">' +
+          '<div class="rpt-split-branch-label">' + escapeHtml(r.label) + '</div>' +
+          pestLine + cgnwlLine +
+        '</div>';
+      }).join('') + '</div>';
+  }
+
+  return topHtml + splitHtml;
 }
 
 // 4 KPI cards: TODAY / TOMORROW / +2 / +3. Each shows date label, big dollar
