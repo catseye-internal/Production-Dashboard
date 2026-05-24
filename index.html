@@ -2469,23 +2469,27 @@ function renderSummaryView_() {
     });
     var bodyRows = classes.map(function(c) {
       var pct = totalSubtotal > 0 ? (rows[c].subtotal / totalSubtotal) * 100 : 0;
+      var avgTicket = rows[c].count > 0 ? rows[c].subtotal / rows[c].count : 0;
       return '<tr>' +
         '<td>' + escapeHtml(c) + '</td>' +
         '<td class="num">' + rows[c].count.toLocaleString() + '</td>' +
-        '<td class="num">$' + Math.round(rows[c].subtotal).toLocaleString() + '</td>' +
         '<td class="num">' + pct.toFixed(1) + '%</td>' +
+        '<td class="num">$' + Math.round(avgTicket).toLocaleString() + '</td>' +
+        '<td class="num">$' + Math.round(rows[c].subtotal).toLocaleString() + '</td>' +
       '</tr>';
     }).join('');
+    var totalAvgTicket = totalCount > 0 ? totalSubtotal / totalCount : 0;
     var totalRow = '<tr class="total-row">' +
         '<td>Total</td>' +
         '<td class="num">' + totalCount.toLocaleString() + '</td>' +
-        '<td class="num">$' + Math.round(totalSubtotal).toLocaleString() + '</td>' +
         '<td class="num">100.0%</td>' +
+        '<td class="num">$' + Math.round(totalAvgTicket).toLocaleString() + '</td>' +
+        '<td class="num">$' + Math.round(totalSubtotal).toLocaleString() + '</td>' +
       '</tr>';
     return '<div class="' + blockCls + '">' +
       '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
       '<div class="group-block-meta">' + totalCount.toLocaleString() + ' inv · $' + Math.round(totalSubtotal).toLocaleString() + '</div></div>' +
-      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Count</th><th class="num">Subtotal</th><th class="num">% of Total</th></tr></thead>' +
+      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Count</th><th class="num">% of Total</th><th class="num">Avg Ticket</th><th class="num">Subtotal</th></tr></thead>' +
       '<tbody>' + bodyRows + totalRow + '</tbody></table></div>';
   }).join('');
 
