@@ -587,6 +587,28 @@
   }
   .chart-meta { font-size: 10px; color: var(--text-dim); margin: -2px 0 8px; }
 
+  /* Title row for chart-cards that need the title and a meta strip on the
+     same line. The h3 becomes inline so the strip can sit to its right.
+     Joe directive 2026-05-24 — applied to Completed vs Budget card. */
+  .chart-card-titlerow {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin: 0 0 6px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .chart-card-titlerow .chart-title {
+    margin: 0; padding: 0; border-bottom: none;
+    flex-shrink: 0;
+  }
+  .chart-card-titlerow .mtd-prod-header-strip {
+    flex: 1; min-width: 0;
+    margin: 0; padding: 0; border-bottom: none;
+    justify-content: flex-end;
+  }
+  @media (max-width: 720px) {
+    .chart-card-titlerow .mtd-prod-header-strip { justify-content: flex-start; }
+  }
+
   /* ── Forecast Totals — 4 KPI cards (taller, bigger numbers) ── */
   .fc-kpi-grid {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
@@ -3105,11 +3127,15 @@ function renderTechView_() {
       '<div class="chart-meta">MTD callbacks broken down by service per branch · rate = CB ÷ total MTD orders</div>' +
       renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBranch) +
     '</div>';
+  var mtdRender = renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory);
   var cardMtdProduction =
     '<div class="chart-card">' +
-      '<h3 class="chart-title">Completed vs Budget</h3>' +
+      '<div class="chart-card-titlerow">' +
+        '<h3 class="chart-title">Completed vs Budget</h3>' +
+        mtdRender.headerStrip +
+      '</div>' +
       '<div class="chart-meta">Billable revenue vs monthly budget · excludes PR courtesy-platinum visits (PG CG, PG CG PRE) · custom date range supported · click a row to drill in</div>' +
-      renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) +
+      mtdRender.body +
     '</div>';
   var cardRevPerTech =
     '<div class="chart-card">' +
@@ -4713,20 +4739,18 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       (isCustom ? '<button class="cvb-daterange-btn cvb-daterange-reset" id="cvbReset">Reset to MTD</button>' : '') +
     '</div>';
 
-  return '<div class="mtd-prod-card">' +
-    headerStrip +
+  // Return body + headerStrip separately so the caller can hoist the strip
+  // up into the chart-card's title row (Joe directive 2026-05-24).
+  var body = '<div class="mtd-prod-card">' +
     dailyHeader +
     datePicker +
-    // Combined Total at the top; Catseye + USX stacked vertically UNDER it
-    // with a left rail to show they roll up into Combined. Each company
-    // remains clickable for the Company → Branch → Category drill-down.
-    // Joe directive 2026-05-24.
     combinedBlock +
     '<div class="mtd-prod-companies-stack">' +
       catseyeBlock +
       usxBlock +
     '</div>' +
   '</div>';
+  return { headerStrip: headerStrip, body: body };
 }
 
 // Second chart row — Callbacks by Branch (mini-donuts) + Revenue per Tech by Branch
