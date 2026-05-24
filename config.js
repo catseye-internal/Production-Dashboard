@@ -358,14 +358,28 @@ function isNonTechCode(code) {
 // down because they only fill in part-time). NOT in NON_TECH_CODES — their
 // revenue still attributes normally on the Tech master cards. Only excluded
 // from the Pest Team Efficiency card's per-tech averages.
-// PestPac's `JobTitle` field is empty for these records, so we maintain this
-// list manually until WorkWave populates titles.
+//
+// PRIMARY mechanism is dynamic: index.html's getDynamicManagerSet_() scans
+// STATE.employeesMap and treats any ACTIVE employee whose JobTitle contains
+// "manager" / "supervisor" / "director" as excluded. Update titles in PestPac
+// and the dashboard auto-picks them up on the next employees cache refresh
+// (daily 2-3am via Apps Script).
+//
+// This hardcoded list is the SAFETY FALLBACK for when JobTitle isn't yet
+// populated in PestPac. Once PestPac has the title set on every current
+// manager, this list can shrink to empty.
+//
+// Sara D'Angelo (SPD2) and Matt Arredondo (MAA) are NOT in this list —
+// they're already in NON_TECH_CODES which routes their revenue to the
+// Office bucket entirely. Don't duplicate them here.
 const MANAGER_CODES = new Set([
-  'JPC',  // John Crowley (Connecticut)
-  'IXR',  // Idalys Ramos (Connecticut)
-  'CCR',  // Colby Robinson (Eastern Mass)
-  'CLN',  // Corey Nessing (Eastern Mass)
-  'TXT',  // Tara Tudino (Eastern Mass)
+  'JPC',   // John Crowley — Branch Manager
+  'IXR',   // Idalys Ramos — Service Manager
+  'TXT',   // Tara Tudino — Branch Manager
+  'CLN',   // Corey Nessing — Service Manager
+  'CCR',   // Colby Robinson — Service Manager
+  'LAM',   // Lisa Mextorf — BDC Manager
+  'LAM2',  // Lisa Mextorf (duplicate code in PestPac) — BDC Manager
 ]);
 
 function isManagerCode(code) {

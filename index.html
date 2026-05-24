@@ -1775,6 +1775,10 @@ function getDynamicManagerSet_() {
   Object.keys(emap).forEach(function(code) {
     var emp = emap[code];
     if (!emp) return;
+    // Skip terminated employees — PestPac preserves their JobTitle when they
+    // leave, but they shouldn't influence current pest team averages.
+    // Joe directive 2026-05-24.
+    if (emp.Active !== true) return;
     var title = String(emp.JobTitle || '').toLowerCase();
     if (!title) return;
     for (var i = 0; i < MANAGER_TITLE_KEYWORDS.length; i++) {
