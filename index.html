@@ -797,6 +797,7 @@
   .mini-donut {
     display: flex; flex-direction: column; align-items: center;
     padding: 10px 6px; gap: 6px; min-width: 0;
+    height: 100%;
   }
   .mini-donut-label {
     font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
@@ -1110,13 +1111,27 @@
   .mini-donut-empty {
     font-size: 9px; color: var(--text-dim); padding: 4px 0;
   }
-  /* CB rate line below each donut — count / total · % (Joe 2026-05-23) */
+  /* CB rate footer — pinned to bottom of each donut card. Big % stands alone,
+     small "count / total MTD" caption sits underneath. (Joe 2026-05-23) */
   .mini-donut-rate {
-    font-size: 9px; color: var(--text-dim); padding-top: 6px;
-    margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.04);
+    width: 100%;
+    margin-top: auto; padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
     font-variant-numeric: tabular-nums; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
   }
-  .mini-donut-rate strong { color: var(--text); font-weight: 700; }
+  .mini-donut-rate-pct {
+    font-size: 22px; font-weight: 800; letter-spacing: 0.2px;
+    color: var(--text); line-height: 1;
+  }
+  .mini-donut-rate-pct.rate-low  { color: var(--green); }
+  .mini-donut-rate-pct.rate-med  { color: #FBBF24; }
+  .mini-donut-rate-pct.rate-high { color: #F87171; }
+  .mini-donut-rate-sub {
+    font-size: 10px; color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .mini-donut-rate-sub strong { color: var(--text); font-weight: 700; }
 
   /* ── Footer status ── */
   .footer-status {
@@ -4693,8 +4708,14 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBra
     var total = branchTotals[b] || 0;
     var totalOrders = ordersByBranch[b] || 0;
     var ratePct = totalOrders > 0 ? (total / totalOrders) * 100 : 0;
+    // Rate color buckets — green ≤2%, yellow 2-4%, red >4% (callback rate;
+    // lower is better).
+    var rateCls = ratePct <= 2 ? 'rate-low' : (ratePct <= 4 ? 'rate-med' : 'rate-high');
     var rateLine = totalOrders > 0
-      ? '<div class="mini-donut-rate">' + total.toLocaleString() + ' / ' + totalOrders.toLocaleString() + ' MTD · <strong>' + ratePct.toFixed(1) + '%</strong></div>'
+      ? '<div class="mini-donut-rate">' +
+          '<div class="mini-donut-rate-pct ' + rateCls + '">' + ratePct.toFixed(1) + '%</div>' +
+          '<div class="mini-donut-rate-sub"><strong>' + total.toLocaleString() + '</strong> / ' + totalOrders.toLocaleString() + ' MTD</div>' +
+        '</div>'
       : '';
     if (total === 0) {
       return '<div class="mini-donut">' +
