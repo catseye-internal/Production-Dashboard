@@ -704,6 +704,10 @@
   }
   .rpt-card.catseye .rpt-card-hero-val { color: #F47B20; }
   .rpt-card.usx     .rpt-card-hero-val { color: #60A5FA; }
+  /* Pest Efficiency card — efficiency-tier coloring on $/drive-hour headline */
+  .rpt-card .pte-hero.eff-good { color: #34D399 !important; }
+  .rpt-card .pte-hero.eff-mid  { color: #FBBF24 !important; }
+  .rpt-card .pte-hero.eff-low  { color: #F87171 !important; }
   .rpt-card-hero-sub {
     font-size: 10px; color: var(--text-dim);
     letter-spacing: 0.3px;
@@ -3046,15 +3050,23 @@ function renderTechView_() {
       '<div class="chart-meta">One card per branch · big number = MTD $/tech · sub-bars = avg $/working day per tech for Pest and CG/NWL</div>' +
       renderRevPerTechHbars_(byBranch, workingElapsedMtd) +
     '</div>';
-  // Single-column stack (Joe directive 2026-05-23). The MTD production banner
-  // card has been removed entirely. Order: Forecast Totals → Completed vs
-  // Budget → Revenue per Tech by Branch → Callbacks by Branch. Master tech
-  // cards (Catseye Techs, USX Pest Techs) follow below outside this grid.
+  // Pest Team Efficiency — routing density signal (Joe directive 2026-05-23)
+  // $/drive-hour = daily production / daily drive time. Low value = pest team
+  // is spending its day in the van; high value = tight routes producing revenue.
+  var cardPestEfficiency =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">PEST TEAM EFFICIENCY · BY BRANCH</h3>' +
+      '<div class="chart-meta">Pest techs only · big number = production $ per drive hour · sub-bars = daily drive time and daily production</div>' +
+      renderPestEfficiencyCards_(byBranch, workingElapsedMtd, computeDriveMiles_) +
+    '</div>';
+  // Single-column stack. Order: Forecast Totals → Completed vs Budget →
+  // Revenue per Tech → Pest Team Efficiency → Callbacks by Branch.
   var chartsGrid =
     '<div class="tech-charts-stack">' +
       cardForecastTotals +
       cardMtdProduction +
       cardRevPerTech +
+      cardPestEfficiency +
       cardCallbacksByBranch +
     '</div>';
 
@@ -4903,6 +4915,135 @@ function renderRevPerTechHbars_(byBranch, workingDays) {
     '<div class="rpt-meta-row">' +
       '<span class="rpt-card-section-label">CATSEYE LEFT · USX RIGHT · $/TECH WITHIN EACH</span>' +
       '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · bars share scale across cards</span>' +
+    '</div>';
+
+  return metaRow + '<div class="rpt-cards">' + cardsHtml + '</div>';
+}
+
+// Pest Team Efficiency — per-branch mini-cards (Joe directive 2026-05-23)
+// Headline metric: $/drive hour  =  daily pest production  ÷  daily pest drive time
+// Sub-metrics:     daily drive time (h:mm)  +  daily production ($)
+// Includes ALL branches (Catseye left, USX right) — Pest techs only (role = 'pest').
+// `computeDriveFn` is the parent's computeDriveMiles_(points) so we don't have
+// to duplicate the haversine logic. Drive time = miles / 30 mph (same
+// convention used by the Tech master cards).
+function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
+  workingDays = Math.max(1, Number(workingDays) || 1);
+
+  var rows = BRANCH_ALL.map(function(b) {
+    var techs = (byBranch[b] || []).filter(function(t) { return t.role === 'pest'; });
+    var pestCount = techs.length;
+    var prodSum = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
+    var milesSum = 0;
+    techs.forEach(function(t) {
+      milesSum += computeDriveFn(t.data.mtdPoints || []);
+    });
+    var hoursSum = milesSum / 30; // 30 mph effective
+
+    var dailyProd  = pestCount > 0 ? prodSum  / pestCount / workingDays : 0;
+    var dailyHours = pestCount > 0 ? hoursSum / pestCount / workingDays : 0;
+    var dollarsPerDriveHr = (dailyHours > 0) ? dailyProd / dailyHours : 0;
+
+    return {
+      branch: b,
+      label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
+      isUsx: isUsxBranch(b),
+      pestCount: pestCount,
+      dailyProd: dailyProd,
+      dailyHours: dailyHours,
+      dollarsPerDriveHr: dollarsPerDriveHr
+    };
+  });
+
+  var anyData = rows.some(function(r) { return r.pestCount > 0 && r.dailyHours > 0; });
+  if (!anyData) return '<div class="cb-empty">No pest tech drive data MTD yet</div>';
+
+  // Group Catseye first, USX second; within each group sort by $/drive-hour desc
+  rows.sort(function(a, b) {
+    if (a.isUsx !== b.isUsx) return a.isUsx ? 1 : -1;
+    return b.dollarsPerDriveHr - a.dollarsPerDriveHr;
+  });
+
+  // Shared scales for the sub-bars
+  var maxHours = 0, maxProd = 0;
+  rows.forEach(function(r) {
+    if (r.dailyHours > maxHours) maxHours = r.dailyHours;
+    if (r.dailyProd  > maxProd)  maxProd  = r.dailyProd;
+  });
+  if (maxHours <= 0) maxHours = 1;
+  if (maxProd  <= 0) maxProd  = 1;
+
+  function fmtHrsMin_(hrs) {
+    var totalMin = Math.round(hrs * 60);
+    var h = Math.floor(totalMin / 60);
+    var m = totalMin % 60;
+    if (h === 0) return m + 'm';
+    return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
+  }
+
+  // Color tiers for $/drive-hour — based on Joe's pest-team scoring proxy.
+  // Pest tech target = $1,700/day. Active driving day ≈ 6 hours → ~$280/hr is healthy.
+  // < $200/hr = red (routes too sparse), $200-300 = yellow, > $300 = green.
+  function effTierCls_(v) {
+    if (v >= 300) return 'eff-good';
+    if (v >= 200) return 'eff-mid';
+    return 'eff-low';
+  }
+
+  var cardsHtml = rows.map(function(r) {
+    var brandCls = r.isUsx ? 'usx' : 'catseye';
+
+    if (r.pestCount === 0) {
+      return '<div class="rpt-card ' + brandCls + '">' +
+        '<div class="rpt-card-header">' +
+          '<div class="rpt-card-branch">' + escapeHtml(r.label) + '</div>' +
+          '<div class="rpt-card-techs">0 pest techs</div>' +
+        '</div>' +
+        '<div class="rpt-card-hero"><div class="rpt-card-hero-val" style="color:var(--text-dim);font-size:18px">—</div>' +
+        '<div class="rpt-card-hero-sub">no pest team</div></div>' +
+      '</div>';
+    }
+
+    var hPct = (r.dailyHours / maxHours) * 100;
+    var pPct = (r.dailyProd  / maxProd)  * 100;
+    var heroCls = effTierCls_(r.dollarsPerDriveHr);
+
+    return '<div class="rpt-card ' + brandCls + '">' +
+      '<div class="rpt-card-header">' +
+        '<div class="rpt-card-branch">' + escapeHtml(r.label) + '</div>' +
+        '<div class="rpt-card-techs">' + r.pestCount + ' pest tech' + (r.pestCount === 1 ? '' : 's') + '</div>' +
+      '</div>' +
+      '<div class="rpt-card-hero">' +
+        '<div class="rpt-card-hero-val pte-hero ' + heroCls + '">$' + Math.round(r.dollarsPerDriveHr).toLocaleString() + '</div>' +
+        '<div class="rpt-card-hero-sub">/drive hour</div>' +
+      '</div>' +
+      '<div class="rpt-card-divider"></div>' +
+      '<div class="rpt-card-section-label">DAILY AVERAGES · PEST TEAM</div>' +
+      '<div class="rpt-card-metric">' +
+        '<div class="rpt-card-metric-row">' +
+          '<div class="rpt-card-metric-key">Drive time</div>' +
+          '<div class="rpt-card-metric-val">' + fmtHrsMin_(r.dailyHours) + '</div>' +
+        '</div>' +
+        '<div class="rpt-card-metric-track">' +
+          '<div class="rpt-card-metric-fill" style="width:' + hPct.toFixed(1) + '%;background:#A78BFA"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="rpt-card-metric">' +
+        '<div class="rpt-card-metric-row">' +
+          '<div class="rpt-card-metric-key">Production</div>' +
+          '<div class="rpt-card-metric-val">$' + Math.round(r.dailyProd).toLocaleString() + '</div>' +
+        '</div>' +
+        '<div class="rpt-card-metric-track">' +
+          '<div class="rpt-card-metric-fill" style="width:' + pPct.toFixed(1) + '%;background:#34D399"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  var metaRow =
+    '<div class="rpt-meta-row">' +
+      '<span class="rpt-card-section-label">CATSEYE LEFT · USX RIGHT · $/DRIVE-HR WITHIN EACH</span>' +
+      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · 30 mph avg · ≥$300/hr good · &lt;$200/hr red</span>' +
     '</div>';
 
   return metaRow + '<div class="rpt-cards">' + cardsHtml + '</div>';
