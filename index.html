@@ -897,9 +897,10 @@
   .cvb-daily-row {
     display: flex; align-items: baseline; gap: 6px; padding: 1px 0;
   }
-  .cvb-daily-key { font-size: 10px; color: var(--text-dim); flex: 1; }
-  .cvb-daily-val { font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-  .cvb-daily-diff { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+  /* Value first (left), label pinned right via margin-left: auto. Joe 2026-05-24. */
+  .cvb-daily-val { font-size: 14px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .cvb-daily-diff { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+  .cvb-daily-key { font-size: 10px; color: var(--text-dim); margin-left: auto; }
   .cvb-daily-diff.pace-ahead  { color: #34D399; background: rgba(52, 211, 153, 0.10); }
   .cvb-daily-diff.pace-warn   { color: #FBBF24; background: rgba(251, 191, 36, 0.10); }
   .cvb-daily-diff.pace-behind { color: #F87171; background: rgba(248, 113, 113, 0.10); }
@@ -1090,7 +1091,7 @@
   }
   .mini-donut-svg { width: 170px; height: 170px; overflow: visible; }
   .mini-donut-center {
-    font-size: 22px; font-weight: 700; fill: #E5E7EB;
+    font-size: 15px; font-weight: 700; fill: #E5E7EB;
     font-variant-numeric: tabular-nums;
     transition: font-size 0.12s;
   }
@@ -4708,13 +4709,13 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     return '<div class="cvb-daily-tile ' + brandClass + '">' +
       '<div class="cvb-daily-label">' + escapeHtml(label) + '</div>' +
       '<div class="cvb-daily-row">' +
-        '<span class="cvb-daily-key">Needed/day</span>' +
         '<span class="cvb-daily-val">' + fmtK(needed) + '</span>' +
+        '<span class="cvb-daily-key">Needed/day</span>' +
       '</div>' +
       '<div class="cvb-daily-row">' +
-        '<span class="cvb-daily-key">Actual/day</span>' +
         '<span class="cvb-daily-val">' + fmtK(actual) + '</span>' +
         '<span class="cvb-daily-diff ' + diffCls + '">' + diffLabel + '</span>' +
+        '<span class="cvb-daily-key">Actual/day</span>' +
       '</div>' +
     '</div>';
   }
