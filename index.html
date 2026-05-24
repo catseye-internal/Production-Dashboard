@@ -3056,7 +3056,7 @@ function renderTechView_() {
   var cardPestEfficiency =
     '<div class="chart-card">' +
       '<h3 class="chart-title">PEST TEAM EFFICIENCY · BY BRANCH</h3>' +
-      '<div class="chart-meta">Pest techs only · big number = production $ per drive hour · sub-bars = daily drive time and daily production</div>' +
+      '<div class="chart-meta">Pest techs only · big number = $ per drive hour · sub-bars decompose daily output into Stops/day · $/stop · Drive time · Production</div>' +
       renderPestEfficiencyCards_(byBranch, workingElapsedMtd, computeDriveMiles_) +
     '</div>';
   // Single-column stack. Order: Forecast Totals → Completed vs Budget →
@@ -4933,25 +4933,32 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
   var rows = BRANCH_ALL.map(function(b) {
     var techs = (byBranch[b] || []).filter(function(t) { return t.role === 'pest'; });
     var pestCount = techs.length;
-    var prodSum = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
+    var prodSum  = techs.reduce(function(s, t) { return s + (t.data.completed      || 0); }, 0);
+    var stopsSum = techs.reduce(function(s, t) { return s + (t.data.completedCount || 0); }, 0);
     var milesSum = 0;
     techs.forEach(function(t) {
       milesSum += computeDriveFn(t.data.mtdPoints || []);
     });
     var hoursSum = milesSum / 30; // 30 mph effective
 
+    // Daily averages per pest tech
     var dailyProd  = pestCount > 0 ? prodSum  / pestCount / workingDays : 0;
+    var dailyStops = pestCount > 0 ? stopsSum / pestCount / workingDays : 0;
     var dailyHours = pestCount > 0 ? hoursSum / pestCount / workingDays : 0;
+    // Composites
     var dollarsPerDriveHr = (dailyHours > 0) ? dailyProd / dailyHours : 0;
+    var dollarsPerStop    = (dailyStops > 0) ? dailyProd / dailyStops : 0;
 
     return {
       branch: b,
       label: (BRANCH_DISPLAY[b] || b).toUpperCase(),
       isUsx: isUsxBranch(b),
       pestCount: pestCount,
-      dailyProd: dailyProd,
-      dailyHours: dailyHours,
-      dollarsPerDriveHr: dollarsPerDriveHr
+      dailyProd:           dailyProd,
+      dailyStops:          dailyStops,
+      dailyHours:          dailyHours,
+      dollarsPerDriveHr:   dollarsPerDriveHr,
+      dollarsPerStop:      dollarsPerStop
     };
   });
 
@@ -4964,14 +4971,18 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
     return b.dollarsPerDriveHr - a.dollarsPerDriveHr;
   });
 
-  // Shared scales for the sub-bars
-  var maxHours = 0, maxProd = 0;
+  // Shared scales for the sub-bars (across visible branches)
+  var maxStops = 0, maxHours = 0, maxProd = 0, maxPerStop = 0;
   rows.forEach(function(r) {
-    if (r.dailyHours > maxHours) maxHours = r.dailyHours;
-    if (r.dailyProd  > maxProd)  maxProd  = r.dailyProd;
+    if (r.dailyStops      > maxStops)   maxStops   = r.dailyStops;
+    if (r.dailyHours      > maxHours)   maxHours   = r.dailyHours;
+    if (r.dailyProd       > maxProd)    maxProd    = r.dailyProd;
+    if (r.dollarsPerStop  > maxPerStop) maxPerStop = r.dollarsPerStop;
   });
-  if (maxHours <= 0) maxHours = 1;
-  if (maxProd  <= 0) maxProd  = 1;
+  if (maxStops   <= 0) maxStops   = 1;
+  if (maxHours   <= 0) maxHours   = 1;
+  if (maxProd    <= 0) maxProd    = 1;
+  if (maxPerStop <= 0) maxPerStop = 1;
 
   function fmtHrsMin_(hrs) {
     var totalMin = Math.round(hrs * 60);
@@ -5004,8 +5015,10 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
       '</div>';
     }
 
-    var hPct = (r.dailyHours / maxHours) * 100;
-    var pPct = (r.dailyProd  / maxProd)  * 100;
+    var sPct  = (r.dailyStops      / maxStops)   * 100;
+    var hPct  = (r.dailyHours      / maxHours)   * 100;
+    var pPct  = (r.dailyProd       / maxProd)    * 100;
+    var psPct = (r.dollarsPerStop  / maxPerStop) * 100;
     var heroCls = effTierCls_(r.dollarsPerDriveHr);
 
     return '<div class="rpt-card ' + brandCls + '">' +
@@ -5019,6 +5032,27 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
       '</div>' +
       '<div class="rpt-card-divider"></div>' +
       '<div class="rpt-card-section-label">DAILY AVERAGES · PEST TEAM</div>' +
+      // Stops/day — capacity utilization (amber)
+      '<div class="rpt-card-metric">' +
+        '<div class="rpt-card-metric-row">' +
+          '<div class="rpt-card-metric-key">Stops/day</div>' +
+          '<div class="rpt-card-metric-val">' + r.dailyStops.toFixed(1) + '</div>' +
+        '</div>' +
+        '<div class="rpt-card-metric-track">' +
+          '<div class="rpt-card-metric-fill" style="width:' + sPct.toFixed(1) + '%;background:#FBBF24"></div>' +
+        '</div>' +
+      '</div>' +
+      // $/stop — pricing / upsell (blue)
+      '<div class="rpt-card-metric">' +
+        '<div class="rpt-card-metric-row">' +
+          '<div class="rpt-card-metric-key">$/stop</div>' +
+          '<div class="rpt-card-metric-val">$' + Math.round(r.dollarsPerStop).toLocaleString() + '</div>' +
+        '</div>' +
+        '<div class="rpt-card-metric-track">' +
+          '<div class="rpt-card-metric-fill" style="width:' + psPct.toFixed(1) + '%;background:#60A5FA"></div>' +
+        '</div>' +
+      '</div>' +
+      // Drive time — routing density (purple)
       '<div class="rpt-card-metric">' +
         '<div class="rpt-card-metric-row">' +
           '<div class="rpt-card-metric-key">Drive time</div>' +
@@ -5028,6 +5062,7 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
           '<div class="rpt-card-metric-fill" style="width:' + hPct.toFixed(1) + '%;background:#A78BFA"></div>' +
         '</div>' +
       '</div>' +
+      // Daily production — total output (green)
       '<div class="rpt-card-metric">' +
         '<div class="rpt-card-metric-row">' +
           '<div class="rpt-card-metric-key">Production</div>' +
@@ -5043,7 +5078,7 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
   var metaRow =
     '<div class="rpt-meta-row">' +
       '<span class="rpt-card-section-label">CATSEYE LEFT · USX RIGHT · $/DRIVE-HR WITHIN EACH</span>' +
-      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · 30 mph avg · ≥$300/hr good · &lt;$200/hr red</span>' +
+      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · includes every stop (callbacks too) · 30 mph avg · ≥$300/hr good · &lt;$200/hr red</span>' +
     '</div>';
 
   return metaRow + '<div class="rpt-cards">' + cardsHtml + '</div>';
