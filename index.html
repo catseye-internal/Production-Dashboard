@@ -1761,6 +1761,32 @@ function productionInvoices_() {
   });
 }
 
+// Build a Set of Username codes for employees whose JobTitle marks them as
+// a manager/supervisor/director. Used by the Pest Efficiency card to exclude
+// these people from per-tech averages without removing their revenue from
+// the master Tech cards. PestPac is the source of truth — Joe sets JobTitle
+// in PestPac, Apps Script pulls it nightly into cache-employees.json, and
+// the dashboard automatically excludes them on the next render.
+// Joe directive 2026-05-24.
+var MANAGER_TITLE_KEYWORDS = ['manager', 'supervisor', 'director'];
+function getDynamicManagerSet_() {
+  var set = new Set();
+  var emap = (typeof STATE !== 'undefined' && STATE.employeesMap) ? STATE.employeesMap : {};
+  Object.keys(emap).forEach(function(code) {
+    var emp = emap[code];
+    if (!emp) return;
+    var title = String(emp.JobTitle || '').toLowerCase();
+    if (!title) return;
+    for (var i = 0; i < MANAGER_TITLE_KEYWORDS.length; i++) {
+      if (title.indexOf(MANAGER_TITLE_KEYWORDS[i]) >= 0) {
+        set.add(String(code).toUpperCase());
+        return;
+      }
+    }
+  });
+  return set;
+}
+
 // Load cache-employees.json and build STATE.employeesMap (Username uppercase → record).
 // PestPac's `Username` field is the 3-letter code (GRA, BAG2, ADMN) that matches
 // ServiceOrders.Tech1, ServiceOrders.Tech2, and Invoice.Tech.
@@ -3090,7 +3116,7 @@ function renderTechView_() {
   var cardPestEfficiency =
     '<div class="chart-card">' +
       '<h3 class="chart-title">PEST TEAM EFFICIENCY · BY BRANCH</h3>' +
-      '<div class="chart-meta">Pest techs only · excludes branch managers · big number = $ per drive hour · sub-bars decompose daily output into Stops/day · $/stop · Drive time · Production</div>' +
+      '<div class="chart-meta">Pest techs only · auto-excludes managers via PestPac JobTitle (manager / supervisor / director) · big number = $ per drive hour · sub-bars decompose daily output into Stops/day · $/stop · Drive time · Production</div>' +
       renderPestEfficiencyCards_(byBranch, workingElapsedMtd, computeDriveMiles_) +
     '</div>';
   // Single-column stack. Order: Forecast Totals → Completed vs Budget →
@@ -4964,13 +4990,23 @@ function renderRevPerTechHbars_(byBranch, workingDays) {
 function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
   workingDays = Math.max(1, Number(workingDays) || 1);
 
+  // Build the dynamic manager set from cache-employees.json. Any employee
+  // whose JobTitle contains "manager", "supervisor", or "director" (case-
+  // insensitive) is excluded from per-tech averages. PestPac is the source
+  // of truth — Joe sets JobTitle in PestPac and the dashboard auto-picks
+  // it up on next employees cache refresh (daily 2-3am via Apps Script).
+  // MANAGER_CODES in config.js is the hardcoded safety fallback for cases
+  // where JobTitle isn't populated yet. Joe directive 2026-05-24.
+  var dynamicMgrSet = getDynamicManagerSet_();
+
+  var excludedCount = 0;
   var rows = BRANCH_ALL.map(function(b) {
-    // Pest role only, AND drop managers (their occasional fill-in field work
-    // would otherwise drag the per-tech averages down). MANAGER_CODES is the
-    // hardcoded denylist in config.js. Joe directive 2026-05-24.
     var techs = (byBranch[b] || []).filter(function(t) {
       if (t.role !== 'pest') return false;
-      if (typeof isManagerCode === 'function' && isManagerCode(t.tech)) return false;
+      var code = String(t.tech || '').toUpperCase();
+      var isMgrHardcoded = (typeof isManagerCode === 'function') && isManagerCode(code);
+      var isMgrDynamic   = dynamicMgrSet.has(code);
+      if (isMgrHardcoded || isMgrDynamic) { excludedCount++; return false; }
       return true;
     });
     var pestCount = techs.length;
@@ -5116,10 +5152,13 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
     '</div>';
   }).join('');
 
+  var mgrNote = excludedCount > 0
+    ? ' · ' + excludedCount + ' manager' + (excludedCount === 1 ? '' : 's') + ' excluded'
+    : '';
   var metaRow =
     '<div class="rpt-meta-row">' +
       '<span class="rpt-card-section-label">CATSEYE LEFT · USX RIGHT · $/DRIVE-HR WITHIN EACH</span>' +
-      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · includes every stop (callbacks too) · 30 mph avg · ≥$300/hr good · &lt;$200/hr red</span>' +
+      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · includes every stop (callbacks too) · 30 mph avg · ≥$300/hr good · &lt;$200/hr red' + mgrNote + '</span>' +
     '</div>';
 
   return metaRow + '<div class="rpt-cards">' + cardsHtml + '</div>';
