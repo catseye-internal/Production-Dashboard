@@ -248,6 +248,113 @@
       .controls { flex-direction: column; align-items: stretch; }
       .controls .spacer { display: none; }
     }
+
+    /* ── View toggle (Month / Year) ── */
+    .view-toggle {
+      display: inline-flex; gap: 0;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 4px; margin-bottom: 16px;
+    }
+    .view-toggle button {
+      background: transparent; color: var(--text-dim);
+      border: none; padding: 8px 16px; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.4px; cursor: pointer; border-radius: 5px;
+      font-family: inherit;
+    }
+    .view-toggle button.active {
+      background: var(--orange); color: #fff;
+    }
+    .view-toggle button:not(.active):hover {
+      color: var(--text); background: rgba(255,255,255,0.04);
+    }
+
+    /* ── Year view grid ── */
+    .year-grid-wrap { overflow-x: auto; }
+    table.year-grid {
+      width: 100%; border-collapse: separate; border-spacing: 0;
+      min-width: 900px;
+    }
+    table.year-grid th, table.year-grid td {
+      padding: 7px 10px; font-size: 11px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      white-space: nowrap;
+    }
+    table.year-grid thead th {
+      text-align: right; font-weight: 700; letter-spacing: 0.4px;
+      text-transform: uppercase; color: var(--text-dim); font-size: 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-card); position: sticky; top: 0; z-index: 1;
+    }
+    table.year-grid thead th.cat-col { text-align: left; }
+    table.year-grid thead th.month-col {
+      min-width: 64px;
+    }
+    table.year-grid thead th.month-col.current-month {
+      color: var(--orange);
+    }
+    table.year-grid thead th.row-total-col {
+      color: var(--text); min-width: 80px;
+    }
+    table.year-grid td.cat-cell {
+      font-weight: 600; color: var(--text); text-align: left;
+      position: sticky; left: 0; background: var(--bg-card); z-index: 0;
+    }
+    table.year-grid td.cat-cell .cat-key {
+      display: block; font-size: 9px; font-weight: 500;
+      color: var(--text-dim); margin-top: 1px;
+    }
+    table.year-grid td.month-cell {
+      text-align: right; font-variant-numeric: tabular-nums;
+      color: var(--text); cursor: pointer;
+    }
+    table.year-grid td.month-cell:hover {
+      background: rgba(244, 123, 32, 0.10); color: var(--orange);
+    }
+    table.year-grid td.month-cell.empty {
+      color: var(--text-dim);
+    }
+    table.year-grid td.row-total-cell {
+      text-align: right; font-variant-numeric: tabular-nums;
+      font-weight: 700; color: var(--text);
+      border-left: 1px solid var(--border);
+    }
+    table.year-grid tr.month-total-row td {
+      border-top: 2px solid var(--border);
+      padding-top: 10px;
+    }
+    table.year-grid tr.month-total-row td.cat-cell {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+      text-transform: uppercase; color: var(--text-dim);
+    }
+    table.year-grid tr.month-total-row td.month-cell {
+      font-weight: 700; cursor: default;
+    }
+    table.year-grid tr.month-total-row td.month-cell:hover {
+      background: transparent; color: var(--text);
+    }
+    table.year-grid tr.month-total-row td.row-total-cell {
+      font-size: 14px; font-weight: 800;
+    }
+    table.year-grid tr.month-total-row td.row-total-cell.tier-enhanced { color: var(--green); }
+    table.year-grid tr.month-total-row td.row-total-cell.tier-true     { color: var(--red); }
+
+    /* Tier selector + read-only hint */
+    .year-controls .save-status { color: var(--text-dim); font-size: 11px; }
+    .year-controls .tier-mode-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+    .year-controls .tier-mode-pill.tier-enhanced { background: rgba(52,211,153,0.12); color: var(--green); }
+    .year-controls .tier-mode-pill.tier-true     { background: rgba(248,113,113,0.12); color: var(--red); }
+
+    /* Year branch summary — annual totals across both tiers */
+    .year-summary-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 720px) { .year-summary-grid { grid-template-columns: repeat(2, 1fr); } }
   </style>
 </head>
 <body>
@@ -268,6 +375,13 @@
   <!-- Editor (hidden until unlocked) -->
   <div id="editor" class="editor">
     <div class="container">
+      <div class="view-toggle">
+        <button data-view="month" class="active" id="view-month-btn">Month editor</button>
+        <button data-view="year" id="view-year-btn">Year view</button>
+      </div>
+
+      <!-- ── MONTH VIEW (existing) ── -->
+      <div id="monthView">
       <div class="info-note">
         <strong>TRUE budget</strong> is private — only visible here, never displayed on the dashboard.
         <strong>ENHANCED budget</strong> (team-facing stretch goal) is what the dashboard shows as "Budget" on the MTD Production card. Edit either column independently.
@@ -349,6 +463,76 @@
       <div class="changelog">
         Edits save to <strong>budgets.json</strong> in the GitHub repo. Git history preserves every change — to view past edits, see the commits log for that file.
       </div>
+      </div><!-- /#monthView -->
+
+      <!-- ── YEAR VIEW (read-only 12-month grid) ── -->
+      <div id="yearView" style="display:none">
+        <div class="info-note">
+          <strong>Year view</strong> shows all 12 months for the selected branch and tier. Read-only — click any cell to jump to that month in the Month editor.
+        </div>
+
+        <div class="controls year-controls">
+          <label>
+            Branch
+            <select id="yr-branch"></select>
+          </label>
+          <label>
+            Year
+            <select id="yr-year"></select>
+          </label>
+          <label>
+            Tier
+            <select id="yr-tier">
+              <option value="enhanced">Enhanced (team-facing)</option>
+              <option value="true">True (private)</option>
+            </select>
+          </label>
+          <div class="spacer"></div>
+          <span class="save-status" id="yr-mode-pill">Read-only — click any cell to edit</span>
+        </div>
+
+        <!-- Year totals summary: Branch annual total + dashboard subset -->
+        <div class="month-summary">
+          <div class="month-summary-header">
+            <h3 id="yr-summary-title">Annual Summary</h3>
+            <span id="yr-summary-sub" class="month-summary-sub">All 6 categories · dashboard subtotal in parentheses</span>
+          </div>
+          <div class="year-summary-grid">
+            <div class="ms-card ms-catseye">
+              <div class="ms-card-label">Branch · True</div>
+              <div class="ms-card-value" id="yr-brn-true">$0</div>
+              <div class="ms-card-sub" id="yr-brn-true-sub">Dashboard: $0</div>
+            </div>
+            <div class="ms-card ms-catseye">
+              <div class="ms-card-label">Branch · Enhanced</div>
+              <div class="ms-card-value" id="yr-brn-enh">$0</div>
+              <div class="ms-card-sub" id="yr-brn-enh-sub">Dashboard: $0</div>
+            </div>
+            <div class="ms-card ms-usx">
+              <div class="ms-card-label" id="yr-co-true-label">Company · True</div>
+              <div class="ms-card-value" id="yr-co-true">$0</div>
+              <div class="ms-card-sub" id="yr-co-true-sub">Dashboard: $0</div>
+            </div>
+            <div class="ms-card ms-usx">
+              <div class="ms-card-label" id="yr-co-enh-label">Company · Enhanced</div>
+              <div class="ms-card-value" id="yr-co-enh">$0</div>
+              <div class="ms-card-sub" id="yr-co-enh-sub">Dashboard: $0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-card">
+          <h3 id="yr-grid-title">Budget breakdown</h3>
+          <div class="branch-info" id="yr-branch-info"></div>
+          <div class="year-grid-wrap">
+            <table class="year-grid" id="yr-table"></table>
+          </div>
+        </div>
+
+        <div class="changelog">
+          To edit a value, click the cell — it jumps to the Month editor with that branch + month already selected.
+        </div>
+      </div><!-- /#yearView -->
     </div>
   </div>
 
@@ -703,6 +887,225 @@
         ev.returnValue = '';
       }
     });
+
+    // ── Year view (read-only 12-month grid) ──────────────────────────────
+    var MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    function isCatseyeBranch_(b) { return CATSEYE_BRANCHES.indexOf(b) >= 0; }
+
+    function setView(viewName) {
+      var monthBtn = $('view-month-btn');
+      var yearBtn  = $('view-year-btn');
+      if (viewName === 'year') {
+        monthBtn.classList.remove('active');
+        yearBtn.classList.add('active');
+        $('monthView').style.display = 'none';
+        $('yearView').style.display  = 'block';
+        // Ensure controls populated
+        ensureYearControls_();
+        renderYearGrid_();
+      } else {
+        yearBtn.classList.remove('active');
+        monthBtn.classList.add('active');
+        $('yearView').style.display  = 'none';
+        $('monthView').style.display = 'block';
+      }
+    }
+    $('view-month-btn').addEventListener('click', function() { setView('month'); });
+    $('view-year-btn').addEventListener('click',  function() { setView('year');  });
+
+    function ensureYearControls_() {
+      // Branch dropdown — sync with month editor's current branch on first open
+      var brn = $('yr-branch');
+      if (!brn.options.length) {
+        BRANCHES.forEach(function(b) {
+          brn.appendChild(el('option', { value: b, text: b }, []));
+        });
+        brn.addEventListener('change', renderYearGrid_);
+      }
+      if (state.currentBranch && brn.value !== state.currentBranch) {
+        brn.value = state.currentBranch;
+      }
+
+      // Year dropdown — derive from the months currently in the data, plus prev+next
+      var yrSel = $('yr-year');
+      if (!yrSel.options.length) {
+        var years = {};
+        BRANCHES.forEach(function(b) {
+          var entry = state.budgets[b] || {};
+          Object.keys(entry).forEach(function(ym) {
+            var y = ym.split('-')[0];
+            if (y && /^\d{4}$/.test(y)) years[y] = true;
+          });
+        });
+        var now = new Date();
+        years[String(now.getFullYear())] = true;
+        years[String(now.getFullYear() + 1)] = true;
+        var yearList = Object.keys(years).sort();
+        yearList.forEach(function(y) {
+          var o = el('option', { value: y, text: y }, []);
+          if (y === String(now.getFullYear())) o.selected = true;
+          yrSel.appendChild(o);
+        });
+        yrSel.addEventListener('change', renderYearGrid_);
+      }
+
+      // Tier dropdown — default Enhanced
+      var tierSel = $('yr-tier');
+      if (!tierSel.dataset.bound) {
+        tierSel.addEventListener('change', renderYearGrid_);
+        tierSel.dataset.bound = '1';
+      }
+    }
+
+    function fmtMoneyShort_(n) {
+      n = Math.round(Number(n) || 0);
+      if (n === 0) return '—';
+      return '$' + n.toLocaleString();
+    }
+
+    function renderYearGrid_() {
+      var branch = $('yr-branch').value;
+      var year   = $('yr-year').value;
+      var tier   = $('yr-tier').value;          // 'enhanced' | 'true'
+      var now    = new Date();
+      var currentYm = year + '-' + String(now.getMonth() + 1).padStart(2, '0');
+
+      $('yr-grid-title').textContent = branch + ' · ' + year + ' · ' + (tier === 'true' ? 'TRUE (private)' : 'ENHANCED (team-facing)');
+      $('yr-branch-info').innerHTML  = 'Annual view for <strong>' + escapeHtml(branch) + '</strong> · tier <strong>' + (tier === 'true' ? 'TRUE' : 'ENHANCED') + '</strong>. Hidden categories include Recurring — Total Platinum (excluded from dashboard total). Click any cell to edit it in the Month editor.';
+
+      var modePill = $('yr-mode-pill');
+      modePill.className = 'tier-mode-pill ' + (tier === 'true' ? 'tier-true' : 'tier-enhanced');
+      modePill.textContent = tier === 'true' ? '🔒 TRUE · read-only' : '✨ ENHANCED · read-only';
+
+      // ── Build table ──
+      var months = [];
+      for (var i = 1; i <= 12; i++) months.push(year + '-' + String(i).padStart(2, '0'));
+
+      var thead = '<thead><tr>' +
+        '<th class="cat-col">Category</th>' +
+        months.map(function(ym, i) {
+          var cls = 'month-col' + (ym === currentYm ? ' current-month' : '');
+          return '<th class="' + cls + '">' + MONTH_LABELS[i] + '</th>';
+        }).join('') +
+        '<th class="month-col row-total-col">Year Total</th>' +
+      '</tr></thead>';
+
+      // Body — one row per category
+      var monthTotals = months.map(function() { return 0; });
+      var grandTotal  = 0;
+      var bodyRows = CATEGORIES.map(function(cat) {
+        var rowTotal = 0;
+        var cells = months.map(function(ym, i) {
+          var v = ((state.budgets[branch] || {})[ym] || {})[tier] || {};
+          var n = Number(v[cat]) || 0;
+          rowTotal += n;
+          monthTotals[i] += n;
+          var cls = 'month-cell' + (n === 0 ? ' empty' : '') + (ym === currentYm ? ' current-month' : '');
+          return '<td class="' + cls + '" data-ym="' + ym + '" data-branch="' + escapeHtml(branch) + '" title="' + escapeHtml(branch) + ' · ' + ym + ' · ' + cat + '">' + fmtMoneyShort_(n) + '</td>';
+        }).join('');
+        grandTotal += rowTotal;
+        return '<tr>' +
+          '<td class="cat-cell">' + (CATEGORY_LABELS[cat] || cat) + '<span class="cat-key">' + cat + '</span></td>' +
+          cells +
+          '<td class="row-total-cell">' + fmtMoneyShort_(rowTotal) + '</td>' +
+        '</tr>';
+      }).join('');
+
+      // Month totals row
+      var totalRowCells = monthTotals.map(function(t) {
+        return '<td class="month-cell">' + fmtMoneyShort_(t) + '</td>';
+      }).join('');
+      var tierTotalCls = tier === 'true' ? 'tier-true' : 'tier-enhanced';
+      var totalRow =
+        '<tr class="month-total-row">' +
+          '<td class="cat-cell">Monthly total · all 6 cats</td>' +
+          totalRowCells +
+          '<td class="row-total-cell ' + tierTotalCls + '">' + fmtMoneyShort_(grandTotal) + '</td>' +
+        '</tr>';
+
+      // Dashboard subset row (5-of-6 cats — what the live dashboard actually shows)
+      var dashMonthTotals = months.map(function() { return 0; });
+      var dashGrand = 0;
+      months.forEach(function(ym, i) {
+        var v = ((state.budgets[branch] || {})[ym] || {})[tier] || {};
+        DASHBOARD_CATEGORIES.forEach(function(c) {
+          dashMonthTotals[i] += Number(v[c]) || 0;
+        });
+        dashGrand += dashMonthTotals[i];
+      });
+      // Subtract the cumulative double-count: dashGrand currently sums correctly,
+      // but dashMonthTotals[i] also already represents the dashboard 5-cat sum, so
+      // we just need to fix the aggregation. (Above loop is correct.)
+      var dashTotalCells = dashMonthTotals.map(function(t) {
+        return '<td class="month-cell">' + fmtMoneyShort_(t) + '</td>';
+      }).join('');
+      var dashRow =
+        '<tr class="month-total-row">' +
+          '<td class="cat-cell">Dashboard subtotal · 5 cats</td>' +
+          dashTotalCells +
+          '<td class="row-total-cell ' + tierTotalCls + '">' + fmtMoneyShort_(dashGrand) + '</td>' +
+        '</tr>';
+
+      $('yr-table').innerHTML = thead + '<tbody>' + bodyRows + totalRow + dashRow + '</tbody>';
+
+      // Wire click handlers — clicking any non-total cell jumps to month editor
+      [].slice.call($('yr-table').querySelectorAll('td.month-cell[data-ym]')).forEach(function(td) {
+        td.addEventListener('click', function() {
+          var ym = td.dataset.ym;
+          var b  = td.dataset.branch;
+          if (!ym || !b) return;
+          if (!confirmIfDirty()) return;
+          // Set selectors and switch back to month view
+          $('branch-select').value = b;
+          $('month-select').value  = ym;
+          // Synthesize the change event so listeners run
+          state.currentBranch = b;
+          state.currentMonth  = ym;
+          renderGrid();
+          setView('month');
+          // Smooth scroll to the editor grid so the user sees the changed values
+          var card = document.querySelector('.grid-card');
+          if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+
+      // ── Annual summary card (branch totals + company totals) ──
+      function sumYear_(branchList, tier, cats) {
+        var t = 0;
+        branchList.forEach(function(b) {
+          months.forEach(function(ym) {
+            var v = ((state.budgets[b] || {})[ym] || {})[tier] || {};
+            cats.forEach(function(c) { t += Number(v[c]) || 0; });
+          });
+        });
+        return t;
+      }
+      var company       = isCatseyeBranch_(branch) ? 'catseye' : 'usx';
+      var companyLabel  = company === 'catseye' ? 'Catseye total' : 'USX Pest total';
+      var companyList   = company === 'catseye' ? CATSEYE_BRANCHES : USX_BRANCHES;
+
+      var brnTrue6 = sumYear_([branch], 'true',     CATEGORIES);
+      var brnEnh6  = sumYear_([branch], 'enhanced', CATEGORIES);
+      var brnTrue5 = sumYear_([branch], 'true',     DASHBOARD_CATEGORIES);
+      var brnEnh5  = sumYear_([branch], 'enhanced', DASHBOARD_CATEGORIES);
+      var coTrue6  = sumYear_(companyList, 'true',     CATEGORIES);
+      var coEnh6   = sumYear_(companyList, 'enhanced', CATEGORIES);
+      var coTrue5  = sumYear_(companyList, 'true',     DASHBOARD_CATEGORIES);
+      var coEnh5   = sumYear_(companyList, 'enhanced', DASHBOARD_CATEGORIES);
+
+      $('yr-summary-title').textContent = 'Annual Summary · ' + year;
+      $('yr-brn-true').textContent     = fmtMoney(brnTrue6);
+      $('yr-brn-true-sub').textContent = 'Dashboard: ' + fmtMoney(brnTrue5);
+      $('yr-brn-enh').textContent      = fmtMoney(brnEnh6);
+      $('yr-brn-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(brnEnh5);
+      $('yr-co-true-label').textContent = companyLabel + ' · True';
+      $('yr-co-enh-label').textContent  = companyLabel + ' · Enhanced';
+      $('yr-co-true').textContent      = fmtMoney(coTrue6);
+      $('yr-co-true-sub').textContent  = 'Dashboard: ' + fmtMoney(coTrue5);
+      $('yr-co-enh').textContent       = fmtMoney(coEnh6);
+      $('yr-co-enh-sub').textContent   = 'Dashboard: ' + fmtMoney(coEnh5);
+    }
   </script>
 </body>
 </html>
