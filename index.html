@@ -899,6 +899,10 @@
   }
   /* Value first (left), label pinned right via margin-left: auto. Joe 2026-05-24. */
   .cvb-daily-val { font-size: 14px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  /* Actual/day color tiers — green if ≥ Needed, red if below. Joe 2026-05-24. */
+  .cvb-daily-val.pace-ahead   { color: #34D399; }
+  .cvb-daily-val.pace-behind  { color: #F87171; }
+  .cvb-daily-val.pace-unset   { color: var(--text); }
   .cvb-daily-diff { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
   .cvb-daily-key { font-size: 10px; color: var(--text-dim); margin-left: auto; }
   .cvb-daily-diff.pace-ahead  { color: #34D399; background: rgba(52, 211, 153, 0.10); }
@@ -2555,11 +2559,13 @@ function renderSummaryView_() {
   filtered.forEach(function(r) {
     var cls = String(r.ServiceClass || '(none)').toUpperCase().trim() || '(none)';
     var amt = Number(r.SubTotal) || 0;
+    var isCb = String(r.InvoiceType || '').toUpperCase() === 'CB';
     bucketOrder.forEach(function(bucket) {
       if (!bucket.include(r.Branch)) return;
       var b = summary[bucket.id];
-      if (!b[cls]) b[cls] = { count: 0, subtotal: 0 };
+      if (!b[cls]) b[cls] = { count: 0, cbCount: 0, subtotal: 0 };
       b[cls].count    += 1;
+      if (isCb) b[cls].cbCount += 1;
       b[cls].subtotal += amt;
     });
   });
@@ -2574,34 +2580,41 @@ function renderSummaryView_() {
              '<div class="group-block-meta">No invoices in period</div></div></div>';
     }
     // First pass — compute card totals so we can show each row's % share
-    var totalCount = 0, totalSubtotal = 0;
+    var totalCount = 0, totalCbCount = 0, totalSubtotal = 0;
     classes.forEach(function(c) {
       totalCount    += rows[c].count;
+      totalCbCount  += rows[c].cbCount;
       totalSubtotal += rows[c].subtotal;
     });
     var bodyRows = classes.map(function(c) {
-      var pct = totalSubtotal > 0 ? (rows[c].subtotal / totalSubtotal) * 100 : 0;
+      var pct       = totalSubtotal > 0 ? (rows[c].subtotal / totalSubtotal) * 100 : 0;
       var avgTicket = rows[c].count > 0 ? rows[c].subtotal / rows[c].count : 0;
+      var cbPct     = rows[c].count > 0 ? (rows[c].cbCount / rows[c].count) * 100 : 0;
       return '<tr>' +
         '<td>' + escapeHtml(c) + '</td>' +
         '<td class="num">' + rows[c].count.toLocaleString() + '</td>' +
-        '<td class="num">' + pct.toFixed(1) + '%</td>' +
+        '<td class="num">' + (rows[c].cbCount > 0 ? rows[c].cbCount.toLocaleString() : '—') + '</td>' +
+        '<td class="num">' + (rows[c].cbCount > 0 ? cbPct.toFixed(1) + '%' : '—') + '</td>' +
         '<td class="num">$' + Math.round(avgTicket).toLocaleString() + '</td>' +
+        '<td class="num">' + pct.toFixed(1) + '%</td>' +
         '<td class="num">$' + Math.round(rows[c].subtotal).toLocaleString() + '</td>' +
       '</tr>';
     }).join('');
     var totalAvgTicket = totalCount > 0 ? totalSubtotal / totalCount : 0;
+    var totalCbPct     = totalCount > 0 ? (totalCbCount / totalCount) * 100 : 0;
     var totalRow = '<tr class="total-row">' +
         '<td>Total</td>' +
         '<td class="num">' + totalCount.toLocaleString() + '</td>' +
-        '<td class="num">100.0%</td>' +
+        '<td class="num">' + (totalCbCount > 0 ? totalCbCount.toLocaleString() : '—') + '</td>' +
+        '<td class="num">' + (totalCbCount > 0 ? totalCbPct.toFixed(1) + '%' : '—') + '</td>' +
         '<td class="num">$' + Math.round(totalAvgTicket).toLocaleString() + '</td>' +
+        '<td class="num">100.0%</td>' +
         '<td class="num">$' + Math.round(totalSubtotal).toLocaleString() + '</td>' +
       '</tr>';
     return '<div class="' + blockCls + '">' +
       '<div class="group-block-header"><h3 class="group-block-title">' + bucket.label + '</h3>' +
       '<div class="group-block-meta">' + totalCount.toLocaleString() + ' inv · $' + Math.round(totalSubtotal).toLocaleString() + '</div></div>' +
-      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Count</th><th class="num">% of Total</th><th class="num">Avg Ticket</th><th class="num">Subtotal</th></tr></thead>' +
+      '<table class="summary-table"><thead><tr><th>Service Class</th><th class="num">Total Count</th><th class="num">CBK Count</th><th class="num">CBK %</th><th class="num">Avg Ticket</th><th class="num">% of Total</th><th class="num">Subtotal</th></tr></thead>' +
       '<tbody>' + bodyRows + totalRow + '</tbody></table></div>';
   }).join('');
 
@@ -4704,7 +4717,9 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   var combinedDailyActual = elapsedForPace > 0 ? combinedAgg.mtdAll / elapsedForPace : 0;
   function dailyTile_(label, needed, actual, brandClass) {
     var diffPct = needed > 0 ? ((actual - needed) / needed * 100) : 0;
-    var diffCls = needed === 0 ? 'pace-unset' : (diffPct >= 0 ? 'pace-ahead' : (diffPct >= -10 ? 'pace-warn' : 'pace-behind'));
+    // Two-tier coloring (Joe directive 2026-05-24): green if Actual ≥ Needed,
+    // red if below. No yellow middle tier. When no budget set, neutral.
+    var paceCls   = needed === 0 ? 'pace-unset' : (actual >= needed ? 'pace-ahead' : 'pace-behind');
     var diffLabel = needed === 0 ? '—' : (diffPct >= 0 ? '+' : '') + diffPct.toFixed(0) + '%';
     return '<div class="cvb-daily-tile ' + brandClass + '">' +
       '<div class="cvb-daily-label">' + escapeHtml(label) + '</div>' +
@@ -4713,8 +4728,8 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
         '<span class="cvb-daily-key">Needed/day</span>' +
       '</div>' +
       '<div class="cvb-daily-row">' +
-        '<span class="cvb-daily-val">' + fmtK(actual) + '</span>' +
-        '<span class="cvb-daily-diff ' + diffCls + '">' + diffLabel + '</span>' +
+        '<span class="cvb-daily-val cvb-daily-val-actual ' + paceCls + '">' + fmtK(actual) + '</span>' +
+        '<span class="cvb-daily-diff ' + paceCls + '">' + diffLabel + '</span>' +
         '<span class="cvb-daily-key">Actual/day</span>' +
       '</div>' +
     '</div>';
