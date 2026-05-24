@@ -1006,19 +1006,9 @@
   }
   .mtd-prod-divider { height: 1px; background: var(--border); margin: 6px 0; }
 
-  /* Catseye + USX stacked under Combined Total (Joe 2026-05-24).
-     Each company block is a full-width row, visually indented
-     with a left rail to show it rolls up under Combined. */
-  .mtd-prod-companies-stack {
-    display: flex; flex-direction: column; gap: 8px;
-    margin-left: 14px;
-    padding-left: 14px;
-    border-left: 2px solid rgba(255,255,255,0.08);
-  }
-  .mtd-prod-companies-stack > .mtd-prod-branch-total { margin-top: 0; }
-  @media (max-width: 640px) {
-    .mtd-prod-companies-stack { margin-left: 6px; padding-left: 8px; }
-  }
+  /* (Companies are now nested inside Combined Total's drill — the
+     .mtd-prod-companies-stack helper was removed 2026-05-24 along
+     with the visible-by-default companies row.) */
 
   /* Clickable branch row + chevron rotation when expanded */
   .mtd-prod-branch.mtd-prod-clickable { cursor: pointer; }
@@ -4590,9 +4580,15 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       drillTitle = 'Branch breakdown · click any branch for category detail';
       drillHtml = nestedHtml || '';
     } else if (mode === 'combined') {
+      // Combined is now the TOP-LEVEL expander — click to reveal Catseye + USX,
+      // each of which expands to its branches, each of which expands to
+      // categories. Joe directive 2026-05-24.
+      blockClasses.push('mtd-prod-clickable');
       blockClasses.push('mtd-prod-branch-total');
       blockClasses.push('combined');
-      // No chevron, no drill, not clickable
+      chevron = '<span class="mtd-prod-chevron">▸</span>';
+      drillTitle = 'Company breakdown · click a company for branches, then a branch for categories';
+      drillHtml = nestedHtml || '';
     } else { // 'branch'
       blockClasses.push('mtd-prod-clickable');
       blockClasses.push('mtd-prod-branch-child');
@@ -4637,8 +4633,11 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
                       ? renderRowBlock_(catseyeAgg, 'company', catseyeChildrenHtml) : '';
   var usxBlock      = (usxAgg.mtdAll > 0 || usxAgg.budgetWithCgw > 0)
                       ? renderRowBlock_(usxAgg, 'company', usxChildrenHtml) : '';
+  // Combined is the top-level expander; its drill contains Catseye + USX.
+  // Joe directive 2026-05-24.
+  var combinedNested = catseyeBlock + usxBlock;
   var combinedBlock = (combinedAgg.mtdAll > 0 || combinedAgg.budgetWithCgw > 0)
-                      ? renderRowBlock_(combinedAgg, 'combined') : '';
+                      ? renderRowBlock_(combinedAgg, 'combined', combinedNested) : '';
 
   // Header strip — today's date · working day #X of Y · Z% complete · range
   // · cache-freshness indicator. Joe directive 2026-05-23.
@@ -4741,14 +4740,14 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
 
   // Return body + headerStrip separately so the caller can hoist the strip
   // up into the chart-card's title row (Joe directive 2026-05-24).
+  // Catseye + USX are nested inside Combined's drill — Combined is the only
+  // block visible by default; clicking its chevron reveals the companies,
+  // then each company reveals its branches, then each branch reveals
+  // categories. Four-level accordion: Combined → Companies → Branches → Categories.
   var body = '<div class="mtd-prod-card">' +
     dailyHeader +
     datePicker +
     combinedBlock +
-    '<div class="mtd-prod-companies-stack">' +
-      catseyeBlock +
-      usxBlock +
-    '</div>' +
   '</div>';
   return { headerStrip: headerStrip, body: body };
 }
