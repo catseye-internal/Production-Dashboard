@@ -3114,7 +3114,7 @@ function renderTechView_() {
   var cardRevPerTech =
     '<div class="chart-card">' +
       '<h3 class="chart-title">REVENUE PER TECH BY BRANCH</h3>' +
-      '<div class="chart-meta">One card per branch · big number = MTD $/tech · sub-bars = avg $/working day per tech for Pest and CG/NWL</div>' +
+      '<div class="chart-meta">One card per branch · excludes managers (PestPac JobTitle + hardcoded fallback) · big number = MTD $/tech · sub-bars = avg $/working day per tech for Pest and CG/NWL</div>' +
       renderRevPerTechHbars_(byBranch, workingElapsedMtd) +
     '</div>';
   // Pest Team Efficiency — routing density signal (Joe directive 2026-05-23)
@@ -4879,8 +4879,26 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBra
 function renderRevPerTechHbars_(byBranch, workingDays) {
   workingDays = Math.max(1, Number(workingDays) || 1);
 
+  // Manager exclusion — same logic as Pest Efficiency card. Joe directive
+  // 2026-05-24: managers' part-time field work drags per-tech averages down,
+  // so they should be filtered from this card too. Dynamic via PestPac
+  // JobTitle (keyword scan, active employees only) + hardcoded MANAGER_CODES
+  // fallback in config.js.
+  var dynamicMgrSet = getDynamicManagerSet_();
+  function isMgr_(code) {
+    if (!code) return false;
+    var c = String(code).toUpperCase();
+    if (typeof isManagerCode === 'function' && isManagerCode(c)) return true;
+    if (dynamicMgrSet.has(c)) return true;
+    return false;
+  }
+
+  var excludedCount = 0;
   var rows = BRANCH_ALL.map(function(b) {
-    var techs = (byBranch[b] || []);
+    var techs = (byBranch[b] || []).filter(function(t) {
+      if (isMgr_(t.tech)) { excludedCount++; return false; }
+      return true;
+    });
     var pestTechs  = techs.filter(function(t) { return t.role === 'pest';  });
     var cgnwlTechs = techs.filter(function(t) { return t.role === 'cgnwl'; });
     var pestRev    = pestTechs.reduce(function(s, t)  { return s + (t.data.completed || 0); }, 0);
@@ -4979,10 +4997,13 @@ function renderRevPerTechHbars_(byBranch, workingDays) {
     '</div>';
   }).join('');
 
+  var mgrNote = excludedCount > 0
+    ? ' · ' + excludedCount + ' manager' + (excludedCount === 1 ? '' : 's') + ' excluded'
+    : '';
   var metaRow =
     '<div class="rpt-meta-row">' +
       '<span class="rpt-card-section-label">CATSEYE LEFT · USX RIGHT · $/TECH WITHIN EACH</span>' +
-      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · bars share scale across cards</span>' +
+      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · bars share scale across cards' + mgrNote + '</span>' +
     '</div>';
 
   return metaRow + '<div class="rpt-cards">' + cardsHtml + '</div>';
