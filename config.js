@@ -352,6 +352,27 @@ function isNonTechCode(code) {
   return NON_TECH_CODES.has(String(code).toUpperCase().trim());
 }
 
+// ── Manager denylist (Joe 2026-05-24) ──
+// Branch managers / supervisors who occasionally do field work but should NOT
+// be counted in pest-team productivity averages (their numbers drag the avg
+// down because they only fill in part-time). NOT in NON_TECH_CODES — their
+// revenue still attributes normally on the Tech master cards. Only excluded
+// from the Pest Team Efficiency card's per-tech averages.
+// PestPac's `JobTitle` field is empty for these records, so we maintain this
+// list manually until WorkWave populates titles.
+const MANAGER_CODES = new Set([
+  'JPC',  // John Crowley (Connecticut)
+  'IXR',  // Idalys Ramos (Connecticut)
+  'CCR',  // Colby Robinson (Eastern Mass)
+  'CLN',  // Corey Nessing (Eastern Mass)
+  'TXT',  // Tara Tudino (Eastern Mass)
+]);
+
+function isManagerCode(code) {
+  if (!code) return false;
+  return MANAGER_CODES.has(String(code).toUpperCase().trim());
+}
+
 // ── Working-days calculator (Joe directive 2026-05-22) ──
 // Working day = Mon-Fri minus key holidays. Holidays observed:
 //   - Christmas (Dec 25) — if it falls on Sat/Sun, observed on nearest weekday

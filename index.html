@@ -606,6 +606,16 @@
     font-size: 22px; color: #F47B20; font-weight: 700;
     font-variant-numeric: tabular-nums; line-height: 1.05;
   }
+  /* Pass/fail coloring vs Combined needed/day (Joe 2026-05-24) */
+  .fc-kpi-value.fc-kpi-good { color: #34D399; }
+  .fc-kpi-value.fc-kpi-bad  { color: #F87171; }
+  .fc-kpi-target {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 0.4px; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
   .fc-kpi-bar {
     height: 4px; background: rgba(244,123,32,0.15); border-radius: 2px;
     overflow: hidden;
@@ -3026,11 +3036,35 @@ function renderTechView_() {
   // Callbacks-by-Branch (grows to fill leftover space, so the donuts get
   // ample room). Right column stacks MTD Production on top of Revenue per
   // Tech. Each column's bottom card flex-grows to match the tallest column.
+  // Combined Daily Needed — used by the FORECAST TOTALS card to color each
+  // day's number green/red vs the daily target. Mirrors the calc inside
+  // renderMtdProductionCard_() (combinedAgg.budgetWithCgw / workingTotal).
+  // Joe directive 2026-05-24.
+  var fcNeededPerDay = 0;
+  try {
+    var fcYear  = todayD.getFullYear();
+    var fcMonth = todayD.getMonth();
+    var fcWorkingTotal = (typeof workingDaysInMonth_ === 'function')
+                          ? workingDaysInMonth_(fcYear, fcMonth) : 0;
+    if (fcWorkingTotal > 0 && STATE && STATE.budgets) {
+      var DASH_CATS = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial','cgw_generated'];
+      var fcCombinedBudget = 0;
+      BRANCH_ALL.forEach(function(b) {
+        var cats = (typeof getMonthlyBudgetByCategory === 'function')
+                    ? getMonthlyBudgetByCategory(STATE.budgets, b, fcYear, fcMonth)
+                    : null;
+        if (!cats) return;
+        DASH_CATS.forEach(function(c) { fcCombinedBudget += Number(cats[c] || 0); });
+      });
+      fcNeededPerDay = fcCombinedBudget / fcWorkingTotal;
+    }
+  } catch (e) { /* leave fcNeededPerDay = 0 → renderer skips coloring */ }
+
   var cardForecastTotals =
     '<div class="chart-card">' +
       '<h3 class="chart-title">FORECAST TOTALS</h3>' +
-      '<div class="chart-meta">Total scheduled revenue per day (all techs)</div>' +
-      renderForecastKpiCards_(fcTotals, dateLabel) +
+      '<div class="chart-meta">Total scheduled revenue per day (all techs) · green = above Combined needed/day, red = below</div>' +
+      renderForecastKpiCards_(fcTotals, dateLabel, fcNeededPerDay) +
     '</div>';
   var cardCallbacksByBranch =
     '<div class="chart-card chart-card-grow">' +
@@ -3056,7 +3090,7 @@ function renderTechView_() {
   var cardPestEfficiency =
     '<div class="chart-card">' +
       '<h3 class="chart-title">PEST TEAM EFFICIENCY · BY BRANCH</h3>' +
-      '<div class="chart-meta">Pest techs only · big number = $ per drive hour · sub-bars decompose daily output into Stops/day · $/stop · Drive time · Production</div>' +
+      '<div class="chart-meta">Pest techs only · excludes branch managers · big number = $ per drive hour · sub-bars decompose daily output into Stops/day · $/stop · Drive time · Production</div>' +
       renderPestEfficiencyCards_(byBranch, workingElapsedMtd, computeDriveMiles_) +
     '</div>';
   // Single-column stack. Order: Forecast Totals → Completed vs Budget →
@@ -4931,7 +4965,14 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
   workingDays = Math.max(1, Number(workingDays) || 1);
 
   var rows = BRANCH_ALL.map(function(b) {
-    var techs = (byBranch[b] || []).filter(function(t) { return t.role === 'pest'; });
+    // Pest role only, AND drop managers (their occasional fill-in field work
+    // would otherwise drag the per-tech averages down). MANAGER_CODES is the
+    // hardcoded denylist in config.js. Joe directive 2026-05-24.
+    var techs = (byBranch[b] || []).filter(function(t) {
+      if (t.role !== 'pest') return false;
+      if (typeof isManagerCode === 'function' && isManagerCode(t.tech)) return false;
+      return true;
+    });
     var pestCount = techs.length;
     var prodSum  = techs.reduce(function(s, t) { return s + (t.data.completed      || 0); }, 0);
     var stopsSum = techs.reduce(function(s, t) { return s + (t.data.completedCount || 0); }, 0);
@@ -5086,22 +5127,31 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
 
 // 4 KPI cards: TODAY / TOMORROW / +2 / +3. Each shows date label, big dollar
 // amount in brand orange, plus a thin proportional bar (% of the max day).
-function renderForecastKpiCards_(fcTotals, dateLabel) {
+function renderForecastKpiCards_(fcTotals, dateLabel, neededPerDay) {
   var max = Math.max(fcTotals.today, fcTotals.tmrw, fcTotals.d2, fcTotals.d3, 1);
+  var needed = Number(neededPerDay) || 0;
+  var hasTarget = needed > 0;
   var cards = [
     { label: 'TODAY · '    + dateLabel(0), value: fcTotals.today },
     { label: 'TOMORROW · ' + dateLabel(1), value: fcTotals.tmrw  },
     { label: '+2 · '       + dateLabel(2), value: fcTotals.d2    },
     { label: '+3 · '       + dateLabel(3), value: fcTotals.d3    }
   ];
+  var subline = hasTarget
+    ? '<div class="fc-kpi-target">Target: $' + Math.round(needed).toLocaleString() + '/day</div>'
+    : '';
   return '<div class="fc-kpi-grid">' + cards.map(function(c) {
     var pct = (c.value / max) * 100;
+    var valCls = 'fc-kpi-value';
+    if (hasTarget && c.value > 0) {
+      valCls += (c.value >= needed) ? ' fc-kpi-good' : ' fc-kpi-bad';
+    }
     return '<div class="fc-kpi">' +
       '<div class="fc-kpi-label">' + escapeHtml(c.label) + '</div>' +
-      '<div class="fc-kpi-value">$' + Math.round(c.value).toLocaleString() + '</div>' +
+      '<div class="' + valCls + '">$' + Math.round(c.value).toLocaleString() + '</div>' +
       '<div class="fc-kpi-bar"><div class="fc-kpi-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
     '</div>';
-  }).join('') + '</div>';
+  }).join('') + '</div>' + subline;
 }
 
 // Horizontal sorted bars — branch name | proportional bar | count · rate%.
