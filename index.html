@@ -984,15 +984,18 @@
   }
   .mtd-prod-divider { height: 1px; background: var(--border); margin: 6px 0; }
 
-  /* Catseye + USX side-by-side row (Joe 2026-05-23). Combined Total
-     sits full-width above; each company gets half the row below. */
-  .mtd-prod-companies-row {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 12px; align-items: start;
+  /* Catseye + USX stacked under Combined Total (Joe 2026-05-24).
+     Each company block is a full-width row, visually indented
+     with a left rail to show it rolls up under Combined. */
+  .mtd-prod-companies-stack {
+    display: flex; flex-direction: column; gap: 8px;
+    margin-left: 14px;
+    padding-left: 14px;
+    border-left: 2px solid rgba(255,255,255,0.08);
   }
-  .mtd-prod-companies-row > .mtd-prod-branch-total { margin-top: 0; }
-  @media (max-width: 900px) {
-    .mtd-prod-companies-row { grid-template-columns: 1fr; }
+  .mtd-prod-companies-stack > .mtd-prod-branch-total { margin-top: 0; }
+  @media (max-width: 640px) {
+    .mtd-prod-companies-stack { margin-left: 6px; padding-left: 8px; }
   }
 
   /* Clickable branch row + chevron rotation when expanded */
@@ -4714,11 +4717,12 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     headerStrip +
     dailyHeader +
     datePicker +
-    // Combined Total full-width at the top, then Catseye + USX side-by-side
-    // in a 2-column row. Joe directive 2026-05-23.
+    // Combined Total at the top; Catseye + USX stacked vertically UNDER it
+    // with a left rail to show they roll up into Combined. Each company
+    // remains clickable for the Company → Branch → Category drill-down.
+    // Joe directive 2026-05-24.
     combinedBlock +
-    (combinedBlock ? '<div class="mtd-prod-divider"></div>' : '') +
-    '<div class="mtd-prod-companies-row">' +
+    '<div class="mtd-prod-companies-stack">' +
       catseyeBlock +
       usxBlock +
     '</div>' +
