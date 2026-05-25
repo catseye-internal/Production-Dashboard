@@ -5009,11 +5009,11 @@ function renderRevPerTechHbars_(byBranch, workingDays) {
   var anyData = rows.some(function(r) { return r.revPerTech > 0; });
   if (!anyData) return '<div class="cb-empty">No completed revenue MTD yet</div>';
 
-  // Group Catseye first, USX second; within each group sort by $/tech desc
-  // (Joe directive 2026-05-23 — keeps brand groups visually together).
+  // Fixed BRANCH_ALL order: E. Mass → CT → RI → W. Mass → Upst. NY.
+  // Joe directive 2026-05-25 — consistency across cards so the eye doesn't
+  // have to re-read positions when metrics shift.
   rows.sort(function(a, b) {
-    if (a.isUsx !== b.isUsx) return a.isUsx ? 1 : -1;
-    return b.revPerTech - a.revPerTech;
+    return BRANCH_ALL.indexOf(a.branch) - BRANCH_ALL.indexOf(b.branch);
   });
 
   // Shared max for the Pest + CG/NWL sub-bars so visual scale is comparable across cards
