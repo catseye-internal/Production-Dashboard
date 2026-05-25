@@ -50,6 +50,38 @@ from collections import defaultdict
 sys.path.insert(0, str(Path(__file__).parent))
 from parse_invoices import parse_report
 
+
+def _has_workdate_timestamp(wd):
+    """True if WorkDate string carries a non-midnight time portion.
+
+    PestPac API returns WorkDate as '2026-05-20T07:22:00' (actual on-site time).
+    CSV exports typically only carry the date. When merging, we must not let
+    a date-only CSV value overwrite an existing record's timestamped value
+    (webhook-captured or backfilled from the API).
+    """
+    if not wd:
+        return False
+    s = str(wd)
+    if 'T' not in s:
+        return False
+    time_part = s.split('T', 1)[1]
+    return time_part not in ('', '00:00:00', '00:00:00.000')
+
+
+def _merge_workdate(existing_rec, new_rec):
+    """Return the WorkDate value to use after merge. Preserves an existing
+    timestamped WorkDate if the new record only carries a date.
+    """
+    new_wd = new_rec.get('WorkDate')
+    existing_wd = existing_rec.get('WorkDate') if existing_rec else None
+    if not existing_wd:
+        return new_wd
+    if not new_wd:
+        return existing_wd
+    if _has_workdate_timestamp(existing_wd) and not _has_workdate_timestamp(new_wd):
+        return existing_wd
+    return new_wd
+
 # ── Sanity-check thresholds ──
 WARN_BRANCH_REVENUE_DRIFT_PCT = 5.0    # WARN if any branch's Total revenue shifts more than this
 WARN_TOTAL_REVENUE_DRIFT_PCT  = 1.0    # WARN if grand-total revenue shifts more than this
@@ -105,10 +137,15 @@ def merge(input_path, cache_path):
         if k:
             by_key[str(k)] = inv
 
-    # Merge — report wins on duplicates
+    # Merge — report wins on duplicates EXCEPT for WorkDate timestamps:
+    # if the existing record carries a full timestamp and the new CSV row
+    # only carries a date, preserve the existing timestamp. This prevents
+    # the weekly CSV merge from clobbering webhook-captured + backfilled
+    # WorkDate times.
     added = 0
     updated = 0
     no_key = 0
+    workdate_preserved = 0
     for rec in new_records:
         k = rec.get('InvoiceNumber')
         if not k:
@@ -116,7 +153,12 @@ def merge(input_path, cache_path):
             continue
         key = str(k)
         if key in by_key:
+            existing = by_key[key]
+            preserved_wd = _merge_workdate(existing, rec)
             by_key[key] = rec
+            if preserved_wd != rec.get('WorkDate'):
+                by_key[key]['WorkDate'] = preserved_wd
+                workdate_preserved += 1
             updated += 1
         else:
             by_key[key] = rec
@@ -152,6 +194,8 @@ def merge(input_path, cache_path):
     print(f"\n🔀 Merge result")
     print(f"  Added new:        {added:,}")
     print(f"  Updated existing: {updated:,}")
+    if workdate_preserved:
+        print(f"  WorkDate timestamps preserved (CSV was date-only): {workdate_preserved:,}")
     if no_key:
         print(f"  Skipped (no InvoiceNumber): {no_key}")
     print(f"  Final cache:      {len(merged):,} invoices  ({size_mb:.2f} MB)")

@@ -112,7 +112,19 @@ NUMERIC_FIELDS = {
 }
 
 DATE_FIELDS = {
-    'InvoiceDate', 'WorkDate', 'OrderDate', 'ConsolidatedDate', 'AddDate',
+    'InvoiceDate', 'OrderDate', 'ConsolidatedDate', 'AddDate',
+}
+
+# DATETIME fields preserve the full ISO timestamp (date + time). Used for
+# WorkDate which carries the actual on-site time of the tech visit. The PestPac
+# API returns these as "2026-05-20T07:22:00"; we preserve them as-is so the
+# dashboard drill-down can display the time of the visit.
+# Note: the Report Writer CSV typically only provides the date portion, so
+# values coming from there will still be date-only — the merge logic in
+# merge_invoices.py refuses to overwrite an existing timestamped value with
+# a date-only one (preserving webhook-captured + backfilled times).
+DATETIME_FIELDS = {
+    'WorkDate',
 }
 
 # Required fields — if a row is missing any of these, the record is dropped
@@ -165,6 +177,39 @@ def to_iso_date(s):
         except ValueError:
             continue
     return s  # leave as-is if unparseable
+
+
+def to_iso_datetime(s):
+    """Preserve full ISO timestamp ('2026-05-20T07:22:00') when present.
+    If only a date is present, return ISO date with no time portion.
+    Used for WorkDate (DATETIME_FIELDS) where the time matters.
+    """
+    if not s:
+        return ''
+    s = str(s).strip()
+    # Already ISO with T-separator → keep as-is (PestPac API format)
+    if 'T' in s:
+        # Validate it parses; otherwise fall through to date-only handling
+        try:
+            datetime.strptime(s, '%Y-%m-%dT%H:%M:%S')
+            return s
+        except ValueError:
+            pass
+        try:
+            datetime.strptime(s.split('.', 1)[0], '%Y-%m-%dT%H:%M:%S')
+            return s.split('.', 1)[0]
+        except ValueError:
+            # Fall through — strip the T and parse as date
+            s = s.split('T', 1)[0]
+    # "M/D/Y H:MM" style — try to preserve
+    for fmt in ('%Y/%m/%d %H:%M:%S', '%m/%d/%Y %H:%M:%S', '%Y-%m-%d %H:%M:%S',
+                '%Y/%m/%d %H:%M', '%m/%d/%Y %H:%M', '%Y-%m-%d %H:%M'):
+        try:
+            return datetime.strptime(s, fmt).strftime('%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            continue
+    # Date-only fallback
+    return to_iso_date(s)
 
 
 # ── Format detection ──
@@ -364,6 +409,10 @@ def parse(input_path, output_path):
                 d = to_iso_date(val)
                 if d:
                     rec[out_key] = d
+            elif out_key in DATETIME_FIELDS:
+                dt = to_iso_datetime(val)
+                if dt:
+                    rec[out_key] = dt
             else:
                 if val:
                     rec[out_key] = val
@@ -471,6 +520,10 @@ def parse_report(input_path):
                 d = to_iso_date(val)
                 if d:
                     rec[out_key] = d
+            elif out_key in DATETIME_FIELDS:
+                dt = to_iso_datetime(val)
+                if dt:
+                    rec[out_key] = dt
             else:
                 if val:
                     rec[out_key] = val

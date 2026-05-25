@@ -3546,7 +3546,7 @@ function renderTechView_() {
         kind: 'INV',
         date: d,
         sortKey: String(inv.WorkDate || inv.InvoiceDate || ''),
-        time: extractTime_(inv.WorkDate),   // most invoices won't have a time
+        time: extractTime_(inv.WorkDate),   // WorkDate carries the actual on-site time (post-backfill)
         customer: String(inv.CustomerName || '').trim(),
         city: String(inv.City || '').trim(),
         serviceCode: inv.ServiceCode || '',

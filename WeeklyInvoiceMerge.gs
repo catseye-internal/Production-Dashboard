@@ -105,7 +105,12 @@ const WIM_NUMERIC_FIELDS = new Set([
   'SubTotal', 'Tax', 'Total', 'Balance', 'AgingDays', 'NetDays',
   'SaleValue', 'ProductionValue', 'TaxableAmount', 'TaxRate', 'Duration'
 ]);
-const WIM_DATE_FIELDS = new Set(['InvoiceDate', 'WorkDate', 'OrderDate', 'ConsolidatedDate', 'AddDate']);
+const WIM_DATE_FIELDS = new Set(['InvoiceDate', 'OrderDate', 'ConsolidatedDate', 'AddDate']);
+// WorkDate is treated as a DATETIME (preserve the timestamp portion if present).
+// CSV exports from Exago typically only give us the date — but the merge logic
+// below refuses to overwrite an existing record's timestamped WorkDate with a
+// date-only one, so webhook-captured + backfilled timestamps survive.
+const WIM_DATETIME_FIELDS = new Set(['WorkDate']);
 const WIM_REQUIRED_FIELDS = ['InvoiceNumber', 'InvoiceType', 'Branch', 'InvoiceDate'];
 const WIM_SPLIT_NAME_HEADERS = ['Company', 'First Name', 'Last Name'];
 const WIM_KEY_HEADER_TOKENS = ['Invoice #', 'Invoice Number', 'InvoiceNumber'];
@@ -119,22 +124,31 @@ const WIM_EXCEL_WRAP = /^="(.*)"$/;
 // ══════════════════════════════════════════════════════════════════════════
 
 /**
- * Production trigger — Monday 6:15 AM ET via installWeeklyMergeTrigger().
- * Does the full pipeline. Side-effects: pushes to GitHub on PASS/WARN, emails
- * Joe on every run.
+ * PRIMARY trigger — Monday ~6:45 AM ET via installWeeklyMergeTrigger().
+ * Silent on "no email found" so a slightly-delayed email doesn't trigger a
+ * false-alarm alert — the backup at ~7:30 AM ET handles loud alerting.
  */
 function weeklyInvoiceMerge() {
-  _wimRun_({ live: true });
+  _wimRun_({ live: true, alertOnNoEmail: false, label: 'PRIMARY' });
+}
+
+/**
+ * BACKUP trigger — Monday ~7:30 AM ET. Runs the same pipeline as the primary.
+ * If the primary already processed the email, the dedup guard makes this exit
+ * silently. If neither attempt found the email, THIS one sends the loud alert
+ * (so you only get noisy if the email is genuinely missing/late).
+ */
+function weeklyInvoiceMergeBackup() {
+  _wimRun_({ live: true, alertOnNoEmail: true, label: 'BACKUP' });
 }
 
 /**
  * Dry-run — parses the latest email's CSV + runs sanity checks, but does NOT
  * push to GitHub or send the verdict email. Logs everything to the Apps Script
- * execution log. Use this on Sunday night to validate the build before letting
- * the Monday trigger fire.
+ * execution log. Use this to validate the build before letting the triggers fire.
  */
 function testWeeklyInvoiceMerge() {
-  _wimRun_({ live: false });
+  _wimRun_({ live: false, alertOnNoEmail: false, label: 'DRY-RUN' });
 }
 
 /**
@@ -147,29 +161,50 @@ function clearWeeklyMergeDedupGuard() {
 }
 
 /**
- * Install the Monday 6:15 AM ET trigger. Run ONCE manually after pasting this
- * file into the Apps Script project.
+ * Install the Monday triggers (primary + backup). Run ONCE manually after
+ * pasting this file into the Apps Script project.
+ *
+ * Primary  ~6:45 AM ET — covers normal-delivery emails (typical case)
+ * Backup   ~7:30 AM ET — covers slow-delivery emails (rare case)
+ *
+ * Both call the same pipeline. Dedup guard ensures only one of them processes
+ * any given email. Only the backup alerts on "no email found," so a slow
+ * delivery doesn't trigger a false alarm — only a genuine missing email does.
  */
 function installWeeklyMergeTrigger() {
-  // Remove any existing trigger for this function to avoid duplicates
+  // Remove any existing triggers for these handlers to avoid duplicates
   var triggers = ScriptApp.getProjectTriggers();
   var removed = 0;
   triggers.forEach(function(t) {
-    if (t.getHandlerFunction() === 'weeklyInvoiceMerge') {
+    var fn = t.getHandlerFunction();
+    if (fn === 'weeklyInvoiceMerge' || fn === 'weeklyInvoiceMergeBackup') {
       ScriptApp.deleteTrigger(t);
       removed++;
     }
   });
-  if (removed > 0) Logger.log('Removed ' + removed + ' existing weeklyInvoiceMerge trigger(s).');
+  if (removed > 0) Logger.log('Removed ' + removed + ' existing trigger(s).');
 
+  // Primary: ~6:45 AM ET (fires somewhere in 6:38-6:52 window)
   ScriptApp.newTrigger('weeklyInvoiceMerge')
     .timeBased()
     .onWeekDay(ScriptApp.WeekDay.MONDAY)
     .atHour(6)
-    .nearMinute(15)
+    .nearMinute(45)
     .inTimezone('America/New_York')
     .create();
-  Logger.log('✅ Installed weekly trigger: every Monday at ~6:15 AM ET.');
+
+  // Backup: ~7:30 AM ET (fires somewhere in 7:23-7:37 window)
+  ScriptApp.newTrigger('weeklyInvoiceMergeBackup')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(7)
+    .nearMinute(30)
+    .inTimezone('America/New_York')
+    .create();
+
+  Logger.log('✅ Installed 2 triggers:');
+  Logger.log('   Primary: weeklyInvoiceMerge       — Monday ~6:45 AM ET (silent on no-email)');
+  Logger.log('   Backup:  weeklyInvoiceMergeBackup — Monday ~7:30 AM ET (alerts on no-email)');
 }
 
 
@@ -179,9 +214,11 @@ function installWeeklyMergeTrigger() {
 
 function _wimRun_(opts) {
   var live = !!opts.live;
+  var alertOnNoEmail = !!opts.alertOnNoEmail;
+  var label = opts.label || (live ? 'LIVE' : 'DRY-RUN');
   var t0 = new Date();
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  Logger.log((live ? '🚀 Weekly Invoice Merge — LIVE RUN' : '🧪 Weekly Invoice Merge — DRY RUN') + ' — ' + t0.toISOString());
+  Logger.log((live ? '🚀 Weekly Invoice Merge — ' + label : '🧪 Weekly Invoice Merge — ' + label) + ' — ' + t0.toISOString());
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   var recipient = PropertiesService.getScriptProperties().getProperty(WIM_RECIPIENT_PROP) || '';
@@ -196,8 +233,20 @@ function _wimRun_(opts) {
     var emailHit = _wimFindLatestEmail_();
     if (!emailHit) {
       var msg = 'No matching email found in the last 48 hours.';
-      Logger.log('❌ ' + msg);
-      if (live) _wimSendAlertEmail_(recipient, '🛑 Weekly Invoice Merge — NO EMAIL FOUND', msg + '\n\nSearch query: ' + WIM_EMAIL_SUBJECT_QUERY);
+      Logger.log((alertOnNoEmail ? '❌ ' : 'ℹ️  ') + msg + (alertOnNoEmail ? '' : ' (silent — primary attempt; backup will retry if needed)'));
+      if (live && alertOnNoEmail) {
+        _wimSendAlertEmail_(
+          recipient,
+          '🛑 Weekly Invoice Merge — NO EMAIL FOUND (both attempts)',
+          'The primary trigger (~6:45 AM ET) and the backup trigger (~7:30 AM ET) both ran and neither found a matching email.\n\n' +
+          'Search query: ' + WIM_EMAIL_SUBJECT_QUERY + '\n\n' +
+          'Possible causes:\n' +
+          '  • Exago/PestPac failed to send this week\n' +
+          '  • Email landed in a different account or got filtered\n' +
+          '  • Subject line on the schedule was changed\n\n' +
+          'Action: check Gmail manually. If the email arrives later today, you can run weeklyInvoiceMerge() manually from the Apps Script editor.'
+        );
+      }
       return;
     }
     Logger.log('   Found: "' + emailHit.subject + '" from ' + emailHit.from + ' at ' + emailHit.date.toISOString());
@@ -501,6 +550,9 @@ function _wimParseInvoiceCsv_(csvText) {
       } else if (WIM_DATE_FIELDS.has(k.outKey)) {
         var d = _wimToIsoDate_(val);
         if (d) rec[k.outKey] = d;
+      } else if (WIM_DATETIME_FIELDS.has(k.outKey)) {
+        var dt = _wimToIsoDatetime_(val);
+        if (dt) rec[k.outKey] = dt;
       } else {
         if (val) rec[k.outKey] = val;
       }
@@ -564,6 +616,37 @@ function _wimToNumber_(s) {
   return n;
 }
 
+function _wimToIsoDatetime_(s) {
+  // Preserve full ISO timestamp when present (PestPac API style: 2026-05-20T07:22:00).
+  // For inputs that only have a date, fall back to date-only parsing.
+  if (!s) return '';
+  var raw = String(s).trim();
+  // Already ISO with T-separator → validate + keep
+  if (raw.indexOf('T') >= 0) {
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+      return raw.split('.')[0];  // strip fractional seconds if present
+    }
+  }
+  // M/D/Y H:MM:SS or Y-M-D H:MM:SS style
+  var dtPatterns = [
+    /^(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/,
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/,
+    /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+  ];
+  for (var i = 0; i < dtPatterns.length; i++) {
+    var m = dtPatterns[i].exec(raw);
+    if (m) {
+      var year, month, day;
+      if (i === 1) { year = m[3]; month = m[1]; day = m[2]; }
+      else         { year = m[1]; month = m[2]; day = m[3]; }
+      var hh = m[4], mm = m[5], ss = m[6] || '00';
+      return year + '-' + _wimPad_(month) + '-' + _wimPad_(day) + 'T' + _wimPad_(hh) + ':' + _wimPad_(mm) + ':' + _wimPad_(ss);
+    }
+  }
+  // No time portion — defer to date-only logic
+  return _wimToIsoDate_(raw);
+}
+
 function _wimToIsoDate_(s) {
   if (!s) return '';
   var raw = String(s).trim();
@@ -610,6 +693,14 @@ function _wimSynthCustomerName_(row, splitNameIdx) {
 // MERGE
 // ══════════════════════════════════════════════════════════════════════════
 
+function _wimHasWorkDateTimestamp_(wd) {
+  if (!wd) return false;
+  var s = String(wd);
+  if (s.indexOf('T') < 0) return false;
+  var timePart = s.split('T')[1] || '';
+  return timePart !== '' && timePart !== '00:00:00' && timePart !== '00:00:00.000';
+}
+
 function _wimMergeByInvoiceNumber_(existing, newRecords) {
   var byKey = {};
   existing.forEach(function(inv) {
@@ -617,12 +708,21 @@ function _wimMergeByInvoiceNumber_(existing, newRecords) {
     if (k !== undefined && k !== null && k !== '') byKey[String(k)] = inv;
   });
 
-  var added = 0, updated = 0, noKey = 0;
+  var added = 0, updated = 0, noKey = 0, workdatePreserved = 0;
   newRecords.forEach(function(rec) {
     var k = rec.InvoiceNumber;
     if (k === undefined || k === null || k === '') { noKey++; return; }
     var key = String(k);
     if (key in byKey) {
+      // Preserve WorkDate timestamp from existing record if new CSV row is
+      // date-only. CSV exports from Exago usually lose the time portion,
+      // but the cache has it from webhook delivery / backfill. Don't let
+      // the weekly merge clobber that.
+      var existingRec = byKey[key];
+      if (_wimHasWorkDateTimestamp_(existingRec.WorkDate) && !_wimHasWorkDateTimestamp_(rec.WorkDate)) {
+        rec.WorkDate = existingRec.WorkDate;
+        workdatePreserved++;
+      }
       byKey[key] = rec;
       updated++;
     } else {
@@ -643,7 +743,7 @@ function _wimMergeByInvoiceNumber_(existing, newRecords) {
     return kb < ka ? -1 : 1;
   });
 
-  return { merged: merged, added: added, updated: updated, noKey: noKey };
+  return { merged: merged, added: added, updated: updated, noKey: noKey, workdatePreserved: workdatePreserved };
 }
 
 
@@ -871,6 +971,7 @@ function _wimBuildVerdictEmailBody_(ctx) {
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   lines.push('  Added new:        ' + ctx.mergeResult.added.toLocaleString());
   lines.push('  Updated existing: ' + ctx.mergeResult.updated.toLocaleString());
+  if (ctx.mergeResult.workdatePreserved) lines.push('  WorkDate times preserved: ' + ctx.mergeResult.workdatePreserved.toLocaleString() + ' (CSV was date-only; existing API timestamp kept)');
   if (ctx.mergeResult.noKey) lines.push('  Skipped no-key:   ' + ctx.mergeResult.noKey.toLocaleString());
   lines.push('  Pre → Post:       ' + s.preCount.toLocaleString() + ' → ' + s.postCount.toLocaleString());
   if (s.removedCount > 0) lines.push('  Removed:          ' + s.removedCount + ' (UNEXPECTED)');
