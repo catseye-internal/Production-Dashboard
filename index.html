@@ -5153,10 +5153,10 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
   var anyData = rows.some(function(r) { return r.pestCount > 0 && r.dailyHours > 0; });
   if (!anyData) return '<div class="cb-empty">No pest tech drive data MTD yet</div>';
 
-  // Group Catseye first, USX second; within each group sort by $/drive-hour desc
+  // Preserve fixed BRANCH_ALL order: E. Mass → CT → RI → W. Mass → Upst. NY
+  // Joe directive 2026-05-25 — consistency over metric-desc sort.
   rows.sort(function(a, b) {
-    if (a.isUsx !== b.isUsx) return a.isUsx ? 1 : -1;
-    return b.dollarsPerDriveHr - a.dollarsPerDriveHr;
+    return BRANCH_ALL.indexOf(a.branch) - BRANCH_ALL.indexOf(b.branch);
   });
 
   // Shared scales for the sub-bars (across visible branches)
