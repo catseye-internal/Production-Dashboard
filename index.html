@@ -2936,6 +2936,37 @@ function renderTechView_() {
     });
   }
 
+  // Today's COMPLETED work — invoices with InvoiceDate=today.
+  // Without this pass, today's Forecast number trends DOWN as the day progresses:
+  // when an SO is posted and flips to an invoice, it leaves the orders cache
+  // and disappears from the today bucket. We add today-dated invoices into the
+  // same 'today' bucket so the number stays stable as a true "total work for
+  // today" view. PRODUCTION lens (IN+PR+CM+CB) — PI auto-bills excluded by
+  // productionInvoices_(). Joe directive 2026-05-25.
+  productionInvoices_().forEach(function(inv) {
+    var date = String(inv.InvoiceDate || '').substring(0, 10);
+    if (date !== dToday) return;
+    var amount = Number(inv.SubTotal) || 0;
+    // Office-credited routing (same rule as MTD invoice loop and forecast SO loop)
+    if (shouldRouteToOffice_(inv, inv.Tech)) {
+      var obk2 = officeBucketFor_(inv.Branch);
+      obk2.today += amount;
+      obk2.todayCount += 1;
+      if ((inv.InvoiceType || '') === 'CB') obk2.todayCallbacks += 1;
+      noteOfficeContributor_(obk2, inv.Tech, amount);
+      noteOfficeCode_(obk2, inv.ServiceCode, amount);
+      return;
+    }
+    var role2 = roleOf(inv);
+    attribute('today', inv.Branch, role2, amount, inv.Tech, inv.Tech2);
+    var it1 = inv.Tech, it2 = inv.Tech2;
+    if (it2 && isNonTechCode(it2)) it2 = null;
+    if ((inv.InvoiceType || '') === 'CB') {
+      if (it1) { row(it1).todayCallbacks = (row(it1).todayCallbacks || 0) + 1; }
+      if (it2 && it2 !== it1) { row(it2).todayCallbacks = (row(it2).todayCallbacks || 0) + 1; }
+    }
+  });
+
   // Callbacks by Branch (mini-donuts): MTD invoices with InvoiceType='CB',
   // grouped by Branch + ServiceCode. Joe directive 2026-05-22: switched from
   // forecast service-orders to MTD invoices for retrospective signal.
