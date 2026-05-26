@@ -28,7 +28,7 @@
     --yellow: #FBBF24;
     --yellow-dim: rgba(251, 191, 36, 0.15);
     --red: #F87171;
-    --red-dim: rgba(248, 113, 113, 0.15);
+    --red-dim: rgba(251, 191, 36, 0.15);
     --blue: #60A5FA;
     --blue-dim: rgba(96, 165, 250, 0.15);
     --gray: #9CA3AF;
@@ -615,7 +615,7 @@
     margin-right: 2px;
   }
   .cx-scope-arr {
-    font-size: 18px; font-weight: 700; color: #F87171;
+    font-size: 18px; font-weight: 700; color: #FBBF24;
   }
 
   /* Mini-tables side-by-side inside a scope card */
@@ -646,7 +646,7 @@
   .cx-mini-key { color: var(--text); font-weight: 600; }
   .cx-mini-count { color: var(--text); font-weight: 700; }
   .cx-mini-pct { color: var(--text-dim); font-size: 10px; }
-  .cx-mini-arr { color: #F87171; font-weight: 700; }
+  .cx-mini-arr { color: #FBBF24; font-weight: 700; }
   .cx-mini-empty {
     text-align: center; padding: 16px; color: var(--text-dim);
     font-size: 11px; font-style: italic;
@@ -793,14 +793,14 @@
   .hero-v2-delta { font-weight: 700; margin-left: 6px; }
   .hero-v2-delta-good { color: #34D399; }
   .hero-v2-delta-warn { color: #FBBF24; }
-  .hero-v2-delta-bad  { color: #F87171; }
+  .hero-v2-delta-bad  { color: #FBBF24; }
   .hero-v2-hint {
     font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
     margin-top: auto;
   }
   .hero-v2-hint-good { color: #34D399; }
   .hero-v2-hint-warn { color: #FBBF24; }
-  .hero-v2-hint-bad  { color: #F87171; }
+  .hero-v2-hint-bad  { color: #FBBF24; }
 
   /* Context strip — 5 small cards below the hero */
   .hero-ctx-row {
@@ -833,8 +833,8 @@
   /* Status accents apply to both hero-v2 and hero-ctx cards */
   .hero-good { border-left-color: #34D399; }
   .hero-good .hero-v2-value, .hero-good .hero-ctx-value { color: #34D399; }
-  .hero-bad  { border-left-color: #F87171; }
-  .hero-bad  .hero-v2-value, .hero-bad  .hero-ctx-value { color: #F87171; }
+  .hero-bad  { border-left-color: #FBBF24; }
+  .hero-bad  .hero-v2-value, .hero-bad  .hero-ctx-value { color: #FBBF24; }
   .hero-warn { border-left-color: #FBBF24; }
   .hero-warn .hero-v2-value, .hero-warn .hero-ctx-value { color: #FBBF24; }
 
@@ -846,7 +846,7 @@
     font-variant-numeric: tabular-nums;
   }
   .hero-pill.good { background: rgba(52,211,153,0.22);  color: #34D399; }
-  .hero-pill.bad  { background: rgba(248,113,113,0.22); color: #F87171; }
+  .hero-pill.bad  { background: rgba(251,191,36,0.22); color: #FBBF24; }
   .hero-pill.warn { background: rgba(251,191,36,0.22);  color: #FBBF24; }
 
   @media (max-width: 1000px) {
@@ -876,7 +876,7 @@
     font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
   }
   .nb-headline-stat.pos { color: #34D399; }
-  .nb-headline-stat.neg { color: #F87171; }
+  .nb-headline-stat.neg { color: #FBBF24; }
   .nb-headline-sub {
     font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums;
   }
@@ -979,9 +979,9 @@
   }
   /* Pass/fail coloring vs Combined needed/day — accent on left border + value text */
   .fc-kpi.fc-kpi-card-good { border-left-color: #34D399; }
-  .fc-kpi.fc-kpi-card-bad  { border-left-color: #F87171; }
+  .fc-kpi.fc-kpi-card-bad  { border-left-color: #FBBF24; }
   .fc-kpi-value.fc-kpi-good { color: #34D399; }
-  .fc-kpi-value.fc-kpi-bad  { color: #F87171; }
+  .fc-kpi-value.fc-kpi-bad  { color: #FBBF24; }
   .fc-kpi-target {
     margin-top: 8px; padding-top: 8px;
     border-top: 1px solid rgba(255,255,255,0.06);
@@ -1090,7 +1090,7 @@
   /* Pest Efficiency card — efficiency-tier coloring on $/drive-hour headline */
   .rpt-card .pte-hero.eff-good { color: #34D399 !important; }
   .rpt-card .pte-hero.eff-mid  { color: #FBBF24 !important; }
-  .rpt-card .pte-hero.eff-low  { color: #F87171 !important; }
+  .rpt-card .pte-hero.eff-low  { color: #FBBF24 !important; }
   .rpt-card-hero-sub {
     font-size: 10px; color: var(--text-dim);
     letter-spacing: 0.3px;
@@ -1217,8 +1217,8 @@
     background: rgba(251, 191, 36, 0.10);
   }
   .mtd-prod-header-freshness.mtd-prod-freshness-stale  {
-    color: #F87171; padding: 1px 6px; border-radius: 3px;
-    background: rgba(248, 113, 113, 0.10);
+    color: #FBBF24; padding: 1px 6px; border-radius: 3px;
+    background: rgba(251, 191, 36, 0.10);
   }
   @media (max-width: 720px) {
     .mtd-prod-header-strip { flex-wrap: wrap; justify-content: flex-start; }
@@ -1252,13 +1252,13 @@
   .cvb-daily-val { font-size: 14px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
   /* Actual/day color tiers — green if ≥ Needed, red if below. Joe 2026-05-24. */
   .cvb-daily-val.pace-ahead   { color: #34D399; }
-  .cvb-daily-val.pace-behind  { color: #F87171; }
+  .cvb-daily-val.pace-behind  { color: #FBBF24; }
   .cvb-daily-val.pace-unset   { color: var(--text); }
   .cvb-daily-diff { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
   .cvb-daily-key { font-size: 10px; color: var(--text-dim); margin-left: auto; }
   .cvb-daily-diff.pace-ahead  { color: #34D399; background: rgba(52, 211, 153, 0.10); }
   .cvb-daily-diff.pace-warn   { color: #FBBF24; background: rgba(251, 191, 36, 0.10); }
-  .cvb-daily-diff.pace-behind { color: #F87171; background: rgba(248, 113, 113, 0.10); }
+  .cvb-daily-diff.pace-behind { color: #FBBF24; background: rgba(251, 191, 36, 0.10); }
   .cvb-daily-diff.pace-unset  { color: var(--text-dim); }
 
   /* Inline date range picker — From / To inputs + Apply / Reset buttons */
@@ -1310,7 +1310,7 @@
   }
   .mtd-prod-pacing.pace-ahead  { color: #34D399; }
   .mtd-prod-pacing.pace-warn   { color: #FBBF24; }
-  .mtd-prod-pacing.pace-behind { color: #F87171; }
+  .mtd-prod-pacing.pace-behind { color: #FBBF24; }
   .mtd-prod-pacing.pace-unset  { color: var(--text-dim); font-weight: 500; }
 
   .mtd-prod-metric {
@@ -1512,7 +1512,7 @@
   }
   .mini-donut-rate-pct.rate-low  { color: var(--green); }
   .mini-donut-rate-pct.rate-med  { color: #FBBF24; }
-  .mini-donut-rate-pct.rate-high { color: #F87171; }
+  .mini-donut-rate-pct.rate-high { color: #FBBF24; }
   .mini-donut-rate-sub {
     font-size: 10px; color: var(--text-dim);
     font-variant-numeric: tabular-nums;
