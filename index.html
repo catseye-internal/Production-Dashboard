@@ -4225,8 +4225,14 @@ function renderTechView_() {
         // (currently returns []), we infer "out" when openMin ≥ 6 hr (360 min).
         // A typical pest day leaves 3-5 hr open; >6 hr is usually PTO/half-day.
         // Today-only — Tmrw/+2/+3 are forecast days, normally near-empty.
+        // Suppressed before 9 AM local time — dispatch hasn't finalized routes
+        // yet, so empty-looking days at 7 AM aren't meaningful signals of PTO.
         var LIKELY_OFF_MIN = 360;  // 6 hours
-        var likelyOffToday = (openMin >= LIKELY_OFF_MIN) && (blockTodayMin < OUT_BLOCK_THRESHOLD_MIN);
+        var nowHour = new Date().getHours();
+        var heuristicActive = nowHour >= 9;
+        var likelyOffToday = heuristicActive
+          && (openMin >= LIKELY_OFF_MIN)
+          && (blockTodayMin < OUT_BLOCK_THRESHOLD_MIN);
         if (isPest) {
           capacityTechCount++;
           capacityUsedMin += usedMin;
