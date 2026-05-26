@@ -798,6 +798,15 @@
     display: grid; grid-template-columns: 1fr 1fr;
     gap: 16px; margin-bottom: 12px;
   }
+  /* 3-card variant — Yesterday / Today / Tomorrow. Joe directive 2026-05-26.
+     Same big font; just three slimmer columns. */
+  .hero-v2-row-3 { grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) {
+    .hero-v2-row-3 .hero-v2-value { font-size: 52px; }
+  }
+  @media (max-width: 700px) {
+    .hero-v2-row-3 { grid-template-columns: 1fr; gap: 10px; }
+  }
   .hero-v2-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -3573,6 +3582,7 @@ function renderTechView_() {
     var d = new Date(todayD); d.setDate(d.getDate() + n);
     return fmtDate(d);
   }
+  var dYday  = offsetYmd(-1);  // Yesterday — Joe directive 2026-05-26
   var dToday = offsetYmd(0);
   var dTmrw  = offsetYmd(1);
   var dPlus2 = offsetYmd(2);
@@ -4261,7 +4271,25 @@ function renderTechView_() {
     });
   } catch (e) { /* leave at 0 — capacity card will show 'no data' */ }
 
+  // Yesterday totals from invoices (Joe directive 2026-05-26 — hero card #3).
+  // Service orders for yesterday are gone by today (PestPac flips them to
+  // invoices once posted), so the only place yesterday's revenue lives is in
+  // cache-invoices.json. PRODUCTION lens (IN/PR/CM/CB) — matches what TODAY's
+  // card aggregates so the three cards are comparable.
+  var fcYesterday = 0;
+  var fcYesterdayCount = 0;
+  try {
+    productionInvoices_().forEach(function(inv) {
+      var d = String(inv.InvoiceDate || '').substring(0, 10);
+      if (d !== dYday) return;
+      fcYesterday += Number(inv.SubTotal) || 0;
+      fcYesterdayCount += 1;
+    });
+  } catch (e) { /* leave at 0 */ }
+
   var heroStripHtml = renderHeroStrip_({
+    fcYesterday:       fcYesterday,
+    fcYesterdayCount:  fcYesterdayCount,
     fcToday:           fcTotals.today,
     fcTmrw:            fcTotals.tmrw,
     fcD2:              fcTotals.d2,
@@ -6414,8 +6442,14 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
     // Daily averages per pest tech
     var dailyProd  = pestCount > 0 ? prodSum  / pestCount / workingDays : 0;
     var dailyStops = pestCount > 0 ? stopsSum / pestCount / workingDays : 0;
-    var dailyHours = pestCount > 0 ? hoursSum / pestCount / workingDays : 0;
-    // Composites
+    // Drive time = between-stop driving (haversine × 1.4 / 30 mph) PLUS a
+    // fixed yard-commute uplift of 30 min/tech/day for yard→first-stop and
+    // last-stop→yard runs. Joe directive 2026-05-26 — between-stops alone
+    // was understating real route hours and skewing $/drive-hr too high.
+    var YARD_COMMUTE_HR = 0.5;
+    var routeHours = pestCount > 0 ? hoursSum / pestCount / workingDays : 0;
+    var dailyHours = pestCount > 0 ? routeHours + YARD_COMMUTE_HR : 0;
+    // Composites — $/drive-hr now reflects FULL route time incl. commute
     var dollarsPerDriveHr = (dailyHours > 0) ? dailyProd / dailyHours : 0;
     var dollarsPerStop    = (dailyStops > 0) ? dailyProd / dailyStops : 0;
 
@@ -6551,7 +6585,7 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
   var metaRow =
     '<div class="rpt-meta-row">' +
       '<span class="rpt-card-section-label">CATSEYE LEFT · USX RIGHT · $/DRIVE-HR WITHIN EACH</span>' +
-      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · includes every stop (callbacks too) · 30 mph avg · ≥$300/hr good · &lt;$200/hr red' + mgrNote + '</span>' +
+      '<span class="rpt-meta-note">' + workingDays + ' working day' + (workingDays === 1 ? '' : 's') + ' MTD · includes every stop (callbacks too) · 30 mph avg + 30min yard commute · ≥$300/hr good · &lt;$200/hr red' + mgrNote + '</span>' +
     '</div>';
 
   return metaRow + '<div class="rpt-cards">' + cardsHtml + '</div>';
@@ -6623,7 +6657,9 @@ function renderHeroStrip_(ctx) {
     var delta = (opts.value || 0) - (opts.target || 0);
     var deltaSign = delta >= 0 ? '+' : '−';
     var deltaAbs  = '$' + Math.round(Math.abs(delta)).toLocaleString();
-    var hint = actionHint_(opts.value, opts.target);
+    // Action hints don't apply to past days (no dispatch action possible).
+    // Joe directive 2026-05-26 — suppress hint on the Yesterday card.
+    var hint = opts.suppressHint ? '' : actionHint_(opts.value, opts.target);
     var stopsLine = (opts.stops != null && opts.stops > 0)
       ? ' · <span class="hero-v2-stops">' + opts.stops.toLocaleString() + ' stops</span>'
       : '';
@@ -6642,13 +6678,17 @@ function renderHeroStrip_(ctx) {
   }
 
   // Label resolution — use fcDateLabel function if provided
+  var ydayLbl  = (typeof ctx.fcDateLabel === 'function') ? ('YESTERDAY · ' + ctx.fcDateLabel(-1)) : 'YESTERDAY';
   var todayLbl = (typeof ctx.fcDateLabel === 'function') ? ('TODAY · ' + ctx.fcDateLabel(0)) : 'TODAY';
   var tmrwLbl  = (typeof ctx.fcDateLabel === 'function') ? ('TOMORROW · ' + ctx.fcDateLabel(1)) : 'TOMORROW';
 
-  // Fixed brand accents — Today=green, Tomorrow=blue (Joe directive 2026-05-26).
-  // Tier signal still shows in the delta + hint text colors below the value.
-  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday, target: ctx.fcNeededPerDay, accent: 'good', stops: ctx.fcTodayCount });
-  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,  target: ctx.fcNeededPerDay, accent: 'info', stops: ctx.fcTmrwCount  });
+  // Fixed brand accents — Yesterday=purple, Today=green, Tomorrow=blue
+  // (Joe directive 2026-05-26). Tier signal still shows in the delta + hint
+  // text colors below the value. Yesterday compares against the same daily
+  // target as Today (NEED/DAY pace target).
+  var ydayCard  = buildHeroCard_({ label: ydayLbl,  value: ctx.fcYesterday, target: ctx.fcNeededPerDay, accent: 'purple', stops: ctx.fcYesterdayCount, suppressHint: true });
+  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday,     target: ctx.fcNeededPerDay, accent: 'good',   stops: ctx.fcTodayCount });
+  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,      target: ctx.fcNeededPerDay, accent: 'info',   stops: ctx.fcTmrwCount  });
 
   // ── Context strip (5 small cards) ──
   // +2 day
@@ -6786,7 +6826,7 @@ function renderHeroStrip_(ctx) {
     capStatusT
   );
 
-  return '<div class="hero-v2-row">' + todayCard + tmrwCard + '</div>' +
+  return '<div class="hero-v2-row hero-v2-row-3">' + ydayCard + todayCard + tmrwCard + '</div>' +
          '<div class="hero-ctx-row hero-ctx-row-6">' + d2Card + d3Card + mtdCard + needCard + capacityCard + capacityCardTmrw + '</div>';
 }
 
