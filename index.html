@@ -2407,10 +2407,15 @@ function loadTimeBlocksCache() {
                String(d.getDate()).padStart(2, '0');
       }
       (data.blocks || []).forEach(function(b) {
-        var sd = b.startDate ? new Date(b.startDate) : null;
-        var ed = b.endDate   ? new Date(b.endDate)   : null;
+        // PestPac returns PascalCase keys (StartDate, EndDate, Technician)
+        // — confirmed 2026-05-26 via /TimeBlocks/1 probe. camelCase fallback
+        // kept in case the API ever normalizes.
+        var sdStr = b.StartDate || b.startDate;
+        var edStr = b.EndDate   || b.endDate;
+        var sd = sdStr ? new Date(sdStr) : null;
+        var ed = edStr ? new Date(edStr) : null;
         if (!sd || !ed || isNaN(sd.getTime()) || isNaN(ed.getTime())) return;
-        var user = String(b.techUsername || b.technician || '').toUpperCase();
+        var user = String(b.techUsername || b.Technician || b.technician || '').toUpperCase();
         if (!user) return;
         // Iterate per-day across the span
         var dayStart = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate());
@@ -4179,56 +4184,71 @@ function renderTechView_() {
   // PTO threshold — when a tech is blocked ≥ this many min, count them as "out"
   // (not just "fully booked"). Defaults to half the productive day.
   var OUT_BLOCK_THRESHOLD_MIN = NET_DAY_MIN / 2;  // 232.5 min
-  // Today's capacity totals
+  // Today's capacity totals (pest + CG/NWL counted separately — Joe 2026-05-26)
   var capacityOpenMin = 0;
   var capacityUsedMin = 0;
   var capacityTotalMin = 0;
   var capacityTechCount = 0;
-  var capacityTechsFree = 0;     // techs with at least 30 min open
-  var capacityTechsOut  = 0;     // techs blocked ≥ OUT_BLOCK_THRESHOLD_MIN (PTO)
-  // Tomorrow's capacity totals (Joe directive 2026-05-26: show both days)
+  var capacityTechsFree = 0;     // PEST techs with at least 30 min open
+  var capacityTechsOut  = 0;     // techs blocked ≥ OUT_BLOCK_THRESHOLD_MIN
+  var capacityCgFree    = 0;     // CG/NWL techs with at least 30 min open
+  // Tomorrow's capacity totals
   var capacityOpenMinTmrw = 0;
   var capacityUsedMinTmrw = 0;
   var capacityTotalMinTmrw = 0;
   var capacityTechCountTmrw = 0;
   var capacityTechsFreeTmrw = 0;
   var capacityTechsOutTmrw  = 0;
+  var capacityCgFreeTmrw    = 0;
   try {
     Object.keys(byBranch).forEach(function(branch) {
       (byBranch[branch] || []).forEach(function(t) {
-        if (t.role !== 'pest') return;
-        // Exclude managers from capacity headcount (they don't carry routes)
+        if (t.role !== 'pest' && t.role !== 'cgnwl') return;
+        // Exclude managers (don't carry routes)
         var isM = (typeof isManagerCode === 'function' && isManagerCode(t.tech)) ||
                   (typeof dynamicMgrSet !== 'undefined' && dynamicMgrSet.has && dynamicMgrSet.has(String(t.tech).toUpperCase()));
         if (isM) return;
-        // PTO / time-block minutes for each day, capped at NET_DAY_MIN so a
-        // 24h block doesn't underflow the calc. Joe directive 2026-05-26.
+        var isPest = (t.role === 'pest');
         var blockTodayMin = Math.min(NET_DAY_MIN, timeBlockMinFor_(t.tech, dToday));
         var blockTmrwMin  = Math.min(NET_DAY_MIN, timeBlockMinFor_(t.tech, dTmrw));
         // Today
-        capacityTechCount++;
         var todayDur = Number(t.data.todayMin) || 0;
         var todayPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dToday; });
         var driveMin = (computeDriveMiles_(todayPts) / 30) * 60;
         var usedMin = todayDur + driveMin + blockTodayMin;
         var openMin = Math.max(0, NET_DAY_MIN - usedMin);
-        capacityUsedMin += usedMin;
-        capacityOpenMin += openMin;
-        capacityTotalMin += NET_DAY_MIN;
-        if (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOut++;
-        else if (openMin >= 30) capacityTechsFree++;
-        // Tomorrow — same model, different day key
-        capacityTechCountTmrw++;
+        // Pest-only metrics drive the headline open-hours number on the card
+        // (CG/NWL has a fundamentally different unit-of-work cadence — one
+        // install ≠ one stop — so we keep them in their own counter, not in
+        // the headline minutes pool). Joe directive 2026-05-26.
+        if (isPest) {
+          capacityTechCount++;
+          capacityUsedMin += usedMin;
+          capacityOpenMin += openMin;
+          capacityTotalMin += NET_DAY_MIN;
+          if (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOut++;
+          else if (openMin >= 30) capacityTechsFree++;
+        } else {
+          if (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOut++;
+          else if (openMin >= 30) capacityCgFree++;
+        }
+        // Tomorrow — same model
         var tmrwDur = Number(t.data.tmrwMin) || 0;
         var tmrwPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dTmrw; });
         var driveMinT = (computeDriveMiles_(tmrwPts) / 30) * 60;
         var usedMinT = tmrwDur + driveMinT + blockTmrwMin;
         var openMinT = Math.max(0, NET_DAY_MIN - usedMinT);
-        capacityUsedMinTmrw += usedMinT;
-        capacityOpenMinTmrw += openMinT;
-        capacityTotalMinTmrw += NET_DAY_MIN;
-        if (blockTmrwMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOutTmrw++;
-        else if (openMinT >= 30) capacityTechsFreeTmrw++;
+        if (isPest) {
+          capacityTechCountTmrw++;
+          capacityUsedMinTmrw += usedMinT;
+          capacityOpenMinTmrw += openMinT;
+          capacityTotalMinTmrw += NET_DAY_MIN;
+          if (blockTmrwMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOutTmrw++;
+          else if (openMinT >= 30) capacityTechsFreeTmrw++;
+        } else {
+          if (blockTmrwMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOutTmrw++;
+          else if (openMinT >= 30) capacityCgFreeTmrw++;
+        }
       });
     });
   } catch (e) { /* leave at 0 — capacity card will show 'no data' */ }
@@ -4258,12 +4278,14 @@ function renderTechView_() {
     capacityTechCount: capacityTechCount,
     capacityTechsFree: capacityTechsFree,
     capacityTechsOut:  capacityTechsOut,
+    capacityCgFree:    capacityCgFree,
     capacityOpenMinTmrw:   capacityOpenMinTmrw,
     capacityUsedMinTmrw:   capacityUsedMinTmrw,
     capacityTotalMinTmrw:  capacityTotalMinTmrw,
     capacityTechCountTmrw: capacityTechCountTmrw,
     capacityTechsFreeTmrw: capacityTechsFreeTmrw,
     capacityTechsOutTmrw:  capacityTechsOutTmrw,
+    capacityCgFreeTmrw:    capacityCgFreeTmrw,
     setupsWeekCount:   heroSetupsCount,
     cancelsWeekCount:  heroCancelsCount,
     callbacksToday:    heroCallbacksToday
@@ -4390,16 +4412,31 @@ function renderTechView_() {
       d.driveTimeTmrw  = d.driveDistTmrw  > 0 ? d.driveDistTmrw  / 30 : 0;
       d.driveTimeD2    = d.driveDistD2    > 0 ? d.driveDistD2    / 30 : 0;
       d.driveTimeD3    = d.driveDistD3    > 0 ? d.driveDistD3    / 30 : 0;
-      // Open capacity TODAY (Joe directive 2026-05-26) — minute-based, pest only.
+      // Open capacity per day (Joe directive 2026-05-26) — minute-based, pest only.
       // 465 productive min = 8.5 hr day − 45 min lunch.
-      // Used = Σ(Order.Duration today) + drive time today (hr × 60).
+      // Used = Σ(Order.Duration on day) + drive time on day + time-block min on day.
       // CG/NWL techs get null (capacity doesn't apply the same way).
+      // Tmrw/+2/+3 columns added 2026-05-26 (T+1 — dispatch wants forward visibility).
       if (item.role === 'pest') {
-        var driveMinToday = (d.driveTimeToday || 0) * 60;
-        var usedToday = (d.todayMin || 0) + driveMinToday;
-        d.openMinToday = Math.max(0, 465 - usedToday);
+        var NET = 465;
+        function openFor_(durMin, driveHr, blockMin) {
+          var used = (durMin || 0) + ((driveHr || 0) * 60) + (blockMin || 0);
+          return Math.max(0, NET - used);
+        }
+        var u = String(item.tech || '').toUpperCase();
+        var blockToday = (typeof timeBlockMinFor_ === 'function') ? Math.min(NET, timeBlockMinFor_(u, dToday)) : 0;
+        var blockTmrw  = (typeof timeBlockMinFor_ === 'function') ? Math.min(NET, timeBlockMinFor_(u, dTmrw))  : 0;
+        var blockD2    = (typeof timeBlockMinFor_ === 'function') ? Math.min(NET, timeBlockMinFor_(u, dPlus2)) : 0;
+        var blockD3    = (typeof timeBlockMinFor_ === 'function') ? Math.min(NET, timeBlockMinFor_(u, dPlus3)) : 0;
+        d.openMinToday = openFor_(d.todayMin, d.driveTimeToday, blockToday);
+        d.openMinTmrw  = openFor_(d.tmrwMin,  d.driveTimeTmrw,  blockTmrw);
+        d.openMinD2    = openFor_(d.d2Min,    d.driveTimeD2,    blockD2);
+        d.openMinD3    = openFor_(d.d3Min,    d.driveTimeD3,    blockD3);
       } else {
         d.openMinToday = null;
+        d.openMinTmrw  = null;
+        d.openMinD2    = null;
+        d.openMinD3    = null;
       }
     }
     techs.forEach(computeDriveOn_);
@@ -4420,7 +4457,10 @@ function renderTechView_() {
       driveDistTmrw: 0,  driveTimeTmrw: 0,
       driveDistD2: 0,    driveTimeD2: 0,
       driveDistD3: 0,    driveTimeD3: 0,
-      openMinToday: 0   // sums only pest techs' open capacity (Joe 2026-05-26)
+      openMinToday: 0,  // sums only pest techs' open capacity (Joe 2026-05-26)
+      openMinTmrw:  0,
+      openMinD2:    0,
+      openMinD3:    0
     };
     var bodyRows = techs.map(function(item) {
       var d = item.data;
@@ -4445,6 +4485,9 @@ function renderTechView_() {
       totals.driveDistToday     += (d.driveDistToday || 0);
       totals.driveTimeToday     += (d.driveTimeToday || 0);
       if (d.openMinToday != null) totals.openMinToday += d.openMinToday;
+      if (d.openMinTmrw  != null) totals.openMinTmrw  += d.openMinTmrw;
+      if (d.openMinD2    != null) totals.openMinD2    += d.openMinD2;
+      if (d.openMinD3    != null) totals.openMinD3    += d.openMinD3;
       totals.driveDistTmrw      += (d.driveDistTmrw  || 0);
       totals.driveTimeTmrw      += (d.driveTimeTmrw  || 0);
       totals.driveDistD2        += (d.driveDistD2    || 0);
@@ -4484,18 +4527,21 @@ function renderTechView_() {
         countCell(d.tmrwCallbacks) +
         distCell(d.driveDistTmrw) +
         timeCell(d.driveTimeTmrw) +
+        openMinCell_(d.openMinTmrw) +
         // +2 block
         forecastCell(d.d2, d.d2Count, d.d2, isPest, false) +
         countCell(d.d2Count) +
         countCell(d.d2Callbacks) +
         distCell(d.driveDistD2) +
         timeCell(d.driveTimeD2) +
+        openMinCell_(d.openMinD2) +
         // +3 block
         forecastCell(d.d3, d.d3Count, d.d3, isPest, false) +
         countCell(d.d3Count) +
         countCell(d.d3Callbacks) +
         distCell(d.driveDistD3) +
         timeCell(d.driveTimeD3) +
+        openMinCell_(d.openMinD3) +
       '</tr>';
     }).join('');
 
@@ -4571,16 +4617,19 @@ function renderTechView_() {
         countCell(office.tmrwCallbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
+        '<td class="num"><span style="color:var(--text-dim)">—</span></td>' + // Open Tmrw (n/a)
         forecastCell(office.d2, office.d2Count, office.d2, false, false) +
         countCell(office.d2Count) +
         countCell(office.d2Callbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
+        '<td class="num"><span style="color:var(--text-dim)">—</span></td>' + // Open +2 (n/a)
         forecastCell(office.d3, office.d3Count, office.d3, false, false) +
         countCell(office.d3Count) +
         countCell(office.d3Callbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
+        '<td class="num"><span style="color:var(--text-dim)">—</span></td>' + // Open +3 (n/a)
       '</tr>';
     }
 
@@ -4605,16 +4654,19 @@ function renderTechView_() {
       countCell(totals.tmrwCallbacks) +
       distCell(totals.driveDistTmrw) +
       timeCell(totals.driveTimeTmrw) +
+      openMinCell_(totals.openMinTmrw) +
       forecastCell(totals.d2, totals.d2Count, totals.d2, true, true) +
       countCell(totals.d2Count) +
       countCell(totals.d2Callbacks) +
       distCell(totals.driveDistD2) +
       timeCell(totals.driveTimeD2) +
+      openMinCell_(totals.openMinD2) +
       forecastCell(totals.d3, totals.d3Count, totals.d3, true, true) +
       countCell(totals.d3Count) +
       countCell(totals.d3Callbacks) +
       distCell(totals.driveDistD3) +
       timeCell(totals.driveTimeD3) +
+      openMinCell_(totals.openMinD3) +
     '</tr>';
 
     return '<div class="group-block full-width ' + brandCls + '">' +
@@ -4647,18 +4699,21 @@ function renderTechView_() {
         sortableTh_('tmrwCallbacks',      'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
         sortableTh_('driveDistTmrw',      'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
         sortableTh_('driveTimeTmrw',      'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
+        sortableTh_('openMinTmrw',        'Open',      '<br><span style="font-weight:400;color:var(--text-dim)">capacity</span>',                sortState, true) +
         // ── +2 ──
         sortableTh_('d2',                 '+2',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
         sortableTh_('d2Count',            'Stops',     '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
         sortableTh_('d2Callbacks',        'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
         sortableTh_('driveDistD2',        'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
         sortableTh_('driveTimeD2',        'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
+        sortableTh_('openMinD2',          'Open',      '<br><span style="font-weight:400;color:var(--text-dim)">capacity</span>',                sortState, true) +
         // ── +3 ──
         sortableTh_('d3',                 '+3',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('d3Count',            'Stops',     '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('d3Callbacks',        'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('driveDistD3',        'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('driveTimeD3',        'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
+        sortableTh_('openMinD3',          'Open',      '<br><span style="font-weight:400;color:var(--text-dim)">capacity</span>',                sortState, true) +
       '</tr></thead><tbody>' + bodyRows + officeRow + totalRow + '</tbody></table></div>';
   }
 
@@ -5255,16 +5310,19 @@ var SORT_COLUMN_LABELS = {
   tmrwCallbacks:      'CB Tmrw',
   driveDistTmrw:      'Dist Tmrw',
   driveTimeTmrw:      'Time Tmrw',
+  openMinTmrw:        'Open Tmrw',
   d2:                 '+2',
   d2Count:            'Stops +2',
   d2Callbacks:        'CB +2',
   driveDistD2:        'Dist +2',
   driveTimeD2:        'Time +2',
+  openMinD2:          'Open +2',
   d3:                 '+3',
   d3Count:            'Stops +3',
   d3Callbacks:        'CB +3',
   driveDistD3:        'Dist +3',
-  driveTimeD3:        'Time +3'
+  driveTimeD3:        'Time +3',
+  openMinD3:          'Open +3'
 };
 
 // Renders the row of sort chips shown above each master card's table.
@@ -6657,6 +6715,17 @@ function renderHeroStrip_(ctx) {
     if (rem === 0) return hr + ' hr';
     return hr + 'h ' + rem + 'm';
   }
+  // Helper: build the standard "X pest free · Y CG/NWL free · Z booked · N out"
+  // sub-line. Used by both Today's and Tomorrow's Capacity cards. Joe 2026-05-26.
+  function capacitySubLine_(pestFree, cgFree, bookedMin, outCount) {
+    var parts = [];
+    parts.push(pestFree + ' pest free');
+    parts.push(cgFree + ' CG/NWL free');
+    parts.push(fmtHrMin_(bookedMin) + ' booked');
+    if (outCount > 0) parts.push(outCount + ' out');
+    return parts.join(' · ');
+  }
+
   var capStatus = 'neutral';
   var capValue, capSub;
   if ((ctx.capacityTechCount || 0) === 0) {
@@ -6664,12 +6733,12 @@ function renderHeroStrip_(ctx) {
     capSub = 'no pest techs scheduled';
   } else {
     capValue = fmtHrMin_(ctx.capacityOpenMin || 0);
-    var freeTechs = ctx.capacityTechsFree || 0;
-    var outTechs  = ctx.capacityTechsOut || 0;
-    var total = ctx.capacityTechCount || 0;
-    capSub = freeTechs + ' of ' + total + ' techs free · ' +
-             fmtHrMin_(ctx.capacityTotalMin - ctx.capacityOpenMin) + ' booked' +
-             (outTechs > 0 ? ' · ' + outTechs + ' out' : '');
+    capSub = capacitySubLine_(
+      ctx.capacityTechsFree || 0,
+      ctx.capacityCgFree    || 0,
+      (ctx.capacityTotalMin || 0) - (ctx.capacityOpenMin || 0),
+      ctx.capacityTechsOut  || 0
+    );
     // Tier: green if >2 hr free, yellow if 30 min–2 hr, neutral if fully booked
     var totalOpen = ctx.capacityOpenMin || 0;
     if (totalOpen >= 120) capStatus = 'good';
@@ -6691,12 +6760,12 @@ function renderHeroStrip_(ctx) {
     capSubT = 'no pest techs scheduled';
   } else {
     capValueT = fmtHrMin_(ctx.capacityOpenMinTmrw || 0);
-    var freeTechsT = ctx.capacityTechsFreeTmrw || 0;
-    var outTechsT  = ctx.capacityTechsOutTmrw || 0;
-    var totalT = ctx.capacityTechCountTmrw || 0;
-    capSubT = freeTechsT + ' of ' + totalT + ' techs free · ' +
-              fmtHrMin_((ctx.capacityTotalMinTmrw || 0) - (ctx.capacityOpenMinTmrw || 0)) + ' booked' +
-              (outTechsT > 0 ? ' · ' + outTechsT + ' out' : '');
+    capSubT = capacitySubLine_(
+      ctx.capacityTechsFreeTmrw || 0,
+      ctx.capacityCgFreeTmrw    || 0,
+      (ctx.capacityTotalMinTmrw || 0) - (ctx.capacityOpenMinTmrw || 0),
+      ctx.capacityTechsOutTmrw  || 0
+    );
     var totalOpenT = ctx.capacityOpenMinTmrw || 0;
     if (totalOpenT >= 120) capStatusT = 'good';
     else if (totalOpenT >= 30) capStatusT = 'warn';

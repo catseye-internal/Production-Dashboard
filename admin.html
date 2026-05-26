@@ -200,8 +200,28 @@
       background: var(--bg-input); border: 1px solid var(--border);
       border-radius: 6px; padding: 10px 12px;
     }
-    .ms-card.ms-catseye { border-left: 3px solid var(--orange); }
-    .ms-card.ms-usx     { border-left: 3px solid var(--blue); }
+    .ms-card.ms-catseye  { border-left: 3px solid var(--orange); }
+    .ms-card.ms-usx      { border-left: 3px solid var(--blue); }
+    .ms-card.ms-combined { border-left: 3px solid #A78BFA; }
+
+    /* Company toggle (Combined / Catseye / USX) — used on Month Summary +
+       Year Summary to scope which company cards are visible. Joe 2026-05-26. */
+    .company-toggle {
+      display: flex; gap: 4px; margin-bottom: 10px;
+    }
+    .ct-btn {
+      font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.6px;
+      padding: 6px 12px; border-radius: 5px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+    }
+    .ct-btn:hover { color: var(--text); border-color: var(--text-dim); }
+    .ct-btn.active {
+      background: rgba(244,123,32,0.12);
+      color: var(--orange);
+      border-color: var(--orange);
+    }
     .ms-card-label {
       font-size: 9px; font-weight: 700; letter-spacing: 0.6px;
       text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;
@@ -408,23 +428,40 @@
           <h3 id="summary-title">Month Summary</h3>
           <span id="summary-sub" class="month-summary-sub">All 6 categories · dashboard subtotal in parentheses</span>
         </div>
+        <!-- Company filter — Combined / Catseye / USX. Joe directive 2026-05-26.
+             Used to audit company-level totals. -->
+        <div class="company-toggle" data-toggle-group="month">
+          <button type="button" class="ct-btn active" data-co="combined">Combined</button>
+          <button type="button" class="ct-btn" data-co="catseye">Catseye</button>
+          <button type="button" class="ct-btn" data-co="usx">USX Pest</button>
+        </div>
         <div class="month-summary-grid">
-          <div class="ms-card ms-catseye">
+          <div class="ms-card ms-combined" data-co-card="combined">
+            <div class="ms-card-label">Combined · True</div>
+            <div class="ms-card-value" id="ms-all-true">$0</div>
+            <div class="ms-card-sub" id="ms-all-true-sub">Dashboard: $0</div>
+          </div>
+          <div class="ms-card ms-combined" data-co-card="combined">
+            <div class="ms-card-label">Combined · Enhanced</div>
+            <div class="ms-card-value" id="ms-all-enh">$0</div>
+            <div class="ms-card-sub" id="ms-all-enh-sub">Dashboard: $0</div>
+          </div>
+          <div class="ms-card ms-catseye" data-co-card="catseye">
             <div class="ms-card-label">Catseye · True</div>
             <div class="ms-card-value" id="ms-cat-true">$0</div>
             <div class="ms-card-sub" id="ms-cat-true-sub">Dashboard: $0</div>
           </div>
-          <div class="ms-card ms-catseye">
+          <div class="ms-card ms-catseye" data-co-card="catseye">
             <div class="ms-card-label">Catseye · Enhanced</div>
             <div class="ms-card-value" id="ms-cat-enh">$0</div>
             <div class="ms-card-sub" id="ms-cat-enh-sub">Dashboard: $0</div>
           </div>
-          <div class="ms-card ms-usx">
+          <div class="ms-card ms-usx" data-co-card="usx">
             <div class="ms-card-label">USX Pest · True</div>
             <div class="ms-card-value" id="ms-usx-true">$0</div>
             <div class="ms-card-sub" id="ms-usx-true-sub">Dashboard: $0</div>
           </div>
-          <div class="ms-card ms-usx">
+          <div class="ms-card ms-usx" data-co-card="usx">
             <div class="ms-card-label">USX Pest · Enhanced</div>
             <div class="ms-card-value" id="ms-usx-enh">$0</div>
             <div class="ms-card-sub" id="ms-usx-enh-sub">Dashboard: $0</div>
@@ -491,11 +528,18 @@
           <span class="save-status" id="yr-mode-pill">Read-only — click any cell to edit</span>
         </div>
 
-        <!-- Year totals summary: Branch annual total + dashboard subset -->
+        <!-- Year totals summary: Branch annual total + company/combined total -->
         <div class="month-summary">
           <div class="month-summary-header">
             <h3 id="yr-summary-title">Annual Summary</h3>
             <span id="yr-summary-sub" class="month-summary-sub">All 6 categories · dashboard subtotal in parentheses</span>
+          </div>
+          <!-- Company filter — Combined / Catseye / USX. Joe directive 2026-05-26.
+               Changes which Company-level cards are shown next to the Branch cards. -->
+          <div class="company-toggle" data-toggle-group="year">
+            <button type="button" class="ct-btn active" data-co="combined">Combined</button>
+            <button type="button" class="ct-btn" data-co="catseye">Catseye</button>
+            <button type="button" class="ct-btn" data-co="usx">USX Pest</button>
           </div>
           <div class="year-summary-grid">
             <div class="ms-card ms-catseye">
@@ -509,12 +553,12 @@
               <div class="ms-card-sub" id="yr-brn-enh-sub">Dashboard: $0</div>
             </div>
             <div class="ms-card ms-usx">
-              <div class="ms-card-label" id="yr-co-true-label">Company · True</div>
+              <div class="ms-card-label" id="yr-co-true-label">Combined · True</div>
               <div class="ms-card-value" id="yr-co-true">$0</div>
               <div class="ms-card-sub" id="yr-co-true-sub">Dashboard: $0</div>
             </div>
             <div class="ms-card ms-usx">
-              <div class="ms-card-label" id="yr-co-enh-label">Company · Enhanced</div>
+              <div class="ms-card-label" id="yr-co-enh-label">Combined · Enhanced</div>
               <div class="ms-card-value" id="yr-co-enh">$0</div>
               <div class="ms-card-sub" id="yr-co-enh-sub">Dashboard: $0</div>
             </div>
@@ -818,7 +862,51 @@
       $('ms-usx-true-sub').textContent = 'Dashboard: ' + fmtMoney(usxTrue5);
       $('ms-usx-enh').textContent      = fmtMoney(usxEnh6);
       $('ms-usx-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(usxEnh5);
+      // Combined totals (Joe 2026-05-26)
+      $('ms-all-true').textContent     = fmtMoney(catTrue6 + usxTrue6);
+      $('ms-all-true-sub').textContent = 'Dashboard: ' + fmtMoney(catTrue5 + usxTrue5);
+      $('ms-all-enh').textContent      = fmtMoney(catEnh6 + usxEnh6);
+      $('ms-all-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(catEnh5 + usxEnh5);
+      applyCompanyToggle('month');
     }
+
+    // ── Company toggle (Combined / Catseye / USX) — Joe directive 2026-05-26 ──
+    // Hides/shows the per-company summary cards based on the toggle. Combined
+    // view shows all 6 cards (Combined + Catseye + USX). Single-company views
+    // show only that company's 2 cards. Year view follows the same pattern.
+    var companySelection = { month: 'combined', year: 'combined' };
+    function applyCompanyToggle(group) {
+      var co = companySelection[group] || 'combined';
+      // Scope the query to the toggle group's parent container
+      var groupBtn = document.querySelector('.company-toggle[data-toggle-group="' + group + '"]');
+      if (!groupBtn) return;
+      var summaryContainer = groupBtn.closest('.month-summary');
+      if (!summaryContainer) return;
+      // Highlight active button
+      summaryContainer.querySelectorAll('.ct-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.co === co);
+      });
+      // Show/hide cards. Cards without a data-co-card always show (e.g. Year
+      // view's branch cards aren't company-scoped).
+      summaryContainer.querySelectorAll('[data-co-card]').forEach(function(card) {
+        var match = (co === 'combined') ? (card.dataset.coCard === 'combined')
+                                        : (card.dataset.coCard === co);
+        card.style.display = match ? '' : 'none';
+      });
+      // Year-view: rewire the Company cards to show the selected company's
+      // totals (instead of auto-deriving from the branch).
+      if (group === 'year' && typeof refreshYearCompanyCards_ === 'function') {
+        refreshYearCompanyCards_();
+      }
+    }
+    // Wire the toggle buttons (delegated click handler)
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('.ct-btn');
+      if (!btn) return;
+      var group = btn.closest('.company-toggle').dataset.toggleGroup;
+      companySelection[group] = btn.dataset.co;
+      applyCompanyToggle(group);
+    });
 
     function markDirty() {
       state.dirty = true;
@@ -1081,26 +1169,41 @@
         });
         return t;
       }
-      var company       = isCatseyeBranch_(branch) ? 'catseye' : 'usx';
-      var companyLabel  = company === 'catseye' ? 'Catseye total' : 'USX Pest total';
-      var companyList   = company === 'catseye' ? CATSEYE_BRANCHES : USX_BRANCHES;
-
       var brnTrue6 = sumYear_([branch], 'true',     CATEGORIES);
       var brnEnh6  = sumYear_([branch], 'enhanced', CATEGORIES);
       var brnTrue5 = sumYear_([branch], 'true',     DASHBOARD_CATEGORIES);
       var brnEnh5  = sumYear_([branch], 'enhanced', DASHBOARD_CATEGORIES);
-      var coTrue6  = sumYear_(companyList, 'true',     CATEGORIES);
-      var coEnh6   = sumYear_(companyList, 'enhanced', CATEGORIES);
-      var coTrue5  = sumYear_(companyList, 'true',     DASHBOARD_CATEGORIES);
-      var coEnh5   = sumYear_(companyList, 'enhanced', DASHBOARD_CATEGORIES);
 
       $('yr-summary-title').textContent = 'Annual Summary · ' + year;
       $('yr-brn-true').textContent     = fmtMoney(brnTrue6);
       $('yr-brn-true-sub').textContent = 'Dashboard: ' + fmtMoney(brnTrue5);
       $('yr-brn-enh').textContent      = fmtMoney(brnEnh6);
       $('yr-brn-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(brnEnh5);
-      $('yr-co-true-label').textContent = companyLabel + ' · True';
-      $('yr-co-enh-label').textContent  = companyLabel + ' · Enhanced';
+
+      // Company-level totals depend on the toggle (Combined / Catseye / USX).
+      // Stash the year + sum function so the toggle handler can recompute on
+      // its own without re-rendering the whole grid. Joe directive 2026-05-26.
+      window._yearCtx_ = { year: year, sumYear: sumYear_, months: months };
+      refreshYearCompanyCards_();
+    }
+
+    // Updates the Year-view Company cards based on the current toggle choice.
+    // Called both from renderYearGrid_ (initial render) and from the toggle
+    // handler (when the user flips between Combined / Catseye / USX).
+    function refreshYearCompanyCards_() {
+      if (!window._yearCtx_) return;
+      var ctx = window._yearCtx_;
+      var co = companySelection.year || 'combined';
+      var label, branchList;
+      if (co === 'catseye')      { label = 'Catseye total';   branchList = CATSEYE_BRANCHES; }
+      else if (co === 'usx')     { label = 'USX Pest total';  branchList = USX_BRANCHES; }
+      else                       { label = 'Combined total';  branchList = CATSEYE_BRANCHES.concat(USX_BRANCHES); }
+      var coTrue6 = ctx.sumYear(branchList, 'true',     CATEGORIES);
+      var coEnh6  = ctx.sumYear(branchList, 'enhanced', CATEGORIES);
+      var coTrue5 = ctx.sumYear(branchList, 'true',     DASHBOARD_CATEGORIES);
+      var coEnh5  = ctx.sumYear(branchList, 'enhanced', DASHBOARD_CATEGORIES);
+      $('yr-co-true-label').textContent = label + ' · True';
+      $('yr-co-enh-label').textContent  = label + ' · Enhanced';
       $('yr-co-true').textContent      = fmtMoney(coTrue6);
       $('yr-co-true-sub').textContent  = 'Dashboard: ' + fmtMoney(coTrue5);
       $('yr-co-enh').textContent       = fmtMoney(coEnh6);

@@ -3025,16 +3025,23 @@ function refreshTimeBlocksCache() {
       return;
     }
 
-    // 5-day window covering today through +4 (the Dashboard forecast horizon).
-    // PestPac /TimeBlocks accepts date-only YYYY-MM-DD strings (same as
-    // /ServiceOrders). ISO datetime with URL-encoded colons returned HTTP 500
-    // "1901-01-01T was not recognized as a valid DateTime" (2026-05-26).
+    // PestPac /TimeBlocks ENDPOINT BUGS (confirmed 2026-05-26 via probe):
+    //   1. The endDate query param triggers HTTP 500 ("1901-01-01T was not
+    //      recognized as a valid DateTime") — every format we tried. Drop it.
+    //   2. The startDate filter appears to be strict > (not >=). A block
+    //      starting at 00:00 on `startDate` gets excluded. So we anchor
+    //      startDate to Jan 1 of current year (Joe directive: "this year is
+    //      more than enough") — wide enough to catch any active block, scoped
+    //      enough to avoid pulling decades of history.
+    // Client-side: filter to only the 5-day Dashboard forecast window so the
+    // cache stays small (a year of API blocks → ~5 days persisted).
     var now = new Date();
-    var start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    var end   = new Date(start);
-    end.setDate(end.getDate() + 5);
-    var startStr = fmt_(start);   // YYYY-MM-DD
-    var endStr   = fmt_(end);     // YYYY-MM-DD
+    var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var windowEnd  = new Date(todayStart);
+    windowEnd.setDate(windowEnd.getDate() + 5);
+    var startStr   = now.getFullYear() + '-01-01';   // YTD query
+    var todayMs    = todayStart.getTime();
+    var endCutoffMs = windowEnd.getTime();
 
     var token = ppToken_();
     var allBlocks = [];
@@ -3045,9 +3052,8 @@ function refreshTimeBlocksCache() {
 
     for (var i = 0; i < techs.length; i++) {
       var t = techs[i];
-      var path = '/TimeBlocks?techId=' + t.EmployeeID +
-                 '&startDate=' + startStr +
-                 '&endDate='   + endStr;
+      // NO endDate param — see bug note above. Filter end-of-window client-side.
+      var path = '/TimeBlocks?techId=' + t.EmployeeID + '&startDate=' + startStr;
       var r = ppGet_(token, path);
       if (r.code === 401 && /quota/i.test(r.text)) {
         Logger.log('  ❌ PestPac tenant quota exhausted at tech #' + (i+1) + ' (' + t.Username + '). Aborting.');
@@ -3071,18 +3077,32 @@ function refreshTimeBlocksCache() {
       var arr;
       try { arr = JSON.parse(r.text); } catch (e) { arr = []; }
       if (!Array.isArray(arr) || arr.length === 0) {
-        // Most techs will have no blocks most days — that's expected.
         Utilities.sleep(200);
         continue;
       }
-      techsWithBlocks++;
-      // Stamp the Username (3-letter join key) on each block — the response
-      // returns a "technician" field but we want a known join key.
+      // Client-side window filter — response is unbounded on the back end
+      // because we couldn't send endDate (PestPac bug). Keep only blocks that
+      // overlap our window. Response uses PascalCase keys (TimeBlockID,
+      // Technician, StartDate, EndDate, DayOfWeek, Duration, Reason,
+      // Description, Color, Address) — confirmed via /TimeBlocks/1 probe.
+      var kept = 0;
       for (var j = 0; j < arr.length; j++) {
-        arr[j].techUsername  = t.Username;
-        arr[j].techEmployeeID = t.EmployeeID;
-        allBlocks.push(arr[j]);
+        var bk = arr[j];
+        var sd = bk.StartDate || bk.startDate;
+        var ed = bk.EndDate   || bk.endDate;
+        if (!sd || !ed) continue;
+        var sdMs = new Date(sd).getTime();
+        var edMs = new Date(ed).getTime();
+        if (isNaN(sdMs) || isNaN(edMs)) continue;
+        // Discard blocks entirely before our window or entirely after it
+        if (edMs < todayMs)     continue;
+        if (sdMs > endCutoffMs) continue;
+        bk.techUsername   = t.Username;
+        bk.techEmployeeID = t.EmployeeID;
+        allBlocks.push(bk);
+        kept++;
       }
+      if (kept > 0) techsWithBlocks++;
       Utilities.sleep(200);
     }
 
@@ -3100,8 +3120,9 @@ function refreshTimeBlocksCache() {
 
     var cache = {
       updated:      new Date().toISOString(),
-      windowStart:  startStr,
-      windowEnd:    endStr,
+      apiStartDate: startStr,            // Wide YTD query (server-side)
+      windowStart:  fmt_(todayStart),    // Client-side window kept in cache
+      windowEnd:    fmt_(windowEnd),
       recordCount:  allBlocks.length,
       techsCovered: techs.length,
       techsWithBlocks: techsWithBlocks,
@@ -3116,6 +3137,155 @@ function refreshTimeBlocksCache() {
   } catch (err) {
     Logger.log('❌ Time blocks refresh error: ' + err.message + '\n' + err.stack);
   }
+}
+
+// ──────────────────────────────────────────────────────────────
+// DIAGNOSTIC — try 6 date-format × 2 tech-ID combinations to find what
+// PestPac /TimeBlocks actually accepts. Each call is independent; no cache
+// is written. 12 API calls total. Run once, read the log, then we lock in
+// the working format in refreshTimeBlocksCache. Joe 2026-05-26.
+// ──────────────────────────────────────────────────────────────
+function probeTimeBlocksFormats() {
+  Logger.log('🔬 PROBE /TimeBlocks date-format compatibility');
+  var token = ppToken_();
+  var techs = [
+    { id: 1,   name: 'ADMN (system account)' },
+    { id: 304, name: 'CXL — Cody Lahey (real tech, known block today)' }
+  ];
+  // All formats encode for today only — single-day window
+  var formats = [
+    { label: 'date-only',           start: '2026-05-26',                end: '2026-05-26' },
+    { label: 'ISO no-Z no-ms',      start: '2026-05-26T00:00:00',       end: '2026-05-26T23:59:59' },
+    { label: 'ISO with Z',          start: '2026-05-26T00:00:00Z',      end: '2026-05-26T23:59:59Z' },
+    { label: 'ISO with ms+Z',       start: '2026-05-26T00:00:00.000Z',  end: '2026-05-26T23:59:59.999Z' },
+    { label: 'US slash',            start: '05/26/2026',                end: '05/26/2026' },
+    { label: 'ISO UTC offset (-04)',start: '2026-05-26T00:00:00-04:00', end: '2026-05-26T23:59:59-04:00' }
+  ];
+  techs.forEach(function(t) {
+    Logger.log('── Tech ' + t.id + ' — ' + t.name + ' ──');
+    formats.forEach(function(f) {
+      var path = '/TimeBlocks?techId=' + t.id +
+                 '&startDate=' + encodeURIComponent(f.start) +
+                 '&endDate='   + encodeURIComponent(f.end);
+      var r = ppGet_(token, path);
+      var preview = r.text.substring(0, 200).replace(/\n/g, ' ');
+      Logger.log('  [' + f.label + '] HTTP ' + r.code + ' — ' + preview);
+      Utilities.sleep(300);
+    });
+  });
+  Logger.log('🔬 PROBE complete');
+}
+
+// ──────────────────────────────────────────────────────────────
+// DIAGNOSTIC v2 — narrow down the param shape, not the date format.
+// First probe proved all 6 date formats fail identically. So the issue is
+// upstream: wrong param name, wrong ID source, missing required param, OR
+// the endpoint is fundamentally broken for our tenant.
+// This probe tries: (a) different ID sources from cache-employees.json,
+// (b) param-name casing, (c) omitting params one at a time, (d) path-style
+// vs query-style. Logs each combo. Joe 2026-05-26.
+// ──────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────
+// DIAGNOSTIC v3 — Joe says 10-15 time blocks exist per day, but listing
+// returns []. So either (a) listing filters something we can't see, or
+// (b) recent blocks live at high TimeBlockIDs and we need to walk by ID.
+// This probe: try wider startDate ranges + probe specific IDs at scale.
+// Joe 2026-05-26.
+// ──────────────────────────────────────────────────────────────
+function probeTimeBlocksHistorical() {
+  Logger.log('🔬 PROBE v3 — wider date ranges + ID walk');
+  var token = ppToken_();
+  var emp = readEmployeesCache_();
+  var cxl = (emp.employees || []).filter(function(e) {
+    return e && String(e.Username || '').toUpperCase() === 'CXL';
+  })[0];
+  if (!cxl) { Logger.log('  ❌ CXL not found'); return; }
+
+  function attempt(label, path) {
+    var r = ppGet_(token, path);
+    var preview = r.text.substring(0, 300).replace(/\n/g, ' ');
+    var len = r.text.length;
+    Logger.log('  [' + label + '] HTTP ' + r.code + ' (' + len + ' chars) — ' + preview);
+    Utilities.sleep(300);
+  }
+
+  // ── A. Wider startDate ranges (per-tech, CXL=764) ──
+  Logger.log('── A. CXL with progressively earlier startDate (no endDate) ──');
+  attempt('A1: startDate=2026-05-25 (yesterday)', '/TimeBlocks?techId=' + cxl.EmployeeID + '&startDate=2026-05-25');
+  attempt('A2: startDate=2026-05-01',              '/TimeBlocks?techId=' + cxl.EmployeeID + '&startDate=2026-05-01');
+  attempt('A3: startDate=2025-01-01',              '/TimeBlocks?techId=' + cxl.EmployeeID + '&startDate=2025-01-01');
+  attempt('A4: startDate=2020-01-01',              '/TimeBlocks?techId=' + cxl.EmployeeID + '&startDate=2020-01-01');
+  attempt('A5: startDate=2000-01-01',              '/TimeBlocks?techId=' + cxl.EmployeeID + '&startDate=2000-01-01');
+
+  // ── B. Tech-less listing with same wider dates ──
+  Logger.log('── B. No techId, wider startDate (does ANYTHING list?) ──');
+  attempt('B1: startDate=2026-05-26', '/TimeBlocks?startDate=2026-05-26');
+  attempt('B2: startDate=2020-01-01', '/TimeBlocks?startDate=2020-01-01');
+  attempt('B3: startDate=1990-01-01', '/TimeBlocks?startDate=1990-01-01');
+
+  // ── C. Walk TimeBlockID range to find recent records ──
+  Logger.log('── C. ID walk — sample blocks at increasing IDs ──');
+  var ids = [1, 1000, 5000, 10000, 25000, 50000, 100000, 150000, 200000, 250000, 300000];
+  ids.forEach(function(id) { attempt('C: /TimeBlocks/' + id, '/TimeBlocks/' + id); });
+
+  Logger.log('🔬 PROBE v3 complete — look for any non-empty list OR recent dated /{id} record');
+}
+
+function probeTimeBlocksParams() {
+  Logger.log('🔬 PROBE v2 — /TimeBlocks param shape');
+  var token = ppToken_();
+  // Pull Cody's full employee record so we can compare EmployeeID vs TechID vs UserID
+  var emp = readEmployeesCache_();
+  var cxl = (emp.employees || []).filter(function(e) {
+    return e && String(e.Username || '').toUpperCase() === 'CXL';
+  })[0];
+  if (!cxl) {
+    Logger.log('  ❌ CXL not found in cache-employees.json — refresh employees first?');
+    return;
+  }
+  Logger.log('CXL record: EmployeeID=' + cxl.EmployeeID + ', UserID=' + cxl.UserID +
+             ', TechID=' + cxl.TechID + ', EmployeeNumber=' + cxl.EmployeeNumber +
+             ', Username=' + cxl.Username);
+
+  var s = '2026-05-26';
+  var e = '2026-05-26';
+
+  function attempt(label, path) {
+    var r = ppGet_(token, path);
+    var preview = r.text.substring(0, 200).replace(/\n/g, ' ');
+    Logger.log('  [' + label + '] HTTP ' + r.code + ' — ' + path + ' → ' + preview);
+    Utilities.sleep(300);
+  }
+
+  // ── A. Different ID sources for techId ──
+  Logger.log('── A. ID source variations (param=techId, dates=date-only) ──');
+  attempt('A1: EmployeeID=' + cxl.EmployeeID, '/TimeBlocks?techId=' + cxl.EmployeeID + '&startDate=' + s + '&endDate=' + e);
+  if (cxl.UserID)     attempt('A2: UserID=' + cxl.UserID,       '/TimeBlocks?techId=' + cxl.UserID + '&startDate=' + s + '&endDate=' + e);
+  if (cxl.TechID)     attempt('A3: TechID=' + cxl.TechID,       '/TimeBlocks?techId=' + cxl.TechID + '&startDate=' + s + '&endDate=' + e);
+  attempt('A4: Username=CXL (string)', '/TimeBlocks?techId=CXL&startDate=' + s + '&endDate=' + e);
+
+  // ── B. Param-name casing variations (using EmployeeID) ──
+  Logger.log('── B. Param-name casing (EmployeeID=' + cxl.EmployeeID + ', date-only) ──');
+  attempt('B1: TechId',       '/TimeBlocks?TechId='       + cxl.EmployeeID + '&StartDate=' + s + '&EndDate=' + e);
+  attempt('B2: TechID',       '/TimeBlocks?TechID='       + cxl.EmployeeID + '&StartDate=' + s + '&EndDate=' + e);
+  attempt('B3: technicianId', '/TimeBlocks?technicianId=' + cxl.EmployeeID + '&startDate=' + s + '&endDate=' + e);
+  attempt('B4: technicianID', '/TimeBlocks?technicianID=' + cxl.EmployeeID + '&startDate=' + s + '&endDate=' + e);
+
+  // ── C. Omit params one at a time ──
+  Logger.log('── C. Omit-one-at-a-time (EmployeeID=' + cxl.EmployeeID + ') ──');
+  attempt('C1: only techId',    '/TimeBlocks?techId=' + cxl.EmployeeID);
+  attempt('C2: no techId',      '/TimeBlocks?startDate=' + s + '&endDate=' + e);
+  attempt('C3: only startDate', '/TimeBlocks?techId=' + cxl.EmployeeID + '&startDate=' + s);
+  attempt('C4: only endDate',   '/TimeBlocks?techId=' + cxl.EmployeeID + '&endDate=' + e);
+  attempt('C5: no params',      '/TimeBlocks');
+
+  // ── D. Path variant (some PestPac endpoints accept /Resource/{id} ──
+  Logger.log('── D. Path/alt variants ──');
+  attempt('D1: /TimeBlocks/1',                  '/TimeBlocks/1');
+  attempt('D2: /TimeBlocks/reservations/CXL',   '/TimeBlocks/reservations/CXL');
+  attempt('D3: /TimeBlocks/reservations/' + cxl.UserID, '/TimeBlocks/reservations/' + cxl.UserID);
+
+  Logger.log('🔬 PROBE v2 complete — read log to find HTTP 200 line(s)');
 }
 
 function readTimeBlocksCache_() {
