@@ -1818,7 +1818,14 @@
     <div class="kpi-card kpi-extra"><div class="kpi-label" id="kpiExtraLabel">Extra</div><div class="kpi-value pink" id="kpiExtra">—</div></div>
   </div>
 
-  <!-- ─────────── TABLE (Service Orders / Invoices views) ─────────── -->
+  <!-- ─────────── CANCELS VIEW ─────────── -->
+  <!-- Cancels breakdown cards (hero + scope cards). MUST live BEFORE tableCard
+       so the dashboard-style cards appear ABOVE the list table. The list table
+       below (#tableCard) is shared with orders/invoices/setups views and is
+       hidden/shown via applyViewVisibility_. Joe directive 2026-05-26. -->
+  <div class="grouped-view" id="cancelsView" style="display:none"></div>
+
+  <!-- ─────────── TABLE (Service Orders / Invoices / Setups / Cancels views) ─────────── -->
   <div class="table-card" id="tableCard">
     <div class="table-wrap">
       <table class="data-table" id="dataTable">
@@ -1833,11 +1840,6 @@
 
   <!-- ─────────── SUMMARY VIEW ─────────── -->
   <div class="grouped-view" id="summaryView" style="display:none"></div>
-
-  <!-- ─────────── CANCELS VIEW ─────────── -->
-  <!-- Breakdown cards (hero, by company, by branch, by service class, by reason).
-       The actual list table re-uses tableCard below. Joe directive 2026-05-26. -->
-  <div class="grouped-view" id="cancelsView" style="display:none"></div>
 
   <!-- ─────────── TECH VIEW ─────────── -->
   <div class="grouped-view" id="techView" style="display:none"></div>
@@ -2089,8 +2091,10 @@ function applyViewVisibility_() {
   var isDashboardOrTech = (view === 'tech' || view === 'techdetail');
   var filterBar = document.querySelector('.filter-bar');
   if (filterBar) filterBar.style.display = isDashboardOrTech ? 'none' : '';
+  // KPI strip (Records / Total $ / Confirmed / Techs Active) hidden on
+  // Dashboard, Tech, and Cancels — Cancels has its own hero cards. Joe 2026-05-26.
   var kpiStrip = document.getElementById('kpiStrip');
-  if (kpiStrip) kpiStrip.style.display = isDashboardOrTech ? 'none' : '';
+  if (kpiStrip) kpiStrip.style.display = (isDashboardOrTech || view === 'cancels') ? 'none' : '';
   // Locked filter (Service Orders only)
   var lockedGroup = document.getElementById('lockedFilterGroup');
   if (lockedGroup) lockedGroup.style.display = (view === 'orders') ? '' : 'none';
