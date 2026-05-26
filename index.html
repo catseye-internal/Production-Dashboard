@@ -760,9 +760,12 @@
   .fc-kpi-grid {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
   }
+  /* Match the Hero Strip card style — dark neutral fill, colored left-border
+     accent based on pass/fail vs target. Joe directive 2026-05-25 (consistency). */
   .fc-kpi {
-    background: rgba(244,123,32,0.06);
-    border: 1px solid rgba(244,123,32,0.25);
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-left: 3px solid rgba(255,255,255,0.10);
     border-radius: 8px; padding: 10px 14px 12px;
     display: flex; flex-direction: column; justify-content: space-between;
     gap: 6px; min-height: 78px;
@@ -772,10 +775,12 @@
     letter-spacing: 0.7px; text-transform: uppercase;
   }
   .fc-kpi-value {
-    font-size: 22px; color: #F47B20; font-weight: 700;
+    font-size: 22px; color: var(--text); font-weight: 700;
     font-variant-numeric: tabular-nums; line-height: 1.05;
   }
-  /* Pass/fail coloring vs Combined needed/day (Joe 2026-05-24) */
+  /* Pass/fail coloring vs Combined needed/day — accent on left border + value text */
+  .fc-kpi.fc-kpi-card-good { border-left-color: #22C55E; }
+  .fc-kpi.fc-kpi-card-bad  { border-left-color: #EF4444; }
   .fc-kpi-value.fc-kpi-good { color: #22C55E; }
   .fc-kpi-value.fc-kpi-bad  { color: #EF4444; }
   .fc-kpi-target {
@@ -786,7 +791,7 @@
     font-variant-numeric: tabular-nums;
   }
   .fc-kpi-bar {
-    height: 4px; background: rgba(244,123,32,0.15); border-radius: 2px;
+    height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px;
     overflow: hidden;
   }
   .fc-kpi-bar-fill {
@@ -5907,10 +5912,13 @@ function renderForecastKpiCards_(fcTotals, dateLabel, neededPerDay) {
   return '<div class="fc-kpi-grid">' + cards.map(function(c) {
     var pct = (c.value / max) * 100;
     var valCls = 'fc-kpi-value';
+    var cardCls = 'fc-kpi';
     if (hasTarget && c.value > 0) {
-      valCls += (c.value >= needed) ? ' fc-kpi-good' : ' fc-kpi-bad';
+      var pass = (c.value >= needed);
+      valCls += pass ? ' fc-kpi-good' : ' fc-kpi-bad';
+      cardCls += pass ? ' fc-kpi-card-good' : ' fc-kpi-card-bad';
     }
-    return '<div class="fc-kpi">' +
+    return '<div class="' + cardCls + '">' +
       '<div class="fc-kpi-label">' + escapeHtml(c.label) + '</div>' +
       '<div class="' + valCls + '">$' + Math.round(c.value).toLocaleString() + '</div>' +
       '<div class="fc-kpi-bar"><div class="fc-kpi-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
