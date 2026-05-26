@@ -1311,6 +1311,145 @@ function backfillInvoicesForDays(daysBack) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// SEQUENTIAL INVOICENUMBER BACKFILL (Joe directive 2026-05-26)
+// Walks forward from cache's highest InvoiceNumber, fetching each next number
+// via /Invoices?invoiceNumber=N. Stops after CONSECUTIVE_MISSES consecutive
+// 404s (assumes we've passed the latest issued invoice). Use when webhook
+// delivery has lapsed and ServiceOrders-based backfill can't help because
+// completed invoices have already left /ServiceOrders.
+//
+// Optional `startFrom` overrides the cache's max InvoiceNumber + 1 — useful
+// if you know the gap-start more precisely.
+// ──────────────────────────────────────────────────────────────
+function backfillInvoicesByNumber(startFrom) {
+  var t0 = new Date();
+  Logger.log('🩹 Sequential InvoiceNumber backfill — ' + t0.toISOString());
+  try {
+    var cache = readInvoicesCacheDirect_();
+    var existing = (cache.invoices || []).reduce(function(acc, inv) {
+      var n = Number(inv.InvoiceNumber);
+      if (n && n > acc) acc = n;
+      return acc;
+    }, 0);
+    var nextNum = Number(startFrom) || (existing + 1);
+    Logger.log('  Cache max InvoiceNumber: ' + existing + ' · starting from ' + nextNum);
+
+    var token = ppToken_();
+    var headers = {
+      'Authorization': 'Bearer ' + token,
+      'apikey': PP_API_KEY,
+      'tenant-id': PP_TENANT_ID
+    };
+    var BATCH = 30;
+    var CONSECUTIVE_MISSES_TO_STOP = 25;  // tolerate gaps from voided/skipped numbers
+    var SAFETY_CAP = 5000;                // never walk more than this many numbers
+    var fetched = [];
+    var statsByCode = {};
+    var consecutiveMisses = 0;
+    var samples = { ok: [], notFound: [], error: [] };
+
+    var num = nextNum;
+    var walked = 0;
+    while (walked < SAFETY_CAP) {
+      var batchNums = [];
+      for (var b = 0; b < BATCH && walked + b < SAFETY_CAP; b++) {
+        batchNums.push(num + b);
+      }
+      var requests = batchNums.map(function(n) {
+        return {
+          url: PP_API_BASE + '/Invoices?invoiceNumber=' + n,
+          method: 'get',
+          headers: headers,
+          muteHttpExceptions: true
+        };
+      });
+      var responses;
+      try { responses = UrlFetchApp.fetchAll(requests); }
+      catch (e) { Logger.log('    batch starting ' + num + ' failed: ' + e.message); break; }
+
+      var batchHits = 0;
+      for (var k = 0; k < responses.length; k++) {
+        var resp = responses[k];
+        var code = resp.getResponseCode();
+        var body = resp.getContentText() || '';
+        var thisNum = batchNums[k];
+        statsByCode[code] = (statsByCode[code] || 0) + 1;
+        if (code !== 200) {
+          consecutiveMisses++;
+          if (samples.notFound.length < 3) samples.notFound.push({ num: thisNum, code: code });
+          continue;
+        }
+        var inv = null;
+        try {
+          var parsed = JSON.parse(body);
+          if (Array.isArray(parsed)) {
+            if (parsed.length > 0 && parsed[0] && parsed[0].InvoiceNumber) inv = parsed[0];
+          } else if (parsed && parsed.InvoiceNumber) {
+            inv = parsed;
+          }
+        } catch (e) {
+          if (samples.error.length < 3) samples.error.push({ num: thisNum, code: code, body: body.substring(0, 150) });
+        }
+        if (inv) {
+          fetched.push(inv);
+          consecutiveMisses = 0;
+          batchHits++;
+          if (samples.ok.length < 2) samples.ok.push({ num: thisNum, total: inv.Total, date: inv.InvoiceDate });
+        } else {
+          consecutiveMisses++;
+          if (samples.notFound.length < 3) samples.notFound.push({ num: thisNum, code: code });
+        }
+      }
+      num += batchNums.length;
+      walked += batchNums.length;
+      Logger.log('    Walked through ' + (num - 1) + ' — batch hits: ' + batchHits + ' · consecutive misses: ' + consecutiveMisses + ' · running total fetched: ' + fetched.length);
+      if (consecutiveMisses >= CONSECUTIVE_MISSES_TO_STOP) {
+        Logger.log('  Stop signal: ' + CONSECUTIVE_MISSES_TO_STOP + ' consecutive misses (latest invoice probably reached)');
+        break;
+      }
+      Utilities.sleep(200);
+    }
+
+    Logger.log('  HTTP status breakdown: ' + JSON.stringify(statsByCode));
+    if (samples.ok.length)       Logger.log('  Sample SUCCESS: ' + JSON.stringify(samples.ok));
+    if (samples.notFound.length) Logger.log('  Sample NOT-FOUND: ' + JSON.stringify(samples.notFound));
+    if (samples.error.length)    Logger.log('  Sample ERRORS: ' + JSON.stringify(samples.error));
+    Logger.log('  Fetched ' + fetched.length + ' new invoice records');
+
+    if (fetched.length === 0) {
+      Logger.log('✅ Nothing new to backfill — cache is current');
+      return;
+    }
+
+    // Merge — same shape as webhook-delivered records
+    var curated = fetched.map(curateInvoiceForBackfill_);
+    var byKey = {};
+    (cache.invoices || []).forEach(function(inv) {
+      if (inv.InvoiceNumber) byKey[String(inv.InvoiceNumber)] = inv;
+    });
+    var added = 0, updated = 0;
+    curated.forEach(function(inv) {
+      var k = String(inv.InvoiceNumber);
+      if (byKey[k]) { byKey[k] = inv; updated++; }
+      else          { byKey[k] = inv; added++; }
+    });
+    var merged = Object.keys(byKey).map(function(k) { return byKey[k]; });
+    cache.invoices = merged;
+    cache.updated = new Date().toISOString();
+    cache.recordCount = merged.length;
+    cache.lastBackfill = new Date().toISOString();
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('  Writing cache-invoices.json: ' + Math.round(jsonStr.length / 1024) + ' KB | added ' + added + ', updated ' + updated);
+
+    var ok = pushToGitHub_(jsonStr, GH_PATH_INVOICES_FOR_BACKFILL, 'Sequential InvoiceNumber backfill ' + new Date().toISOString());
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('✅ Backfill complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Backfill error: ' + err.message + '\n' + err.stack);
+  }
+}
+
 // Read cache-invoices.json directly from GitHub Pages (raw mirror is the same)
 function readInvoicesCacheDirect_() {
   try {
