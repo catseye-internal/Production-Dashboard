@@ -1697,6 +1697,68 @@ function _reenrichCancelledImpl_(resume, limit, dryRun) {
   Logger.log('✅ Re-enrich cancelled complete in ' + totalElapsed + 's');
 }
 
+// Probe /Locations list-endpoint patterns to discover ALL locations
+// (including cancelled customers not currently in cache-locations.json).
+// The current cache-locations.json is populated from cache.json's 90-day
+// forward window — so it misses customers with no recent orders. We need
+// a way to discover cancelled customers' setups, which means finding all
+// LocationIDs that aren't in our cache.
+//
+// Joe directive 2026-05-25 — paired with discovering the missing ~37 MTD
+// cancellations not currently in cache.
+
+function probeAllLocationsEndpoint() {
+  var token = ppToken_();
+  Logger.log('🧪 PROBE — /Locations list-endpoint shape');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  var paths = [
+    '/Locations',
+    '/Locations?active=true',
+    '/Locations?active=false',
+    '/Locations?top=5',
+    '/Locations?pageSize=5',
+    '/Locations?$top=5',
+    '/Locations?limit=5',
+    '/Locations?modifiedSince=2026-05-01',
+    '/Locations?addDateSince=2026-05-01',
+    '/Locations?addedAfter=2026-01-01',
+    '/Locations?startDate=2026-05-01&endDate=2026-05-25'
+  ];
+
+  paths.forEach(function(p) {
+    var r = ppGet_(token, p);
+    var label = p.length > 50 ? p.substring(0, 50) + '...' : p;
+    if (r.code !== 200) {
+      Logger.log('  ' + label + '  →  HTTP ' + r.code +
+                 (r.text.length < 200 ? ' ' + r.text : ''));
+      return;
+    }
+    try {
+      var parsed = JSON.parse(r.text);
+      if (Array.isArray(parsed)) {
+        var sample = parsed[0];
+        var keyCount = sample ? Object.keys(sample).length : 0;
+        Logger.log('  ' + label + '  →  ARRAY (' + parsed.length + ' items, sample has ' + keyCount + ' fields)');
+        if (parsed.length > 0 && parsed.length < 50) {
+          // Small return — show a sample
+          Logger.log('     Sample keys: ' + Object.keys(parsed[0]).slice(0, 10).join(', ') + '...');
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        Logger.log('  ' + label + '  →  OBJECT (' + Object.keys(parsed).length + ' fields)');
+      }
+    } catch (e) {
+      Logger.log('  ' + label + '  →  200 non-JSON');
+    }
+    Utilities.sleep(300);
+  });
+
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('Goal: find a pattern that returns an ARRAY of locations.');
+  Logger.log('If "/Locations" by itself works, we can paginate through every location.');
+  Logger.log('If date filters work, we can pull recently-modified-or-cancelled locations.');
+}
+
 function probeLocationSetupsEndpoint() {
   var token = ppToken_();
   // Grab a known LocationID from cache-locations.json
