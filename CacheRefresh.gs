@@ -1224,8 +1224,22 @@ function _bootstrapImpl_(resume, limit, dryRun) {
           var curated = curate_(rawSetup, CURATED_FIELDS_SETUP);
           enrichSetupCreator_(curated, rawSetup);
           var key = String(curated.SetupID);
-          if (setupsMap[key]) updatedSetupCount++;
-          else newSetupCount++;
+          // CRITICAL: the list endpoint /Locations/{id}/serviceSetups does NOT
+          // return the Technicians array, so EnteredBy + SalesBy will be missing
+          // on the curated record. Preserve any existing values from the cache
+          // (which were populated by /ServiceSetups/{id} detail pulls or webhook
+          // events) so we don't clobber good data with nothing.
+          if (setupsMap[key]) {
+            var prev = setupsMap[key];
+            if (!curated.EnteredBy && prev.EnteredBy) {
+              curated.EnteredBy = prev.EnteredBy;
+              if (prev.EnteredByID != null) curated.EnteredByID = prev.EnteredByID;
+            }
+            if (!curated.SalesBy && prev.SalesBy) curated.SalesBy = prev.SalesBy;
+            updatedSetupCount++;
+          } else {
+            newSetupCount++;
+          }
           setupsMap[key] = curated;
         });
       } catch (e) { /* skip parse error */ }
@@ -1303,6 +1317,194 @@ function _bootstrapImpl_(resume, limit, dryRun) {
   var totalElapsed = ((new Date() - t0) / 1000).toFixed(1);
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   Logger.log('✅ Bootstrap complete in ' + totalElapsed + 's');
+}
+
+// Repair function — iterates every cached setup, re-fetches via /ServiceSetups/{id}
+// to pull the Technicians array, runs enrichSetupCreator_ to extract EnteredBy + SalesBy,
+// merges back into cache-setups.json.
+//
+// Why this exists: the bootstrap above uses /Locations/{id}/serviceSetups for fast
+// SetupID discovery, BUT that list endpoint doesn't include the Technicians array.
+// So bootstrap-pulled records had no creator info. This function fills the gap.
+//
+// Resume-friendly via Script Property cursor. Safe to re-run.
+//
+// USAGE
+//   reenrichAllSetupsCreators()           — full run, fresh start
+//   reenrichAllSetupsCreatorsResume()     — pick up from last checkpoint
+//   reenrichAllSetupsCreatorsTest(50)     — dry run, first 50 setups, no write
+
+var RE_BATCH_SIZE = 25;
+var RE_BATCH_PAUSE_MS = 200;
+var RE_CHECKPOINT_EVERY = 500;
+var RE_CURSOR_KEY = 'reenrichCreatorsCursor';
+
+function reenrichAllSetupsCreators() {
+  PropertiesService.getScriptProperties().deleteProperty(RE_CURSOR_KEY);
+  return _reenrichImpl_(false, null);
+}
+
+function reenrichAllSetupsCreatorsResume() {
+  return _reenrichImpl_(true, null);
+}
+
+function reenrichAllSetupsCreatorsTest(limit) {
+  PropertiesService.getScriptProperties().deleteProperty(RE_CURSOR_KEY);
+  return _reenrichImpl_(false, limit || 50, /*dryRun=*/true);
+}
+
+function _reenrichImpl_(resume, limit, dryRun) {
+  var t0 = new Date();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log((dryRun ? '🧪 DRY RUN — Re-enrich setup creators' : '🔧 Re-enrich setup creators') +
+             (resume ? ' (RESUMING)' : '') + ' — ' + t0.toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  // 1. Load existing setups
+  Logger.log('1. Loading cache-setups.json...');
+  var existing = readSetupsCache_();
+  var setupsArr = existing.setups || [];
+  Logger.log('   ' + setupsArr.length.toLocaleString() + ' setups in cache');
+
+  // 2. Find candidates (setups missing EnteredBy) — or all if --force flag would exist
+  var candidates = setupsArr.filter(function(s) { return !s.EnteredBy; });
+  Logger.log('   ' + candidates.length.toLocaleString() + ' candidates missing EnteredBy');
+
+  // 3. Apply resume cursor
+  var props = PropertiesService.getScriptProperties();
+  var startIdx = 0;
+  if (resume) {
+    var cursor = Number(props.getProperty(RE_CURSOR_KEY) || 0);
+    if (cursor > 0 && cursor < candidates.length) {
+      startIdx = cursor;
+      Logger.log('   Resuming from index ' + startIdx.toLocaleString());
+    }
+  }
+
+  // 4. Apply limit
+  if (limit && candidates.length - startIdx > limit) {
+    candidates = candidates.slice(startIdx, startIdx + limit);
+    Logger.log('   Limited to ' + candidates.length + ' for this run');
+  } else if (startIdx > 0) {
+    candidates = candidates.slice(startIdx);
+  }
+
+  if (candidates.length === 0) {
+    Logger.log('✅ Nothing to re-enrich.');
+    return;
+  }
+
+  // 5. Build a SetupID → setup index for fast patching
+  var setupIdx = {};
+  setupsArr.forEach(function(s, i) {
+    if (s.SetupID != null) setupIdx[String(s.SetupID)] = i;
+  });
+
+  // 6. Auth
+  Logger.log('2. Fetching PestPac token...');
+  var token = ppToken_();
+  var apiHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+
+  // 7. Iterate
+  Logger.log('3. Re-enriching ' + candidates.length.toLocaleString() + ' setups in batches of ' + RE_BATCH_SIZE + '...');
+  var enriched = 0;
+  var missing = 0;     // /ServiceSetups/{id} returned but no Technicians
+  var failed = 0;      // API call itself failed
+
+  for (var i = 0; i < candidates.length; i += RE_BATCH_SIZE) {
+    var slice = candidates.slice(i, i + RE_BATCH_SIZE);
+    var requests = slice.map(function(s) {
+      return {
+        url: PP_API_BASE + '/ServiceSetups/' + s.SetupID,
+        method: 'get',
+        headers: apiHeaders,
+        muteHttpExceptions: true
+      };
+    });
+
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      failed += slice.length;
+      continue;
+    }
+
+    for (var k = 0; k < responses.length; k++) {
+      var resp = responses[k];
+      if (resp.getResponseCode() !== 200) { failed++; continue; }
+      try {
+        var fullSetup = JSON.parse(resp.getContentText());
+        var sid = String(slice[k].SetupID);
+        var idx = setupIdx[sid];
+        if (idx == null) continue;
+        // Only patch the creator fields onto the existing cached record —
+        // leave everything else alone so we don't accidentally clobber data
+        // that other code already filled in.
+        var beforeEntered = setupsArr[idx].EnteredBy;
+        enrichSetupCreator_(setupsArr[idx], fullSetup);
+        if (setupsArr[idx].EnteredBy) {
+          enriched++;
+        } else {
+          missing++;
+        }
+      } catch (e) { failed++; }
+    }
+
+    var done = i + slice.length;
+    if (done % 200 === 0 || done === candidates.length) {
+      var elapsed = ((new Date() - t0) / 1000);
+      var rate = done / elapsed;
+      var remaining = candidates.length - done;
+      var etaMin = (remaining / rate / 60).toFixed(1);
+      Logger.log('   [' + done.toLocaleString() + ' / ' + candidates.length.toLocaleString() + ']  ' +
+                 'enriched: ' + enriched.toLocaleString() + ' · ' +
+                 'missing: ' + missing.toLocaleString() + ' · ' +
+                 'failed: ' + failed.toLocaleString() + ' · ' +
+                 rate.toFixed(0) + '/s · eta ' + etaMin + 'm');
+    }
+
+    // Save cursor for resume
+    if (!dryRun && (done % RE_CHECKPOINT_EVERY === 0)) {
+      props.setProperty(RE_CURSOR_KEY, String(startIdx + done));
+    }
+
+    if (i + RE_BATCH_SIZE < candidates.length) Utilities.sleep(RE_BATCH_PAUSE_MS);
+  }
+
+  Logger.log('');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('SUMMARY');
+  Logger.log('   Setups re-enriched: ' + enriched.toLocaleString());
+  Logger.log('   Missing Technicians: ' + missing.toLocaleString() + ' (API returned but no creator data)');
+  Logger.log('   Failed calls:        ' + failed.toLocaleString());
+
+  if (dryRun) {
+    Logger.log('🧪 DRY RUN — cache NOT written');
+    return;
+  }
+
+  // 8. Write back
+  var cache = {
+    updated: new Date().toISOString(),
+    recordCount: setupsArr.length,
+    lastReenrichAt: new Date().toISOString(),
+    setups: setupsArr
+  };
+  var jsonStr = JSON.stringify(cache);
+  Logger.log('');
+  Logger.log('4. Writing cache-setups.json: ' + Math.round(jsonStr.length / 1024) + ' KB');
+  var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS, 'Re-enrich setup creators ' + new Date().toISOString());
+  Logger.log('   push: ' + (ok ? 'OK' : 'FAIL'));
+  if (ok) props.deleteProperty(RE_CURSOR_KEY);
+
+  var totalElapsed = ((new Date() - t0) / 1000).toFixed(1);
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('✅ Re-enrich complete in ' + totalElapsed + 's');
 }
 
 function probeLocationSetupsEndpoint() {
