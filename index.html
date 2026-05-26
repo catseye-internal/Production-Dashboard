@@ -841,6 +841,10 @@
      metric is descriptive rather than pace-tiered. Joe 2026-05-26. */
   .hero-info { border-left-color: #60A5FA; }
   .hero-info .hero-v2-value, .hero-info .hero-ctx-value { color: #60A5FA; }
+  /* Purple accent — used on the +2/+3 outlook context cards on Dashboard.
+     Visually distinguishes outlook days from MTD/NEED/HOT QUEUE. Joe 2026-05-26. */
+  .hero-purple { border-left-color: #A78BFA; }
+  .hero-purple .hero-v2-value, .hero-purple .hero-ctx-value { color: #A78BFA; }
 
   /* Pill spans for inline split metrics (HOT QUEUE) */
   .hero-pill {
@@ -6256,28 +6260,34 @@ function renderHeroStrip_(ctx) {
   }
 
   function buildHeroCard_(opts) {
-    // opts = { label, value, target, isLever }
-    var status = 'neutral';
+    // opts = { label, value, target, isLever, accent }
+    // Pace tier is still computed — it drives the delta + hint text colors so
+    // the user sees green/yellow signal in the small text. But the CARD's
+    // border + big-number color uses `opts.accent` when provided (Joe
+    // directive 2026-05-26: Today = green, Tomorrow = blue as fixed brand
+    // accents). Falls back to tier color when no accent is passed.
+    var tier = 'neutral';
     if (opts.value > 0 && opts.target > 0) {
       var r = opts.value / opts.target;
-      if (r >= 1.0)      status = 'good';
-      else if (r >= 0.85) status = 'warn';
-      else                status = 'bad';
+      if (r >= 1.0)      tier = 'good';
+      else if (r >= 0.85) tier = 'warn';
+      else                tier = 'bad';
     }
+    var cardClass = 'hero-' + (opts.accent || tier);
     var delta = (opts.value || 0) - (opts.target || 0);
     var deltaSign = delta >= 0 ? '+' : '−';
     var deltaAbs  = '$' + Math.round(Math.abs(delta)).toLocaleString();
     var hint = actionHint_(opts.value, opts.target);
-    return '<div class="hero-v2-card hero-' + status + '">' +
+    return '<div class="hero-v2-card ' + cardClass + '">' +
              '<div class="hero-v2-label">' + escapeHtml(opts.label) + '</div>' +
              '<div class="hero-v2-value">$' + Math.round(opts.value || 0).toLocaleString() + '</div>' +
              '<div class="hero-v2-meta">' +
                (opts.target > 0
                  ? '<span class="hero-v2-target">vs target $' + Math.round(opts.target).toLocaleString() + '</span>' +
-                   ' <span class="hero-v2-delta hero-v2-delta-' + status + '">' + deltaSign + deltaAbs + '</span>'
+                   ' <span class="hero-v2-delta hero-v2-delta-' + tier + '">' + deltaSign + deltaAbs + '</span>'
                  : '<span class="hero-v2-target">no target set</span>') +
              '</div>' +
-             (hint ? '<div class="hero-v2-hint hero-v2-hint-' + status + '">' + escapeHtml(hint) + '</div>' : '') +
+             (hint ? '<div class="hero-v2-hint hero-v2-hint-' + tier + '">' + escapeHtml(hint) + '</div>' : '') +
            '</div>';
   }
 
@@ -6285,8 +6295,10 @@ function renderHeroStrip_(ctx) {
   var todayLbl = (typeof ctx.fcDateLabel === 'function') ? ('TODAY · ' + ctx.fcDateLabel(0)) : 'TODAY';
   var tmrwLbl  = (typeof ctx.fcDateLabel === 'function') ? ('TOMORROW · ' + ctx.fcDateLabel(1)) : 'TOMORROW';
 
-  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday, target: ctx.fcNeededPerDay, isLever: false });
-  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,  target: ctx.fcNeededPerDay, isLever: true  });
+  // Fixed brand accents — Today=green, Tomorrow=blue (Joe directive 2026-05-26).
+  // Tier signal still shows in the delta + hint text colors below the value.
+  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday, target: ctx.fcNeededPerDay, accent: 'good' });
+  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,  target: ctx.fcNeededPerDay, accent: 'info' });
 
   // ── Context strip (5 small cards) ──
   // +2 day
@@ -6301,16 +6313,10 @@ function renderHeroStrip_(ctx) {
            '</div>';
   }
 
-  // +2 / +3 forecasts — color vs the same NEED/DAY bar
-  function fcStatus_(v) {
-    if (!ctx.fcNeededPerDay || ctx.fcNeededPerDay <= 0 || !v || v <= 0) return 'neutral';
-    var r = v / ctx.fcNeededPerDay;
-    if (r >= 1.0) return 'good';
-    if (r >= 0.85) return 'warn';
-    return 'bad';
-  }
-  var d2Card = buildCtxCard_('+2 · ' + d2Label, '', '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), fcStatus_(ctx.fcD2));
-  var d3Card = buildCtxCard_('+3 · ' + d3Label, '', '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), fcStatus_(ctx.fcD3));
+  // +2 / +3 outlook cards — fixed purple accent (Joe directive 2026-05-26).
+  // These are pure outlook reference points, not action-driving like Today/Tomorrow.
+  var d2Card = buildCtxCard_('+2 · ' + d2Label, '', '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), 'purple');
+  var d3Card = buildCtxCard_('+3 · ' + d3Label, '', '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), 'purple');
 
   // MTD% — uses full budget (with CGW)
   var mtdPct = (ctx.mtdBudget > 0) ? Math.round(ctx.mtdActual / ctx.mtdBudget * 100) : 0;
