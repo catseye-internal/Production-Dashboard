@@ -1707,6 +1707,62 @@ function _reenrichCancelledImpl_(resume, limit, dryRun) {
 // Joe directive 2026-05-25 — paired with discovering the missing ~37 MTD
 // cancellations not currently in cache.
 
+// Second probe: /Locations requires 'q' or 'ids'. Find out what 'q' accepts.
+function probeLocationsQueryParam() {
+  var token = ppToken_();
+  Logger.log('🧪 PROBE — /Locations?q=... query syntax');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  // Try various q-parameter syntaxes
+  var paths = [
+    '/Locations?q=',
+    '/Locations?q=*',
+    '/Locations?q=%2A',
+    '/Locations?q=a',
+    '/Locations?q=Smith',
+    '/Locations?q=BranchID:10',
+    '/Locations?q=Branch:Eastern%20Mass',
+    '/Locations?q=Active:false',
+    '/Locations?q=Active:true',
+    '/Locations?q=Active=false',
+    '/Locations?q=CancelDate>=2026-05-01',
+    '/Locations?q=ModifiedDate>=2026-05-01',
+    '/Locations?q=AddDate>=2026-05-01',
+    // ids parameter — provide a known LocationID
+    '/Locations?ids=75108',
+    '/Locations?ids=75108,74960'
+  ];
+
+  paths.forEach(function(p) {
+    var r = ppGet_(token, p);
+    var label = p.length > 55 ? p.substring(0, 55) + '...' : p;
+    if (r.code !== 200) {
+      var snippet = r.text.length < 200 ? r.text : r.text.substring(0, 200);
+      Logger.log('  ' + label + '  →  HTTP ' + r.code + ' :: ' + snippet);
+      return;
+    }
+    try {
+      var parsed = JSON.parse(r.text);
+      if (Array.isArray(parsed)) {
+        Logger.log('  ' + label + '  →  ARRAY (' + parsed.length + ' items)');
+        if (parsed.length > 0 && parsed.length <= 3) {
+          // Tiny return — show keys
+          Logger.log('     Sample LocationID=' + parsed[0].LocationID + ' Active=' + parsed[0].Active);
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        Logger.log('  ' + label + '  →  OBJECT (' + Object.keys(parsed).length + ' fields)');
+      }
+    } catch (e) {
+      Logger.log('  ' + label + '  →  200 non-JSON');
+    }
+    Utilities.sleep(300);
+  });
+
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('Goal: find a q= pattern that lets us discover locations beyond');
+  Logger.log("       what's currently in cache-locations.json (cancelled customers).");
+}
+
 function probeAllLocationsEndpoint() {
   var token = ppToken_();
   Logger.log('🧪 PROBE — /Locations list-endpoint shape');
