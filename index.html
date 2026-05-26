@@ -831,6 +831,7 @@
     font-variant-numeric: tabular-nums;
   }
   .hero-v2-target { color: var(--text-muted); }
+  .hero-v2-nonprod { color: var(--text-dim); font-style: italic; }
   .hero-v2-stops {
     color: var(--text-muted); font-weight: 600;
     font-size: 12px; letter-spacing: 0.3px;
@@ -1678,7 +1679,8 @@
     .header-left, .header-right { gap: 8px; }
     .tabs { padding: 0; flex-basis: 100%; justify-content: flex-start; order: 3; flex-wrap: wrap; }
     .tab { padding: 6px 12px; font-size: 11px; }
-    .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+    .kpi-strip,
+    .kpi-strip.has-extra { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .filter-bar { gap: 8px; }
     .filter-bar select, .filter-bar input { min-width: 100px; font-size: 12px; }
     .filter-group { min-width: 100%; }   /* one filter per row on phones */
@@ -1693,9 +1695,13 @@
     .filter-spacer { display: none; }
   }
   @media (max-width: 480px) {
-    .kpi-strip { grid-template-columns: repeat(2, 1fr); gap: 6px; }
-    .kpi-card { padding: 10px; }
-    .kpi-value { font-size: 20px; }
+    .kpi-strip,
+    .kpi-strip.has-extra { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .kpi-card { padding: 10px; min-width: 0; }
+    .kpi-value { font-size: 18px; overflow: hidden; text-overflow: ellipsis; }
+    /* On the narrowest phones the 5th tile (Recurring %) goes on its own row,
+       spanning the full width so nothing gets clipped. Joe directive 2026-05-26. */
+    .kpi-strip.has-extra .kpi-extra { grid-column: 1 / -1; }
   }
   /* ── Tech + Summary view: tablet-tight (≤ 900px) ── */
   @media (max-width: 900px) {
@@ -3609,6 +3615,49 @@ function renderTechView_() {
     if (dow === 0) return -1;    // Today=Sun → yesterday=Sat → show Sat
     return -1;                   // Any other day → show real yesterday
   }
+  // US federal holidays the company is closed for. Returns the holiday name
+  // if the given Date is one, else null. Catseye runs Mon-Sat dispatch and
+  // observes the standard 9 federal holidays. Joe directive 2026-05-26:
+  // Yesterday card should suppress its "vs target" line on non-production
+  // days (Sat = bonus / Sun = closed / holiday = closed) since the daily
+  // target derives from a Mon-Fri working-day calendar.
+  function isUsHoliday_(d) {
+    var y = d.getFullYear(), m = d.getMonth(), dy = d.getDate();
+    // Fixed-date holidays
+    if (m === 0  && dy === 1)  return 'New Year’s Day';
+    if (m === 5  && dy === 19) return 'Juneteenth';
+    if (m === 6  && dy === 4)  return 'Independence Day';
+    if (m === 11 && dy === 25) return 'Christmas Day';
+    // Helper: day-of-month for the Nth weekday of a given month
+    function nthWeekday_(monthIdx, weekdayIdx, n) {
+      var first = new Date(y, monthIdx, 1).getDay();
+      var offset = (weekdayIdx - first + 7) % 7;
+      return 1 + offset + (n - 1) * 7;
+    }
+    if (m === 0  && dy === nthWeekday_(0, 1, 3)) return 'MLK Day';        // 3rd Mon Jan
+    if (m === 1  && dy === nthWeekday_(1, 1, 3)) return 'Presidents Day'; // 3rd Mon Feb
+    if (m === 8  && dy === nthWeekday_(8, 1, 1)) return 'Labor Day';      // 1st Mon Sep
+    if (m === 10 && dy === nthWeekday_(10, 4, 4)) return 'Thanksgiving';  // 4th Thu Nov
+    // Memorial Day — last Monday of May
+    if (m === 4) {
+      var lastDayOfMay = 31;
+      var lastDow = new Date(y, 4, lastDayOfMay).getDay();
+      var lastMonday = lastDayOfMay - ((lastDow - 1 + 7) % 7);
+      if (dy === lastMonday) return 'Memorial Day';
+    }
+    return null;
+  }
+  // Decide if a given Date represents a non-production day. Returns a note
+  // string for the Yesterday card (e.g. "Memorial Day — no production
+  // expected"), or empty string if it was a normal Mon-Fri workday.
+  function nonProdNoteFor_(d) {
+    var dow = d.getDay();
+    var hol = isUsHoliday_(d);
+    if (hol) return hol + ' — no production expected';
+    if (dow === 0) return 'Sunday — no production expected';
+    if (dow === 6) return 'Saturday — bonus day';
+    return '';
+  }
   var dYday  = offsetYmd(lastWorkdayOffset_());  // Yesterday (workday-aware)
   var dToday = offsetYmd(0);
   var dTmrw  = offsetYmd(1);
@@ -4344,10 +4393,16 @@ function renderTechView_() {
     });
   } catch (e) { /* leave at 0 */ }
 
+  // Build a Date for whatever "yesterday" resolves to (skip-Sunday aware)
+  var ydayOff_ = lastWorkdayOffset_();
+  var ydayDate_ = new Date(todayD); ydayDate_.setDate(ydayDate_.getDate() + ydayOff_);
+  var ydayNonProdNote_ = nonProdNoteFor_(ydayDate_);
+
   var heroStripHtml = renderHeroStrip_({
-    fcYesterday:       fcYesterday,
-    fcYesterdayCount:  fcYesterdayCount,
-    fcYesterdayOffset: lastWorkdayOffset_(),   // -1 most days, -2 on Monday
+    fcYesterday:        fcYesterday,
+    fcYesterdayCount:   fcYesterdayCount,
+    fcYesterdayOffset:  ydayOff_,              // -1 most days, -2 on Monday
+    fcYesterdayNonProd: ydayNonProdNote_,      // '' on Mon-Fri non-holidays
     fcToday:           fcTotals.today,
     fcTmrw:            fcTotals.tmrw,
     fcD2:              fcTotals.d2,
@@ -6763,16 +6818,25 @@ function renderHeroStrip_(ctx) {
     var stopsLine = (opts.stops != null && opts.stops > 0)
       ? ' · <span class="hero-v2-stops">' + opts.stops.toLocaleString() + ' stops</span>'
       : '';
+    // Non-production day (Sat/Sun/holiday) — replace the "vs target / delta"
+    // line with a short note. Saturdays are bonus production days for
+    // Catseye — they're not in the working-day calendar so the daily target
+    // doesn't apply. Joe directive 2026-05-26.
+    var metaHtml;
+    if (opts.nonProdNote) {
+      metaHtml = '<span class="hero-v2-target hero-v2-nonprod">' +
+                 escapeHtml(opts.nonProdNote) + '</span>' + stopsLine;
+    } else if (opts.target > 0) {
+      metaHtml = '<span class="hero-v2-target">vs target $' + Math.round(opts.target).toLocaleString() + '</span>' +
+                 ' <span class="hero-v2-delta hero-v2-delta-' + tier + '">' + deltaSign + deltaAbs + '</span>' +
+                 stopsLine;
+    } else {
+      metaHtml = '<span class="hero-v2-target">no target set</span>' + stopsLine;
+    }
     return '<div class="hero-v2-card ' + cardClass + '">' +
              '<div class="hero-v2-label">' + escapeHtml(opts.label) + '</div>' +
              '<div class="hero-v2-value">$' + Math.round(opts.value || 0).toLocaleString() + '</div>' +
-             '<div class="hero-v2-meta">' +
-               (opts.target > 0
-                 ? '<span class="hero-v2-target">vs target $' + Math.round(opts.target).toLocaleString() + '</span>' +
-                   ' <span class="hero-v2-delta hero-v2-delta-' + tier + '">' + deltaSign + deltaAbs + '</span>' +
-                   stopsLine
-                 : '<span class="hero-v2-target">no target set</span>' + stopsLine) +
-             '</div>' +
+             '<div class="hero-v2-meta">' + metaHtml + '</div>' +
              (hint ? '<div class="hero-v2-hint hero-v2-hint-' + tier + '">' + escapeHtml(hint) + '</div>' : '') +
            '</div>';
   }
@@ -6788,7 +6852,19 @@ function renderHeroStrip_(ctx) {
   // (Joe directive 2026-05-26). Tier signal still shows in the delta + hint
   // text colors below the value. Yesterday compares against the same daily
   // target as Today (NEED/DAY pace target).
-  var ydayCard  = buildHeroCard_({ label: ydayLbl,  value: ctx.fcYesterday, target: ctx.fcNeededPerDay, accent: 'purple', stops: ctx.fcYesterdayCount, suppressHint: true });
+  // Yesterday card — when the looked-back day was Sat/Sun/holiday, show a
+  // non-prod note instead of "vs target" (the daily target is a Mon-Fri
+  // pacing number; comparing a Saturday or holiday to it is misleading).
+  var ydayNonProd = ctx.fcYesterdayNonProd || '';
+  var ydayCard  = buildHeroCard_({
+    label: ydayLbl,
+    value: ctx.fcYesterday,
+    target: ydayNonProd ? 0 : ctx.fcNeededPerDay,
+    accent: 'purple',
+    stops: ctx.fcYesterdayCount,
+    suppressHint: true,
+    nonProdNote: ydayNonProd
+  });
   var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday,     target: ctx.fcNeededPerDay, accent: 'good',   stops: ctx.fcTodayCount });
   var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,      target: ctx.fcNeededPerDay, accent: 'info',   stops: ctx.fcTmrwCount  });
 
