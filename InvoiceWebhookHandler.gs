@@ -63,7 +63,16 @@ const CURATED_INV_KEYS = [
 ];
 
 // Event types we care about
-const EXPECTED_TYPES = ['Invoice', 'Credit Memo', 'CreditMemo', 'Payment'];
+const EXPECTED_TYPES = [
+  'Invoice', 'Credit Memo', 'CreditMemo', 'Payment',
+  // ServiceSetup added 2026-05-25 — drives cache-setups.json for the
+  // "New Setups This Week" + "Cancellations This Week" cards. Subscribed
+  // to both spaced + un-spaced variants in WebhookRegistration.gs.
+  'Service Setup', 'ServiceSetup'
+];
+
+// Path for cache-setups.json on GitHub
+const GH_PATH_SETUPS_WEBHOOK = 'cache-setups.json';
 
 // ──────────────────────────────────────────────────────────────
 // Web App entry point — receives PestPac webhook POSTs
@@ -112,6 +121,19 @@ function doPost(e) {
             if (inv) upsertInvoice_(curateInvoice_(inv));
           }
         });
+      }
+    } else if (entityType === 'Service Setup' || entityType === 'ServiceSetup') {
+      // Service Setup webhook handler. PestPac fires Create / Update / Delete.
+      //   Create  → CSR booked a new setup (new business written)
+      //   Update  → field changed; commonly the CancelDate getting populated
+      //             (which = a cancellation in our model)
+      //   Delete  → hard-delete (rare). Remove from cache.
+      // Joe directive 2026-05-25.
+      if (action === 'Delete') {
+        deleteSetup_(entityId);
+      } else {
+        var setup = fetchSetup_(token, entityId);
+        if (setup) upsertSetup_(curateSetup_(setup));
       }
     }
 
@@ -333,6 +355,167 @@ function _markInvoiceVoidedInner_(invoiceId) {
     muteHttpExceptions: true
   });
 }
+
+// ══════════════════════════════════════════════════════════════
+// SERVICE SETUP WEBHOOK HANDLERS  (Joe directive 2026-05-25)
+// ══════════════════════════════════════════════════════════════
+// Drives cache-setups.json updates from real-time PestPac events.
+// Same lock + retry pattern as the invoice handler. Same curate logic as
+// the bulk pull in CacheRefresh.gs (shares enrichSetupCreator_).
+
+function fetchSetup_(token, setupId) {
+  var r = ppGet_(token, '/ServiceSetups/' + setupId);
+  if (r.code !== 200) {
+    Logger.log('  fetchSetup ' + setupId + ' → HTTP ' + r.code);
+    return null;
+  }
+  return JSON.parse(r.text);
+}
+
+// Apply CURATED_FIELDS_SETUP whitelist + extract EnteredBy/SalesBy from
+// Technicians. Mirrors the bulk-pull curation in fetchSetups_ exactly so
+// webhook-delivered records and bulk-fetched records have identical shape.
+function curateSetup_(setup) {
+  var curated = curate_(setup, CURATED_FIELDS_SETUP);
+  enrichSetupCreator_(curated, setup);
+  return curated;
+}
+
+// Upsert into cache-setups.json — same concurrency pattern as upsertInvoice_.
+// LockService serializes concurrent webhook deliveries; retry-on-409 catches
+// the rare race with another writer (e.g., a CacheRefresh.gs bulk refresh
+// happening at the same moment).
+function upsertSetup_(curated) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(90000);
+  } catch (e) {
+    Logger.log('  ⚠️ Lock timeout — could not serialize setup upsert for ' + curated.SetupID);
+    return;
+  }
+  try {
+    var ok = upsertSetupOnce_(curated, 1);
+    var attempt = 2;
+    while (!ok && attempt <= 3) {
+      Utilities.sleep(400 * attempt);
+      ok = upsertSetupOnce_(curated, attempt);
+      attempt++;
+    }
+    if (!ok) Logger.log('  ⚠️ Gave up on setup ' + curated.SetupID + ' after ' + (attempt - 1) + ' attempts');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function upsertSetupOnce_(curated, attempt) {
+  var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+  if (!token) { Logger.log('  ⚠️ GITHUB_TOKEN missing'); return false; }
+  var apiBase = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
+  var headers = { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' };
+
+  // 1. Read current cache-setups.json
+  var getResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_SETUPS_WEBHOOK + '?ref=' + GH_BRANCH, {
+    headers: headers, muteHttpExceptions: true
+  });
+  if (getResp.getResponseCode() !== 200) {
+    Logger.log('  Setup cache read HTTP ' + getResp.getResponseCode());
+    return false;
+  }
+  var meta = JSON.parse(getResp.getContentText());
+  var jsonStr = Utilities.newBlob(Utilities.base64Decode(meta.content), 'application/json').getDataAsString();
+  var cache = JSON.parse(jsonStr);
+
+  // 2. Upsert by SetupID
+  var setups = cache.setups || [];
+  var key = String(curated.SetupID);
+  var idx = -1;
+  for (var i = 0; i < setups.length; i++) {
+    if (String(setups[i].SetupID) === key) { idx = i; break; }
+  }
+  if (idx >= 0) {
+    setups[idx] = curated;
+    Logger.log('  Updated setup ' + key + (attempt > 1 ? ' (retry ' + attempt + ')' : '') +
+               (curated.CancelDate ? ' [CANCELLED]' : ''));
+  } else {
+    setups.push(curated);
+    Logger.log('  Added setup ' + key + ' (NEW BUSINESS)' + (attempt > 1 ? ' (retry ' + attempt + ')' : ''));
+  }
+  cache.setups = setups;
+  cache.updated = new Date().toISOString();
+  cache.recordCount = setups.length;
+  cache.lastWebhookUpdate = new Date().toISOString();
+
+  // 3. Write back
+  var newContent = Utilities.base64Encode(JSON.stringify(cache), Utilities.Charset.UTF_8);
+  var putResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_SETUPS_WEBHOOK, {
+    method: 'put', headers: headers, contentType: 'application/json',
+    payload: JSON.stringify({
+      message: 'Webhook upsert setup ' + key + ' ' + new Date().toISOString(),
+      content: newContent,
+      sha: meta.sha,
+      branch: GH_BRANCH
+    }),
+    muteHttpExceptions: true
+  });
+  var code = putResp.getResponseCode();
+  if (code === 200 || code === 201) {
+    Logger.log('  ✅ Setup cache updated');
+    return true;
+  }
+  if (code === 409) {
+    Logger.log('  ⏪ 409 conflict — will retry with fresh SHA');
+    return false;
+  }
+  Logger.log('  Setup cache write HTTP ' + code + ': ' + putResp.getContentText().substring(0, 300));
+  return false;
+}
+
+// Delete a setup from the cache. Service Setup.Delete events are rare —
+// usually setups get cancelled (CancelDate populated) rather than hard-deleted.
+function deleteSetup_(setupId) {
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(90000); } catch (e) {
+    Logger.log('  ⚠️ Lock timeout — could not delete setup ID ' + setupId);
+    return;
+  }
+  try {
+    var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+    if (!token) return;
+    var apiBase = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
+    var headers = { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' };
+    var getResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_SETUPS_WEBHOOK + '?ref=' + GH_BRANCH, {
+      headers: headers, muteHttpExceptions: true
+    });
+    if (getResp.getResponseCode() !== 200) return;
+    var meta = JSON.parse(getResp.getContentText());
+    var jsonStr = Utilities.newBlob(Utilities.base64Decode(meta.content), 'application/json').getDataAsString();
+    var cache = JSON.parse(jsonStr);
+    var filtered = (cache.setups || []).filter(function(s) {
+      return String(s.SetupID) !== String(setupId);
+    });
+    if (filtered.length === (cache.setups || []).length) {
+      Logger.log('  Delete event for setup ID ' + setupId + ' — not in cache, ignoring');
+      return;
+    }
+    cache.setups = filtered;
+    cache.updated = new Date().toISOString();
+    cache.recordCount = filtered.length;
+    cache.lastWebhookUpdate = new Date().toISOString();
+    var newContent = Utilities.base64Encode(JSON.stringify(cache), Utilities.Charset.UTF_8);
+    UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_SETUPS_WEBHOOK, {
+      method: 'put', headers: headers, contentType: 'application/json',
+      payload: JSON.stringify({
+        message: 'Webhook delete setup ID ' + setupId,
+        content: newContent, sha: meta.sha, branch: GH_BRANCH
+      }),
+      muteHttpExceptions: true
+    });
+    Logger.log('  ❌ Deleted setup ID ' + setupId + ' from cache');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 
 // ──────────────────────────────────────────────────────────────
 // Admin budget-save handler (Joe directive 2026-05-23)

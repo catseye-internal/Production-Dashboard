@@ -470,6 +470,37 @@ function curate_(rec, whitelist) {
   return out;
 }
 
+// Extracts EnteredBy + SalesBy from the Technicians array on a setup payload.
+// PestPac's 4-position convention (same as orders + invoices):
+//   Position 1 (index 0) = Tech 1 (primary field tech — varies per visit)
+//   Position 2 (index 1) = Tech 2 (secondary field tech)
+//   Position 3 (index 2) = Sales (the closer / inspector who sold the setup)
+//   Position 4 (index 3) = Entered (the CSR who created the setup)
+//
+// AddDate captures WHEN the setup was created; EnteredBy + SalesBy capture WHO.
+// Together they power "new business written" + per-CSR attribution.
+//
+// Shared between the bulk pull (fetchSetups_) and the webhook handler
+// (curateSetup_ in InvoiceWebhookHandler.gs) so the two paths stay in lockstep.
+// Joe directive 2026-05-25.
+function enrichSetupCreator_(curatedOut, rawSetup) {
+  if (!rawSetup || !Array.isArray(rawSetup.Technicians)) return;
+  var techs = rawSetup.Technicians;
+  if (techs.length >= 4) {
+    var enteredSlot = techs[3];
+    if (enteredSlot && enteredSlot.Code) {
+      curatedOut.EnteredBy = enteredSlot.Code;
+      if (enteredSlot.TechID != null) curatedOut.EnteredByID = enteredSlot.TechID;
+    }
+  }
+  if (techs.length >= 3) {
+    var salesSlot = techs[2];
+    if (salesSlot && salesSlot.Code) {
+      curatedOut.SalesBy = salesSlot.Code;
+    }
+  }
+}
+
 // ──────────────────────────────────────────────────────────────
 // Raw refresh gate — has it been ≥ RAW_REFRESH_MIN_HOURS since last raw write?
 // ──────────────────────────────────────────────────────────────
@@ -810,28 +841,7 @@ function fetchSetups_(token, setupIds) {
             loggedShape = true;
           }
           var curatedSetup = curate_(setup, CURATED_FIELDS_SETUP);
-          // Extract the CSR who created this setup. PestPac's 4-position
-          // Technicians convention (same as orders + invoices):
-          //   Position 1 (index 0) = Tech 1 (primary field tech, varies per visit)
-          //   Position 2 (index 1) = Tech 2 (secondary field tech)
-          //   Position 3 (index 2) = Sales
-          //   Position 4 (index 3) = Entered (the CSR who created the setup)
-          // For setup attribution we only care about Position 4. AddDate is when
-          // they created it; EnteredBy is who. Together they give us reliable
-          // "new business written" tracking per CSR. Joe directive 2026-05-25.
-          if (Array.isArray(setup.Technicians) && setup.Technicians.length >= 4) {
-            var enteredSlot = setup.Technicians[3];
-            if (enteredSlot && enteredSlot.Code) {
-              curatedSetup.EnteredBy = enteredSlot.Code;
-              if (enteredSlot.TechID != null) curatedSetup.EnteredByID = enteredSlot.TechID;
-            }
-            // Also capture Sales (Position 3) — useful for sales attribution
-            // where it differs from the CSR who entered the order
-            var salesSlot = setup.Technicians[2];
-            if (salesSlot && salesSlot.Code) {
-              curatedSetup.SalesBy = salesSlot.Code;
-            }
-          }
+          enrichSetupCreator_(curatedSetup, setup);
           out.push(curatedSetup);
         } catch (e) { /* skip parse error */ }
       }
@@ -1057,6 +1067,68 @@ function readSetupsCache_() {
   } catch (e) {
     return { setups: [] };
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// SETUP BOOTSTRAP — one-time pull of every setup tied to active customers
+// ══════════════════════════════════════════════════════════════
+// Captures setups that aren't linked to current orders in cache.json (e.g.,
+// setups whose next service is >90 days out, recently cancelled setups, or
+// setups for new customers whose first SO hasn't been created yet).
+//
+// Strategy: probe the endpoint patterns first (probeLocationSetupsEndpoint),
+// then iterate every Active location and pull its setups via whichever pattern
+// PestPac supports. Idempotent — safe to re-run.
+
+function probeLocationSetupsEndpoint() {
+  var token = ppToken_();
+  // Grab a known LocationID from cache-locations.json
+  var locResp = UrlFetchApp.fetch(
+    'https://catseye-internal.github.io/Production-Dashboard/cache-locations.json',
+    { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+  );
+  var locCache = JSON.parse(locResp.getContentText());
+  var sampleLoc = (locCache.locations || []).filter(function(l) { return l.Active && l.LocationID; })[0];
+  if (!sampleLoc) { Logger.log('No active location found'); return; }
+  var lid = sampleLoc.LocationID;
+  Logger.log('🧪 Probing setup-discovery patterns for LocationID=' + lid + ' (' + (sampleLoc.Company || sampleLoc.LastName) + ')');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  var paths = [
+    '/Locations/' + lid + '/serviceSetups',
+    '/Locations/' + lid + '/ServiceSetups',
+    '/Locations/' + lid + '/setups',
+    '/ServiceSetups?locationId=' + lid,
+    '/ServiceSetups?locationID=' + lid,
+    '/ServiceSetups?LocationID=' + lid
+  ];
+
+  paths.forEach(function(p) {
+    var r = ppGet_(token, p);
+    var label = p.length > 50 ? p.substring(0, 50) + '...' : p;
+    if (r.code !== 200) {
+      Logger.log('  ' + label + '  →  HTTP ' + r.code);
+      return;
+    }
+    try {
+      var parsed = JSON.parse(r.text);
+      if (Array.isArray(parsed)) {
+        Logger.log('  ' + label + '  →  ARRAY (' + parsed.length + ' setups)');
+        if (parsed.length > 0) {
+          Logger.log('     Sample keys: ' + Object.keys(parsed[0]).slice(0, 10).join(', ') + '...');
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        Logger.log('  ' + label + '  →  OBJECT (' + Object.keys(parsed).length + ' fields)');
+      }
+    } catch (e) {
+      Logger.log('  ' + label + '  →  200 non-JSON');
+    }
+    Utilities.sleep(250);
+  });
+
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('Pick the pattern that returns an ARRAY of setups. Then build bootstrapAllSetups()');
+  Logger.log('against that pattern.');
 }
 
 // ══════════════════════════════════════════════════════════════

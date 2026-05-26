@@ -23,8 +23,9 @@
 // ⬇️ EDIT THIS to your deployed Web App /exec URL before running setupAllWebhooks()
 const WEBHOOK_RECEIVER_URL = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
 
-// Events to subscribe to — every invoice-affecting event
+// Events to subscribe to — every invoice + setup affecting event
 const SUBSCRIPTIONS = [
+  // Invoice / Credit Memo / Payment — drive cache-invoices.json
   { EntityType: 'Invoice',     Action: 'Create' },
   { EntityType: 'Invoice',     Action: 'Update' },
   { EntityType: 'Invoice',     Action: 'Void'   },
@@ -32,6 +33,22 @@ const SUBSCRIPTIONS = [
   { EntityType: 'Credit Memo', Action: 'Update' },
   { EntityType: 'Credit Memo', Action: 'Apply'  },
   { EntityType: 'Payment',     Action: 'Apply'  },  // balance updates on linked invoices
+
+  // Service Setup — drives cache-setups.json (Joe directive 2026-05-25).
+  // Create = new business written by a CSR
+  // Update = changes including the CancelDate getting populated (= a cancellation)
+  // Delete = hard-delete (rare; usually setups get cancelled, not deleted)
+  //
+  // PestPac docs say the entity name is "Service Setup" (with space). We subscribe
+  // to BOTH spaced + un-spaced variants defensively — whichever name actually fires
+  // gets through; the other becomes a no-op subscription that PestPac just ignores
+  // or fires zero events for.
+  { EntityType: 'Service Setup', Action: 'Create' },
+  { EntityType: 'Service Setup', Action: 'Update' },
+  { EntityType: 'Service Setup', Action: 'Delete' },
+  { EntityType: 'ServiceSetup',  Action: 'Create' },
+  { EntityType: 'ServiceSetup',  Action: 'Update' },
+  { EntityType: 'ServiceSetup',  Action: 'Delete' },
 ];
 
 // ──────────────────────────────────────────────────────────────
@@ -53,6 +70,29 @@ function setupAllWebhooks() {
   Logger.log('\n✅ Setup complete');
   Logger.log('Run listWebhooks() to verify.');
   return results;
+}
+
+// Targeted helper: register ONLY the new ServiceSetup subscriptions, leaving
+// existing Invoice/CreditMemo/Payment subscriptions untouched. Use this when
+// adding ServiceSetup events to an already-working webhook setup. Joe
+// directive 2026-05-25.
+function setupServiceSetupWebhooksOnly() {
+  if (WEBHOOK_RECEIVER_URL.indexOf('YOUR_DEPLOYMENT_ID') >= 0) {
+    throw new Error('Set WEBHOOK_RECEIVER_URL at the top of this file before running.');
+  }
+  var setupSubs = SUBSCRIPTIONS.filter(function(s) {
+    return s.EntityType === 'Service Setup' || s.EntityType === 'ServiceSetup';
+  });
+  Logger.log('📡 Registering ' + setupSubs.length + ' ServiceSetup subscriptions → ' + WEBHOOK_RECEIVER_URL);
+  var token = ppToken_();
+  setupSubs.forEach(function(sub) {
+    var r = createWebhook_(token, sub.EntityType, sub.Action, WEBHOOK_RECEIVER_URL);
+    Logger.log('  ' + sub.EntityType + '.' + sub.Action + ' → HTTP ' + r.code +
+               (r.code !== 200 && r.code !== 201 ? ' :: ' + r.text.substring(0, 150) : ''));
+    Utilities.sleep(300);
+  });
+  Logger.log('\n✅ ServiceSetup subscriptions added');
+  Logger.log('Run listWebhooks() to verify both old and new are present.');
 }
 
 function createWebhook_(token, entityType, action, url) {
