@@ -39,16 +39,11 @@ const SUBSCRIPTIONS = [
   // Update = changes including the CancelDate getting populated (= a cancellation)
   // Delete = hard-delete (rare; usually setups get cancelled, not deleted)
   //
-  // PestPac docs say the entity name is "Service Setup" (with space). We subscribe
-  // to BOTH spaced + un-spaced variants defensively — whichever name actually fires
-  // gets through; the other becomes a no-op subscription that PestPac just ignores
-  // or fires zero events for.
+  // Confirmed 2026-05-25: PestPac uses "Service Setup" with a space. The
+  // un-spaced "ServiceSetup" variant returns HTTP 400 "Entity Type not valid".
   { EntityType: 'Service Setup', Action: 'Create' },
   { EntityType: 'Service Setup', Action: 'Update' },
-  { EntityType: 'Service Setup', Action: 'Delete' },
-  { EntityType: 'ServiceSetup',  Action: 'Create' },
-  { EntityType: 'ServiceSetup',  Action: 'Update' },
-  { EntityType: 'ServiceSetup',  Action: 'Delete' },
+  { EntityType: 'Service Setup', Action: 'Delete' }
 ];
 
 // ──────────────────────────────────────────────────────────────
