@@ -3545,7 +3545,7 @@ function renderTechView_() {
   var cardCatGuardLeaderboard =
     '<div class="chart-card">' +
       '<h3 class="chart-title">CG LEADERBOARD</h3>' +
-      '<div class="chart-meta">CG/NWL installers ranked by MTD install revenue · only Initial (IN) invoices counted (excludes free follow-ups) · two-tech jobs split 50/50 · excludes managers · gold/silver/bronze top 3 · green ≥$3,500/install, yellow ≥$2,000, red <$2,000</div>' +
+      '<div class="chart-meta">CG/NWL installers ranked by MTD install revenue · only Initial (IN) invoices counted (excludes free follow-ups) · two-tech jobs split 50/50 · excludes managers · gold/silver/bronze top 3 · green ≥$3,500/order, yellow ≥$2,000, red <$2,000</div>' +
       renderCatGuardLeaderboard_(workingElapsedMtd, dSom, dYest, STATE.employeesMap) +
     '</div>';
 
@@ -6023,8 +6023,13 @@ function renderCatGuardLeaderboard_(workingDays, dSom, dYest, employeesMap) {
     ? productionInvoices_()
     : ((STATE.invoiceCache && STATE.invoiceCache.invoices) || []);
 
-  // Reuse manager + non-tech filters
-  var dynamicMgrSet = (typeof STATE !== 'undefined' && STATE.dynamicMgrSet) ? STATE.dynamicMgrSet : new Set();
+  // Reuse manager + non-tech filters. CRITICAL: must call getDynamicManagerSet_()
+  // — NOT read STATE.dynamicMgrSet (which doesn't exist). The dynamic set scans
+  // cache-employees.json JobTitles for "manager"/"supervisor"/"director" keywords
+  // and is the only way titles like "Cat-Guard Manager" (Maynard GAM, Luukko EDL)
+  // get caught. The hardcoded MANAGER_CODES set in config.js only covers the
+  // older managers (Lariccia BLL, etc.).
+  var dynamicMgrSet = (typeof getDynamicManagerSet_ === 'function') ? getDynamicManagerSet_() : new Set();
   function isMgr_(code) {
     if (!code) return false;
     var c = String(code).toUpperCase();
@@ -6125,7 +6130,7 @@ function renderCatGuardLeaderboard_(workingDays, dSom, dYest, employeesMap) {
   }).join('');
 
   return '<table class="ptlb-table"><thead><tr>' +
-    '<th>Installer</th><th>Branch</th><th class="num">Installs</th><th class="num">$/Install</th><th class="num">$/Day</th><th class="num">MTD $</th>' +
+    '<th>Installer</th><th>Branch</th><th class="num">Installs</th><th class="num">$/Order</th><th class="num">$/Day</th><th class="num">MTD $</th>' +
     '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
 }
 
