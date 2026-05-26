@@ -429,8 +429,8 @@
     color: var(--text-dim); text-transform: uppercase;
   }
   .mtd-banner-value {
-    font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums;
-    line-height: 1.1;
+    font-size: 36px; font-weight: 800; font-variant-numeric: tabular-nums;
+    line-height: 1.05; letter-spacing: -0.5px;  /* T2 redesign 2026-05-26: 24→36px */
   }
   .mtd-banner-value.field  { color: #34D399; }   /* green */
   .mtd-banner-value.office { color: #FBBF24; }   /* amber */
@@ -551,9 +551,33 @@
   .tech-charts-stack {
     grid-column: 1 / -1;
     display: flex; flex-direction: column;
-    gap: 14px; margin-bottom: 4px;
+    gap: 24px; margin-bottom: 4px;  /* T2 redesign 2026-05-26: 14→24px breathing room */
   }
   .tech-charts-stack > .chart-card { width: 100%; }
+
+  /* T2 redesign: bigger chart-card padding + title for hierarchy */
+  .tech-charts-stack > .chart-card { padding: 20px 24px; }
+  .tech-charts-stack > .chart-card .chart-title {
+    font-size: 14px; letter-spacing: 1.1px; margin-bottom: 14px;
+  }
+
+  /* T2: Leaderboard "Show all" expand toggle */
+  .lb-expand-btn {
+    display: block; margin: 12px auto 0;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim); cursor: pointer;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
+    padding: 7px 16px; border-radius: 6px;
+    transition: all 0.15s;
+  }
+  .lb-expand-btn:hover {
+    color: var(--text); border-color: var(--text-dim);
+    background: rgba(255,255,255,0.03);
+  }
+  /* Hide rows 6+ when collapsed */
+  .lb-wrap.lb-collapsed tbody tr:nth-child(n+6) { display: none; }
+  .lb-wrap.lb-expanded .lb-expand-btn span.lb-show { display: none; }
+  .lb-wrap.lb-collapsed .lb-expand-btn span.lb-hide { display: none; }
 
   /* Master tech cards (Catseye Techs, USX Pest Techs) live in the dedicated
      Tech tab (#techDetailView) as of 2026-05-25. They span the full width of
@@ -620,57 +644,107 @@
      Joe directive 2026-05-25. Single horizontal row of 4 cells:
      TODAY · TOMORROW · MTD · HOT QUEUE.
      ══════════════════════════════════════════════════════════════ */
-  .hero-strip {
-    /* Parent .grouped-view is a 2-col CSS grid — span the full width */
+  /* ──────────────────────────────────────────────────────────────
+     Hero Strip V2 — redesigned 2026-05-26 (Joe directive)
+     ROW 1: TODAY + TOMORROW (huge — the actionable scoreboard + lever)
+     ROW 2: +2 · +3 · MTD · NEED/DAY · HOT QUEUE (smaller context strip)
+     ────────────────────────────────────────────────────────────── */
+  .hero-v2-row {
     grid-column: 1 / -1;
-    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px; margin-bottom: 14px;
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-bottom: 12px;
   }
-  .hero-card {
-    /* Match the standard chart-card background so the hero strip + Forecast
-       Totals + all other dashboard cards look unified (Joe directive 2026-05-25). */
+  .hero-v2-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-left: 3px solid rgba(255,255,255,0.10);
-    border-radius: 10px;
-    padding: 12px 16px 14px;
-    display: flex; flex-direction: column; gap: 4px;
-    min-height: 90px;
+    border-left: 4px solid rgba(255,255,255,0.10);
+    border-radius: 12px;
+    padding: 20px 24px 22px;
+    display: flex; flex-direction: column; gap: 6px;
+    min-height: 150px;
   }
-  .hero-card-label {
-    font-size: 10px; color: var(--text-dim); font-weight: 700;
-    letter-spacing: 0.8px; text-transform: uppercase;
+  .hero-v2-label {
+    font-size: 11px; color: var(--text-dim); font-weight: 700;
+    letter-spacing: 1.0px; text-transform: uppercase;
   }
-  .hero-card-value {
-    font-size: 24px; font-weight: 800; line-height: 1.15;
+  .hero-v2-value {
+    font-size: 64px; font-weight: 800; line-height: 1.0;
     font-variant-numeric: tabular-nums; color: var(--text);
+    letter-spacing: -1.5px;
+    margin: 4px 0 2px;
   }
-  .hero-card-sub {
-    font-size: 11px; color: var(--text-dim); line-height: 1.35;
+  .hero-v2-meta {
+    font-size: 13px; color: var(--text-dim); line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+  }
+  .hero-v2-target { color: var(--text-muted); }
+  .hero-v2-delta { font-weight: 700; margin-left: 6px; }
+  .hero-v2-delta-good { color: #34D399; }
+  .hero-v2-delta-warn { color: #FBBF24; }
+  .hero-v2-delta-bad  { color: #F87171; }
+  .hero-v2-hint {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
     margin-top: auto;
   }
-  /* Status accent — bold left border + bright text. No background tint. */
+  .hero-v2-hint-good { color: #34D399; }
+  .hero-v2-hint-warn { color: #FBBF24; }
+  .hero-v2-hint-bad  { color: #F87171; }
+
+  /* Context strip — 5 small cards below the hero */
+  .hero-ctx-row {
+    grid-column: 1 / -1;
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px; margin-bottom: 18px;
+  }
+  .hero-ctx-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 14px 12px;
+    display: flex; flex-direction: column; gap: 3px;
+    min-height: 80px;
+  }
+  .hero-ctx-label {
+    font-size: 9px; color: var(--text-dim); font-weight: 700;
+    letter-spacing: 0.7px; text-transform: uppercase;
+  }
+  .hero-ctx-value {
+    font-size: 24px; font-weight: 800; line-height: 1.1;
+    font-variant-numeric: tabular-nums; color: var(--text);
+  }
+  .hero-ctx-sub {
+    font-size: 10px; color: var(--text-dim); line-height: 1.35;
+    margin-top: auto;
+  }
+
+  /* Status accents apply to both hero-v2 and hero-ctx cards */
   .hero-good { border-left-color: #34D399; }
-  .hero-good .hero-card-value { color: #34D399; }
+  .hero-good .hero-v2-value, .hero-good .hero-ctx-value { color: #34D399; }
   .hero-bad  { border-left-color: #F87171; }
-  .hero-bad  .hero-card-value { color: #F87171; }
+  .hero-bad  .hero-v2-value, .hero-bad  .hero-ctx-value { color: #F87171; }
   .hero-warn { border-left-color: #FBBF24; }
-  .hero-warn .hero-card-value { color: #FBBF24; }
-  /* Pill spans inside hero-card-sub for inline split metrics */
+  .hero-warn .hero-v2-value, .hero-warn .hero-ctx-value { color: #FBBF24; }
+
+  /* Pill spans for inline split metrics (HOT QUEUE) */
   .hero-pill {
-    display: inline-block; padding: 3px 9px; border-radius: 10px;
-    background: rgba(255,255,255,0.06); margin-right: 6px;
+    display: inline-block; padding: 3px 8px; border-radius: 9px;
+    background: rgba(255,255,255,0.06); margin-right: 4px;
     font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
+    font-variant-numeric: tabular-nums;
   }
   .hero-pill.good { background: rgba(52,211,153,0.22);  color: #34D399; }
-  .hero-pill.bad  { background: rgba(248,113,113,0.22);  color: #F87171; }
-  .hero-pill.warn { background: rgba(251,191,36,0.22); color: #FBBF24; }
-  @media (max-width: 900px) {
-    .hero-strip { grid-template-columns: repeat(2, 1fr); }
-    .hero-card-value { font-size: 19px; }
+  .hero-pill.bad  { background: rgba(248,113,113,0.22); color: #F87171; }
+  .hero-pill.warn { background: rgba(251,191,36,0.22);  color: #FBBF24; }
+
+  @media (max-width: 1000px) {
+    .hero-v2-value { font-size: 48px; }
+    .hero-ctx-row { grid-template-columns: repeat(3, 1fr); }
   }
-  @media (max-width: 480px) {
-    .hero-strip { grid-template-columns: 1fr; }
+  @media (max-width: 700px) {
+    .hero-v2-row { grid-template-columns: 1fr; }
+    .hero-v2-value { font-size: 40px; }
+    .hero-ctx-row { grid-template-columns: 1fr 1fr; }
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -736,6 +810,13 @@
     font-weight: 600; letter-spacing: 0.4px;
   }
   .ptlb-toggle-btn.active { background: rgba(244,123,32,0.20); color: #F47B20; }
+  /* T2 redesign 2026-05-26: bigger leaderboard text + tighter rows */
+  .ptlb-table { font-size: 13px; }
+  .ptlb-table th { font-size: 11px; padding: 8px 10px; }
+  .ptlb-table td { padding: 10px 10px; }
+  .ptlb-table td.num { font-size: 14px; font-weight: 700; }
+  .ptlb-rank { font-size: 13px; font-weight: 700; }
+
   .ptlb-table {
     margin-top: 10px; width: 100%; border-collapse: collapse;
     font-size: 12px; font-variant-numeric: tabular-nums;
@@ -1313,8 +1394,9 @@
     display: flex; flex-direction: column; align-items: center; gap: 2px;
   }
   .mini-donut-rate-pct {
-    font-size: 22px; font-weight: 800; letter-spacing: 0.2px;
+    font-size: 30px; font-weight: 800; letter-spacing: -0.3px;
     color: var(--text); line-height: 1;
+    /* T3 redesign 2026-05-26: 22→30px for hero number in donut center */
   }
   .mini-donut-rate-pct.rate-low  { color: var(--green); }
   .mini-donut-rate-pct.rate-med  { color: #FBBF24; }
@@ -3385,49 +3467,78 @@ function renderTechView_() {
     '</div>';
 
   // ── Top-of-Tech-view chart grid (Joe directive 2026-05-22) ──
-  // Two columns. Left column stacks Forecast Totals (compact) on top of
-  // Callbacks-by-Branch (grows to fill leftover space, so the donuts get
-  // ample room). Right column stacks MTD Production on top of Revenue per
-  // Tech. Each column's bottom card flex-grows to match the tallest column.
-  // Combined Daily Needed — used by the FORECAST TOTALS card to color each
-  // day's number green/red vs the daily target. Mirrors the calc inside
-  // renderMtdProductionCard_() (combinedAgg.budgetWithCgw / workingTotal).
-  // Joe directive 2026-05-24.
-  var fcNeededPerDay = 0;
-  var heroMtdBudget = 0;       // combined budget for the hero strip
-  var heroWorkingTotal = 0;    // total working days in month
+  //
+  // NEED/DAY computation (Joe directive 2026-05-26 redesign):
+  // Computes against the NO-CGW budget (the pure pest-production target).
+  // CGW is upside, not core obligation.
+  //
+  // Formula:
+  //   standardTarget = noCgwBudget / totalWorkingDaysInMonth
+  //   catchUpNeeded  = (noCgwBudget - mtdActualNoCgw) / workingDaysRemaining
+  //   neededPerDay   = MAX(catchUpNeeded, standardTarget)
+  //
+  // The MAX floor is critical — never let "we're ahead" become an excuse to
+  // coast below the standard daily target. Discipline = same bar every day
+  // until the buffer matters.
+  //
+  // The Today + Tomorrow hero cards compare against neededPerDay (floored).
+  // When behind, the bar rises and red appears. When ahead, the bar stays at
+  // standard and green appears.
+  var fcNeededPerDay = 0;       // floored need-per-day (the hero target)
+  var fcStandardTarget = 0;     // unfloored standard daily target (for sub-text)
+  var heroMtdBudget = 0;        // total combined budget (with CGW)
+  var heroNoCgwBudget = 0;      // no-CGW budget (for NEED/DAY math)
+  var heroWorkingTotal = 0;     // total working days in month
+  var heroWorkingRemaining = 0; // working days remaining (incl. today)
   try {
     var fcYear  = todayD.getFullYear();
     var fcMonth = todayD.getMonth();
     var fcWorkingTotal = (typeof workingDaysInMonth_ === 'function')
                           ? workingDaysInMonth_(fcYear, fcMonth) : 0;
     heroWorkingTotal = fcWorkingTotal;
+    heroWorkingRemaining = Math.max(fcWorkingTotal - workingElapsedMtd, 1);
     if (fcWorkingTotal > 0 && STATE && STATE.budgets) {
-      var DASH_CATS = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial','cgw_generated'];
+      var DASH_CATS_FULL = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial','cgw_generated'];
+      var DASH_CATS_NOCGW = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial']; // no cgw_generated
       var fcCombinedBudget = 0;
+      var fcNoCgwBudget = 0;
       BRANCH_ALL.forEach(function(b) {
         var cats = (typeof getMonthlyBudgetByCategory === 'function')
                     ? getMonthlyBudgetByCategory(STATE.budgets, b, fcYear, fcMonth)
                     : null;
         if (!cats) return;
-        DASH_CATS.forEach(function(c) { fcCombinedBudget += Number(cats[c] || 0); });
+        DASH_CATS_FULL.forEach(function(c) { fcCombinedBudget += Number(cats[c] || 0); });
+        DASH_CATS_NOCGW.forEach(function(c) { fcNoCgwBudget   += Number(cats[c] || 0); });
       });
-      fcNeededPerDay = fcCombinedBudget / fcWorkingTotal;
-      heroMtdBudget = fcCombinedBudget;
+      heroMtdBudget   = fcCombinedBudget;
+      heroNoCgwBudget = fcNoCgwBudget;
+      fcStandardTarget = fcNoCgwBudget / fcWorkingTotal;
     }
   } catch (e) { /* leave fcNeededPerDay = 0 → renderer skips coloring */ }
 
   // Hero Strip data — total MTD actual across branches (matches the
   // Completed vs Budget card methodology: same 5 categories, excludes
   // plat_nonbillable). Joe directive 2026-05-25.
-  var heroMtdActual = 0;
+  // Two flavors: full (with CGW) for the MTD% chip, and no-CGW for NEED/DAY.
+  var heroMtdActual = 0;        // full MTD revenue (with CGW)
+  var heroMtdActualNoCgw = 0;   // MTD revenue excluding CGW (for NEED/DAY)
   try {
-    var HERO_CATS = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial','cgw_generated'];
+    var HERO_CATS_FULL = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial','cgw_generated'];
+    var HERO_CATS_NOCGW = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial'];
     BRANCH_ALL.forEach(function(b) {
       var bcats = (mtdByBranchCategory && mtdByBranchCategory[b]) || {};
-      HERO_CATS.forEach(function(c) { heroMtdActual += Number(bcats[c] || 0); });
+      HERO_CATS_FULL.forEach(function(c) { heroMtdActual += Number(bcats[c] || 0); });
+      HERO_CATS_NOCGW.forEach(function(c) { heroMtdActualNoCgw += Number(bcats[c] || 0); });
     });
-  } catch (e) { /* leave heroMtdActual = 0 */ }
+  } catch (e) { /* leave at 0 */ }
+
+  // Compute NEED/DAY with floor rule
+  if (heroNoCgwBudget > 0 && heroWorkingRemaining > 0) {
+    var catchUp = (heroNoCgwBudget - heroMtdActualNoCgw) / heroWorkingRemaining;
+    fcNeededPerDay = Math.max(catchUp, fcStandardTarget);
+  } else {
+    fcNeededPerDay = fcStandardTarget;
+  }
 
   // Hero Strip: setups created + cancellations in last 7 days
   var heroSetupsCount = 0, heroCancelsCount = 0;
@@ -3455,28 +3566,32 @@ function renderTechView_() {
   } catch (e) { /* leave at 0 */ }
 
   var heroStripHtml = renderHeroStrip_({
-    fcToday:         fcTotals.today,
-    fcTmrw:          fcTotals.tmrw,
-    fcNeededPerDay:  fcNeededPerDay,
-    mtdActual:       heroMtdActual,
-    mtdBudget:       heroMtdBudget,
-    workingElapsed:  workingElapsedMtd,
-    workingTotal:    heroWorkingTotal,
-    setupsWeekCount: heroSetupsCount,
-    cancelsWeekCount: heroCancelsCount,
-    callbacksToday:  heroCallbacksToday
+    fcToday:           fcTotals.today,
+    fcTmrw:            fcTotals.tmrw,
+    fcD2:              fcTotals.d2,
+    fcD3:              fcTotals.d3,
+    fcDateLabel:       dateLabel,        // function(offset) → "TUE 5/26" etc.
+    fcNeededPerDay:    fcNeededPerDay,   // FLOORED need per day (use vs Today/Tmrw)
+    fcStandardTarget:  fcStandardTarget, // unfloored standard daily target
+    mtdActual:         heroMtdActual,
+    mtdBudget:         heroMtdBudget,
+    noCgwBudget:       heroNoCgwBudget,
+    mtdActualNoCgw:    heroMtdActualNoCgw,
+    workingElapsed:    workingElapsedMtd,
+    workingTotal:      heroWorkingTotal,
+    workingRemaining:  heroWorkingRemaining,
+    setupsWeekCount:   heroSetupsCount,
+    cancelsWeekCount:  heroCancelsCount,
+    callbacksToday:    heroCallbacksToday
   });
 
-  var cardForecastTotals =
-    '<div class="chart-card">' +
-      '<h3 class="chart-title">FORECAST TOTALS</h3>' +
-      '<div class="chart-meta">Total scheduled revenue per day (all techs) · green = above Combined needed/day, red = below</div>' +
-      renderForecastKpiCards_(fcTotals, dateLabel, fcNeededPerDay) +
-    '</div>';
+  // cardForecastTotals removed 2026-05-26: Today/Tmrw/+2/+3 all live in the
+  // Hero Strip V2 now. renderForecastKpiCards_ kept in code for potential
+  // future use but no longer wired into the Dashboard view.
+
   var cardCallbacksByBranch =
     '<div class="chart-card chart-card-grow">' +
       '<h3 class="chart-title">CALLBACKS BY BRANCH</h3>' +
-      '<div class="chart-meta">MTD callbacks broken down by service per branch · rate = CB ÷ total MTD orders</div>' +
       renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBranch) +
     '</div>';
   var mtdRender = renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory);
@@ -3486,13 +3601,11 @@ function renderTechView_() {
         '<h3 class="chart-title">Completed vs Budget</h3>' +
         mtdRender.headerStrip +
       '</div>' +
-      '<div class="chart-meta">Billable revenue vs monthly budget · excludes PR courtesy-platinum visits (PG CG, PG CG PRE) · custom date range supported · click a row to drill in</div>' +
       mtdRender.body +
     '</div>';
   var cardRevPerTech =
     '<div class="chart-card">' +
       '<h3 class="chart-title">REVENUE PER TECH BY BRANCH</h3>' +
-      '<div class="chart-meta">One card per branch · excludes managers (PestPac JobTitle + hardcoded fallback) · big number = MTD $/tech · sub-bars = avg $/working day per tech for Pest and CG/NWL</div>' +
       renderRevPerTechHbars_(byBranch, workingElapsedMtd) +
     '</div>';
   // Pest Team Efficiency — routing density signal (Joe directive 2026-05-23)
@@ -3501,7 +3614,6 @@ function renderTechView_() {
   var cardPestEfficiency =
     '<div class="chart-card">' +
       '<h3 class="chart-title">PEST TEAM EFFICIENCY · BY BRANCH</h3>' +
-      '<div class="chart-meta">Pest techs only · auto-excludes managers via PestPac JobTitle (manager / supervisor / director) · big number = $ per drive hour · sub-bars decompose daily output into Stops/day · $/stop · Drive time · Production</div>' +
       renderPestEfficiencyCards_(byBranch, workingElapsedMtd, computeDriveMiles_) +
     '</div>';
 
@@ -3515,13 +3627,11 @@ function renderTechView_() {
   var cardNewSetups =
     '<div class="chart-card">' +
       '<h3 class="chart-title">NEW BUSINESS WRITTEN</h3>' +
-      '<div class="chart-meta">New service setups created · attribution by EnteredBy (CSR who built it) · ARR = first-year value</div>' +
       renderNewSetupsCard_(setupsArr, setupsMode, STATE.employeesMap, todayD) +
     '</div>';
   var cardCancellations =
     '<div class="chart-card">' +
       '<h3 class="chart-title">CANCELLATIONS</h3>' +
-      '<div class="chart-meta">Real customer-loss events · excludes UPGRADE/DOWNGRADE service changes · ARR lost = annual value of cancelled setups</div>' +
       renderCancellationsCard_(setupsArr, cancelsMode, todayD) +
     '</div>';
   var cardNewBusinessRow =
@@ -3533,7 +3643,6 @@ function renderTechView_() {
   var cardPestTechLeaderboard =
     '<div class="chart-card">' +
       '<h3 class="chart-title">PEST TECH LEADERBOARD</h3>' +
-      '<div class="chart-meta">Field pest techs ranked by MTD $/working day · excludes managers · gold/silver/bronze top 3 · green ≥$1,700, yellow ≥$1,500, red <$1,500</div>' +
       renderPestTechLeaderboard_(byBranch, workingElapsedMtd, STATE.employeesMap) +
     '</div>';
 
@@ -3545,20 +3654,21 @@ function renderTechView_() {
   var cardCatGuardLeaderboard =
     '<div class="chart-card">' +
       '<h3 class="chart-title">CG LEADERBOARD</h3>' +
-      '<div class="chart-meta">CG/NWL installers ranked by MTD install revenue · only Initial (IN) invoices counted (excludes free follow-ups) · two-tech jobs split 50/50 · excludes managers · gold/silver/bronze top 3 · green ≥$3,500/order, yellow ≥$2,000, red <$2,000</div>' +
       renderCatGuardLeaderboard_(workingElapsedMtd, dSom, dYest, STATE.employeesMap) +
     '</div>';
 
-  // Stack order: Forecast Totals → Completed vs Budget → Callbacks by Branch
-  //              → New Business → Rev/Tech → Pest Efficiency → Pest Tech
-  //              → Cat-Guard Installer Leaderboard.
-  // Joe 2026-05-25: Callbacks moved above New Business so the "quality"
-  // signal sits right next to "production" before "growth" further down.
-  // Joe 2026-05-26: Hero Strip (TODAY/TOMORROW/THIS MONTH/HOT QUEUE) removed
-  // from the top of the Dashboard view per directive.
+  // Stack order: Hero Strip V2 (Today + Tomorrow huge + 5-card context row)
+  //              → Completed vs Budget → Callbacks by Branch → New Business
+  //              → Rev/Tech → Pest Efficiency → Pest Tech → CG Leaderboard.
+  // Joe 2026-05-25: Callbacks moved above New Business so "quality" signal
+  // sits next to "production" before "growth" further down.
+  // Joe 2026-05-26 redesign: Hero Strip rebuilt with Today + Tomorrow as the
+  // hero numbers (60px) + 5-card context row including NEED/DAY. Forecast
+  // Totals card removed — its Today/Tmrw/+2/+3 columns are all in the hero
+  // now (redundant).
   var chartsGrid =
+    heroStripHtml +
     '<div class="tech-charts-stack">' +
-      cardForecastTotals +
       cardMtdProduction +
       cardCallbacksByBranch +
       cardNewBusinessRow +
@@ -4702,12 +4812,10 @@ function renderTechChartsRow_(fcTotals, byBranch, todayD, dateLabel) {
   return '<div class="tech-charts-row">' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">FORECAST TOTALS</h3>' +
-      '<div class="chart-meta">Total scheduled revenue per day (all techs)</div>' +
       renderForecastKpiCards_(fcTotals, dateLabel) +
     '</div>' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">MTD PRODUCTION</h3>' +
-      '<div class="chart-meta">Field-tech revenue MTD · pacing vs monthly budget</div>' +
       renderMtdProductionCard_(byBranch, todayD) +
     '</div>' +
   '</div>';
@@ -5204,12 +5312,10 @@ function renderTechChartsRow2_(callbacksByBranchService, byBranch, workingDays) 
   return '<div class="tech-charts-row">' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">CALLBACKS BY BRANCH</h3>' +
-      '<div class="chart-meta">MTD callbacks broken down by service per branch</div>' +
       renderCallbacksByBranchDonuts_(callbacksByBranchService) +
     '</div>' +
     '<div class="chart-card">' +
       '<h3 class="chart-title">REVENUE PER TECH BY BRANCH</h3>' +
-      '<div class="chart-meta">MTD completed revenue ÷ active techs · plus avg $/working day per tech split by Pest vs CG/NWL</div>' +
       renderRevPerTechHbars_(byBranch, workingDays) +
     '</div>' +
   '</div>';
@@ -5669,97 +5775,162 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
 // Joe directive 2026-05-25. Single horizontal row, answers the
 // "are we winning?" question in one glance.
 // ══════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+// renderHeroStrip_ — REDESIGNED 2026-05-26 (Joe directive, T1+T2 redesign)
+//
+// Two visual tiers:
+//   ROW 1 (hero):  TODAY · Production   |   TOMORROW · Scheduled
+//                  Huge 60-72px numbers, target chip, action hint
+//   ROW 2 (context): +2 THU | +3 FRI | MTD% | NEED/DAY | HOT QUEUE
+//                  Smaller cards, dense info
+//
+// Joe's framing for emphasis:
+//   • Today = scoreboard (what we just built)
+//   • Tomorrow = the lever (what we can still influence by dispatching more
+//     work TODAY)
+//   Both deserve hero treatment.
+//
+// NEED/DAY is the actionable monthly catch-up metric. Uses the no-CGW budget
+// with floor rule: max(catchUp, standardDailyTarget). Never shows a number
+// below the standard target — discipline > coasting.
+// ─────────────────────────────────────────────────────────────────────────────
 function renderHeroStrip_(ctx) {
-  // ctx = { fcToday, fcTmrw, fcNeededPerDay, mtdActual, mtdBudget,
-  //         workingElapsed, workingTotal, setups, callbacksToday }
-  var todayStatus = (ctx.fcToday > 0 && ctx.fcNeededPerDay > 0)
-                    ? (ctx.fcToday >= ctx.fcNeededPerDay ? 'good' : 'bad') : 'neutral';
-  var todayDelta = ctx.fcToday - ctx.fcNeededPerDay;
-  var todayDeltaLabel = (ctx.fcNeededPerDay > 0)
-    ? (todayDelta >= 0 ? '+$' + Math.round(Math.abs(todayDelta)).toLocaleString() + ' ahead'
-                       : '–$' + Math.round(Math.abs(todayDelta)).toLocaleString() + ' behind')
-    : 'no target set';
-  var todayCard =
-    '<div class="hero-card hero-' + todayStatus + '">' +
-      '<div class="hero-card-label">TODAY · Production</div>' +
-      '<div class="hero-card-value">$' + Math.round(ctx.fcToday).toLocaleString() + '</div>' +
-      '<div class="hero-card-sub">' +
-        (ctx.fcNeededPerDay > 0 ? 'Target $' + Math.round(ctx.fcNeededPerDay).toLocaleString() + ' · ' : '') +
-        todayDeltaLabel +
-      '</div>' +
-    '</div>';
+  // ── Hero cards (Today, Tomorrow) ──
+  function fmtMoneyShort_(n) {
+    n = Math.round(n || 0);
+    if (n >= 1000000) return '$' + (n / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+    if (n >= 100000)  return '$' + Math.round(n / 1000) + 'k';
+    if (n >= 10000)   return '$' + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return '$' + n.toLocaleString();
+  }
 
-  // Tomorrow — color vs daily target
-  var tmrwStatus = (ctx.fcTmrw > 0 && ctx.fcNeededPerDay > 0)
-                    ? (ctx.fcTmrw >= ctx.fcNeededPerDay ? 'good' : 'bad') : 'neutral';
-  var tmrwDelta = ctx.fcTmrw - ctx.fcNeededPerDay;
-  var tmrwDeltaLabel = (ctx.fcNeededPerDay > 0)
-    ? (tmrwDelta >= 0 ? '+$' + Math.round(Math.abs(tmrwDelta)).toLocaleString() + ' ahead'
-                      : '–$' + Math.round(Math.abs(tmrwDelta)).toLocaleString() + ' behind')
-    : 'no target set';
-  var tmrwCard =
-    '<div class="hero-card hero-' + tmrwStatus + '">' +
-      '<div class="hero-card-label">TOMORROW · Scheduled</div>' +
-      '<div class="hero-card-value">$' + Math.round(ctx.fcTmrw).toLocaleString() + '</div>' +
-      '<div class="hero-card-sub">' +
-        (ctx.fcNeededPerDay > 0 ? 'Target $' + Math.round(ctx.fcNeededPerDay).toLocaleString() + ' · ' : '') +
-        tmrwDeltaLabel +
-      '</div>' +
-    '</div>';
+  // Action hint based on tier
+  function actionHint_(value, target) {
+    if (!target || target <= 0) return '';
+    var ratio = value / target;
+    if (ratio >= 1.10) return 'ahead by ' + Math.round((ratio - 1) * 100) + '%';
+    if (ratio >= 1.00) return 'on pace';
+    if (ratio >= 0.85) return 'push to close gap';
+    return 'dispatch more today';
+  }
 
-  // MTD — projected EOM vs full month budget
-  var mtdPct = ctx.mtdBudget > 0 ? (ctx.mtdActual / ctx.mtdBudget * 100) : 0;
+  function buildHeroCard_(opts) {
+    // opts = { label, value, target, isLever }
+    var status = 'neutral';
+    if (opts.value > 0 && opts.target > 0) {
+      var r = opts.value / opts.target;
+      if (r >= 1.0)      status = 'good';
+      else if (r >= 0.85) status = 'warn';
+      else                status = 'bad';
+    }
+    var delta = (opts.value || 0) - (opts.target || 0);
+    var deltaSign = delta >= 0 ? '+' : '−';
+    var deltaAbs  = '$' + Math.round(Math.abs(delta)).toLocaleString();
+    var hint = actionHint_(opts.value, opts.target);
+    return '<div class="hero-v2-card hero-' + status + '">' +
+             '<div class="hero-v2-label">' + escapeHtml(opts.label) + '</div>' +
+             '<div class="hero-v2-value">$' + Math.round(opts.value || 0).toLocaleString() + '</div>' +
+             '<div class="hero-v2-meta">' +
+               (opts.target > 0
+                 ? '<span class="hero-v2-target">vs target $' + Math.round(opts.target).toLocaleString() + '</span>' +
+                   ' <span class="hero-v2-delta hero-v2-delta-' + status + '">' + deltaSign + deltaAbs + '</span>'
+                 : '<span class="hero-v2-target">no target set</span>') +
+             '</div>' +
+             (hint ? '<div class="hero-v2-hint hero-v2-hint-' + status + '">' + escapeHtml(hint) + '</div>' : '') +
+           '</div>';
+  }
+
+  // Label resolution — use fcDateLabel function if provided
+  var todayLbl = (typeof ctx.fcDateLabel === 'function') ? ('TODAY · ' + ctx.fcDateLabel(0)) : 'TODAY';
+  var tmrwLbl  = (typeof ctx.fcDateLabel === 'function') ? ('TOMORROW · ' + ctx.fcDateLabel(1)) : 'TOMORROW';
+
+  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday, target: ctx.fcNeededPerDay, isLever: false });
+  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,  target: ctx.fcNeededPerDay, isLever: true  });
+
+  // ── Context strip (5 small cards) ──
+  // +2 day
+  var d2Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(2) : '+2';
+  var d3Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(3) : '+3';
+
+  function buildCtxCard_(label, sub, valueHtml, status) {
+    return '<div class="hero-ctx-card hero-' + (status || 'neutral') + '">' +
+             '<div class="hero-ctx-label">' + escapeHtml(label) + '</div>' +
+             '<div class="hero-ctx-value">' + valueHtml + '</div>' +
+             (sub ? '<div class="hero-ctx-sub">' + sub + '</div>' : '') +
+           '</div>';
+  }
+
+  // +2 / +3 forecasts — color vs the same NEED/DAY bar
+  function fcStatus_(v) {
+    if (!ctx.fcNeededPerDay || ctx.fcNeededPerDay <= 0 || !v || v <= 0) return 'neutral';
+    var r = v / ctx.fcNeededPerDay;
+    if (r >= 1.0) return 'good';
+    if (r >= 0.85) return 'warn';
+    return 'bad';
+  }
+  var d2Card = buildCtxCard_('+2 · ' + d2Label, '', '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), fcStatus_(ctx.fcD2));
+  var d3Card = buildCtxCard_('+3 · ' + d3Label, '', '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), fcStatus_(ctx.fcD3));
+
+  // MTD% — uses full budget (with CGW)
+  var mtdPct = (ctx.mtdBudget > 0) ? Math.round(ctx.mtdActual / ctx.mtdBudget * 100) : 0;
   var projectedEom = (ctx.workingElapsed > 0)
                      ? (ctx.mtdActual / ctx.workingElapsed * ctx.workingTotal) : 0;
   var onPace = (ctx.mtdBudget > 0 && projectedEom >= ctx.mtdBudget);
   var mtdStatus = (ctx.mtdBudget > 0) ? (onPace ? 'good' : 'bad') : 'neutral';
-  var dayProgress = ctx.workingTotal > 0
-    ? 'Day ' + ctx.workingElapsed + ' of ' + ctx.workingTotal
-    : '';
-  var mtdSub = (ctx.mtdBudget > 0)
-    ? dayProgress + ' · Pace $' + (projectedEom / 1000 >= 100
-        ? Math.round(projectedEom / 1000) + 'k'
-        : Math.round(projectedEom).toLocaleString()) + ' EOM'
-    : dayProgress;
-  var mtdValue = (ctx.mtdBudget > 0)
-    ? '$' + (ctx.mtdActual / 1000 >= 100
-        ? Math.round(ctx.mtdActual / 1000) + 'k'
-        : Math.round(ctx.mtdActual).toLocaleString()) +
-      ' / $' + (ctx.mtdBudget / 1000 >= 100
-        ? Math.round(ctx.mtdBudget / 1000) + 'k'
-        : Math.round(ctx.mtdBudget).toLocaleString())
-    : '$' + Math.round(ctx.mtdActual).toLocaleString();
-  var mtdCard =
-    '<div class="hero-card hero-' + mtdStatus + '">' +
-      '<div class="hero-card-label">THIS MONTH · ' + Math.round(mtdPct) + '%</div>' +
-      '<div class="hero-card-value">' + mtdValue + '</div>' +
-      '<div class="hero-card-sub">' + mtdSub + '</div>' +
-    '</div>';
+  var mtdCard = buildCtxCard_(
+    'MTD · Day ' + ctx.workingElapsed + ' of ' + ctx.workingTotal,
+    'Pace ' + fmtMoneyShort_(projectedEom) + ' EOM · Budget ' + fmtMoneyShort_(ctx.mtdBudget),
+    mtdPct + '%',
+    mtdStatus
+  );
 
-  // HOT QUEUE — actionable counts
-  // setups this week, cancellations this week, callbacks today
-  var setupsWeekCount = ctx.setupsWeekCount || 0;
+  // NEED/DAY — the actionable catch-up metric, floored at standardTarget
+  // (no-CGW budget). When fcNeededPerDay > standardTarget, we're behind and
+  // the bar has risen. When ==, we're on pace or ahead.
+  var needCard;
+  if (ctx.fcNeededPerDay > 0) {
+    var aboveStandard = (ctx.fcStandardTarget > 0)
+                        ? (ctx.fcNeededPerDay - ctx.fcStandardTarget) : 0;
+    var needStatus = 'good';
+    var needSub = 'standard pace';
+    if (aboveStandard > 0) {
+      var pctAbove = (aboveStandard / ctx.fcStandardTarget) * 100;
+      if (pctAbove > 20) needStatus = 'bad';
+      else if (pctAbove > 5) needStatus = 'warn';
+      needSub = '+$' + Math.round(aboveStandard).toLocaleString() + ' over standard · ' +
+                ctx.workingRemaining + ' day' + (ctx.workingRemaining === 1 ? '' : 's') + ' left';
+    } else {
+      needSub = 'standard pace · ' + ctx.workingRemaining + ' day' + (ctx.workingRemaining === 1 ? '' : 's') + ' left';
+    }
+    needCard = buildCtxCard_(
+      'NEED/DAY',
+      needSub,
+      '$' + Math.round(ctx.fcNeededPerDay).toLocaleString(),
+      needStatus
+    );
+  } else {
+    needCard = buildCtxCard_('NEED/DAY', 'no target set', '—', 'neutral');
+  }
+
+  // Hot Queue — same as before but in the smaller card format
+  var setupsWeekCount  = ctx.setupsWeekCount || 0;
   var cancelsWeekCount = ctx.cancelsWeekCount || 0;
-  var callbacksToday = ctx.callbacksToday || 0;
-  // Status: warn if cancellations approach/exceed new setups (net negative growth)
+  var callbacksToday   = ctx.callbacksToday || 0;
   var queueStatus = 'neutral';
   if (cancelsWeekCount > 0 && setupsWeekCount > 0 && cancelsWeekCount >= setupsWeekCount * 0.5) queueStatus = 'warn';
-  var queueValue =
+  var queuePills =
     '<span class="hero-pill good">+' + setupsWeekCount + '</span>' +
-    '<span class="hero-pill bad">–' + cancelsWeekCount + '</span>' +
+    '<span class="hero-pill bad">−' + cancelsWeekCount + '</span>' +
     '<span class="hero-pill warn">' + callbacksToday + ' CB</span>';
-  var queueSub =
-    setupsWeekCount + ' new setups · ' +
-    cancelsWeekCount + ' cancellations · ' +
-    callbacksToday + ' callbacks today';
-  var queueCard =
-    '<div class="hero-card hero-' + queueStatus + '">' +
-      '<div class="hero-card-label">HOT QUEUE · This week</div>' +
-      '<div class="hero-card-value" style="font-size:18px;">' + queueValue + '</div>' +
-      '<div class="hero-card-sub">' + queueSub + '</div>' +
-    '</div>';
+  var queueCard = buildCtxCard_(
+    'HOT QUEUE · 7d',
+    'setups · cancels · callbacks today',
+    queuePills,
+    queueStatus
+  );
 
-  return '<div class="hero-strip">' + todayCard + tmrwCard + mtdCard + queueCard + '</div>';
+  return '<div class="hero-v2-row">' + todayCard + tmrwCard + '</div>' +
+         '<div class="hero-ctx-row">' + d2Card + d3Card + mtdCard + needCard + queueCard + '</div>';
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -5981,9 +6152,19 @@ function renderPestTechLeaderboard_(byBranch, workingDays, employeesMap) {
     '</tr>';
   }).join('');
 
-  return '<table class="ptlb-table"><thead><tr>' +
-    '<th>Tech</th><th>Branch</th><th class="num">Stops</th><th class="num">$/Day</th><th class="num">$/Stop</th><th class="num">MTD</th>' +
+  var tableHtml =
+    '<table class="ptlb-table"><thead><tr>' +
+      '<th>Tech</th><th>Branch</th><th class="num">Stops</th><th class="num">$/Day</th><th class="num">$/Stop</th><th class="num">MTD</th>' +
     '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
+  // T2 redesign 2026-05-26: collapsed-by-default top-5 view with Show all toggle.
+  // CSS hides rows 6+ when .lb-collapsed is present. Joe directive.
+  var totalRows = rows.length;
+  if (totalRows <= 5) return tableHtml;
+  return '<div class="lb-wrap lb-collapsed">' + tableHtml +
+         '<button class="lb-expand-btn" onclick="this.parentNode.classList.toggle(\'lb-collapsed\'); this.parentNode.classList.toggle(\'lb-expanded\');">' +
+           '<span class="lb-show">Show all ' + totalRows + '</span>' +
+           '<span class="lb-hide">Show top 5</span>' +
+         '</button></div>';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6129,9 +6310,18 @@ function renderCatGuardLeaderboard_(workingDays, dSom, dYest, employeesMap) {
     '</tr>';
   }).join('');
 
-  return '<table class="ptlb-table"><thead><tr>' +
-    '<th>Installer</th><th>Branch</th><th class="num">Installs</th><th class="num">$/Order</th><th class="num">$/Day</th><th class="num">MTD $</th>' +
+  var tableHtml =
+    '<table class="ptlb-table"><thead><tr>' +
+      '<th>Installer</th><th>Branch</th><th class="num">Installs</th><th class="num">$/Order</th><th class="num">$/Day</th><th class="num">MTD $</th>' +
     '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
+  // T2 redesign 2026-05-26: collapsed-by-default top-5 view with Show all toggle
+  var totalRows = rows.length;
+  if (totalRows <= 5) return tableHtml;
+  return '<div class="lb-wrap lb-collapsed">' + tableHtml +
+         '<button class="lb-expand-btn" onclick="this.parentNode.classList.toggle(\'lb-collapsed\'); this.parentNode.classList.toggle(\'lb-expanded\');">' +
+           '<span class="lb-show">Show all ' + totalRows + '</span>' +
+           '<span class="lb-hide">Show top 5</span>' +
+         '</button></div>';
 }
 
 function renderForecastKpiCards_(fcTotals, dateLabel, neededPerDay) {
