@@ -1639,9 +1639,12 @@
   <nav class="tabs" id="tabs">
     <button class="tab active" data-view="tech">Dashboard</button>
     <button class="tab" data-view="techdetail">Tech</button>
-    <button class="tab" data-view="orders">Forecast</button>
-    <button class="tab" data-view="invoices">Production</button>
-    <button class="tab" data-view="setups">Setups</button>
+    <!-- "List" is a parent tab — clicking it activates whichever sub-list mode
+         was last used (defaults to Production/invoices). The list-mode sub-tab
+         bar (below the main tab row) lets the user pick between Future Work
+         (orders), Completed Work (invoices), and Setups. Joe directive
+         2026-05-26: consolidate 3 list tabs into 1 to reduce tab clutter. -->
+    <button class="tab" id="listParentTab" data-view="invoices">List</button>
     <button class="tab" data-view="cancels">Cancels</button>
     <button class="tab" data-view="summary">Summary</button>
   </nav>
@@ -1653,6 +1656,19 @@
     </a>
   </div>
 </header>
+
+<!-- List-mode selector — shown whenever the consolidated List parent tab is
+     active (i.e., STATE.view ∈ {orders, invoices, setups}). Click sets
+     STATE.view via the same handler as the original tabs. Joe directive
+     2026-05-26: consolidate Forecast/Production/Setups into one tab. -->
+<div class="sub-tabs" id="listModeBar" style="display:none">
+  <span class="sub-tabs-label">List mode:</span>
+  <div class="sub-tab-group" id="listModeGroup">
+    <button class="sub-tab" data-view="orders">Future Work <span class="sub-tab-hint">service orders</span></button>
+    <button class="sub-tab active" data-view="invoices">Completed Work <span class="sub-tab-hint">invoices</span></button>
+    <button class="sub-tab" data-view="setups">Setups <span class="sub-tab-hint">service setups</span></button>
+  </div>
+</div>
 
 <!-- Sub-view selector (only shown when Invoices or Summary tab is active).
      ALL = every type, PRODUCTION = IN+PR+CM (production accounting),
@@ -1993,6 +2009,38 @@ function wireTabs() {
       render();
     });
   });
+
+  // List-mode sub-tabs (Future Work / Completed Work / Setups) — re-uses the
+  // existing main-tab click handler since each sub-tab has data-view set to
+  // 'orders' / 'invoices' / 'setups'. Joe directive 2026-05-26.
+  document.querySelectorAll('#listModeGroup .sub-tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      // Update the parent List tab's data-view to remember last sub-mode
+      var parent = document.getElementById('listParentTab');
+      if (parent) parent.dataset.view = btn.dataset.view;
+      // Simulate a click on the corresponding (hidden) main-tab handler logic
+      var newView = btn.dataset.view;
+      STATE.view = newView;
+      // Update sort default for the new sub-view
+      if (newView === 'orders') {
+        STATE.sort = { key: 'WorkDate', dir: 'desc' };
+      } else if (newView === 'invoices') {
+        STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
+      } else if (newView === 'setups') {
+        STATE.sort = { key: 'StartDate', dir: 'desc' };
+      }
+      applyViewVisibility_();
+      setupPeriodButtons();
+      document.getElementById('customDateRange').classList.remove('visible');
+      // Ensure invoice cache is loaded if switching to invoices/setups
+      var needsInvoices = (newView === 'invoices' || newView === 'setups');
+      if (needsInvoices && !STATE.invoiceCache) {
+        loadInvoiceCache().finally(render);
+      } else {
+        render();
+      }
+    });
+  });
 }
 
 // Show/hide filter groups, sub-tab bars, and content containers for the active view
@@ -2011,6 +2059,25 @@ function applyViewVisibility_() {
   // Invoice lens bar — shown for Invoices and Summary only
   var invBar = document.getElementById('invoiceModeBar');
   if (invBar) invBar.style.display = (view === 'invoices' || view === 'summary') ? '' : 'none';
+
+  // List mode sub-tab bar — shown for the consolidated List parent tab
+  // (orders/invoices/setups). Highlights the active sub-tab matching STATE.view.
+  // Joe directive 2026-05-26.
+  var listBar = document.getElementById('listModeBar');
+  var isListView = (view === 'orders' || view === 'invoices' || view === 'setups');
+  if (listBar) listBar.style.display = isListView ? '' : 'none';
+  // Sync the parent List tab's active class — the underlying STATE.view is
+  // the actual sub-tab so the tab bar's normal active-class wiring won't
+  // catch the parent. Manually toggle here.
+  document.querySelectorAll('#tabs .tab').forEach(function(b) {
+    if (b.id === 'listParentTab') {
+      b.classList.toggle('active', isListView);
+    }
+  });
+  // Sync which sub-tab inside the list bar is active
+  document.querySelectorAll('#listModeGroup .sub-tab').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.view === view);
+  });
   // Main containers
   var tableCard = document.getElementById('tableCard');
   var summaryView = document.getElementById('summaryView');

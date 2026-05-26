@@ -964,6 +964,145 @@ function refreshSetupsCacheImpl_(forceFull) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// refreshRecentCancellations — safety-net backfill for the Cancels view.
+//
+// PROBLEM: Cancellations are SUPPOSED to update in real-time via the Service
+// Setup webhooks (see InvoiceWebhookHandler.gs). But webhook delivery isn't
+// guaranteed — PestPac may drop events, Apps Script concurrency limits can
+// reject, or PestPac API quota exhaustion can cause webhook handlers to
+// silently fail to fetch detail. The Cancels dashboard view would then
+// undercount.
+//
+// SOLUTION: Daily backfill. Re-fetch every setup with CancelDate in the last
+// 14 days and upsert. Catches any webhook misses with a small recurring cost.
+//
+// QUOTA COST: Typical pest control business cancels ~50-300 setups per
+// rolling 14-day window. That's ≤300 API calls per nightly run — well under
+// 1% of the PestPac tenant daily quota. Far cheaper than re-running the
+// bootstrap.
+//
+// SCHEDULE: Joe to add a daily time-based trigger pointed at this function,
+// firing at 4:00 AM Pacific (7:00 AM ET) so it runs AFTER quota reset
+// (midnight Pacific) and BEFORE the workday's normal traffic ramps up.
+//
+// Joe directive 2026-05-26.
+// ──────────────────────────────────────────────────────────────────────────
+function refreshRecentCancellations() {
+  var t0 = new Date();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🔁 Recent cancellations backfill — ' + t0.toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  var LOOKBACK_DAYS = 14;  // Re-check setups cancelled in the last N days
+
+  try {
+    var token = ppToken_();
+
+    // 1. Load current cache
+    Logger.log('1. Loading cache-setups.json...');
+    var existing = readSetupsCache_();
+    var setups = existing.setups || [];
+    Logger.log('   ' + setups.length.toLocaleString() + ' total setups in cache');
+
+    // 2. Find setups with CancelDate in the lookback window
+    var cutoff = new Date(t0.getTime() - LOOKBACK_DAYS * 86400000);
+    var recentCancelIds = [];
+    setups.forEach(function(s) {
+      if (!s.CancelDate || !s.SetupID) return;
+      var cd = new Date(String(s.CancelDate).split('.')[0]);
+      if (!isNaN(cd.getTime()) && cd >= cutoff) {
+        recentCancelIds.push(String(s.SetupID));
+      }
+    });
+    Logger.log('2. Found ' + recentCancelIds.length.toLocaleString() +
+               ' setups cancelled in the last ' + LOOKBACK_DAYS + ' days');
+
+    if (recentCancelIds.length === 0) {
+      Logger.log('✅ Nothing to backfill — no recent cancellations in cache.');
+      Logger.log('   (This could mean webhooks are working perfectly, OR that');
+      Logger.log('    cache has no recent cancels at all. Investigate if suspicious.)');
+      return;
+    }
+
+    // 3. Re-fetch each via /ServiceSetups/{id}
+    Logger.log('3. Re-fetching ' + recentCancelIds.length + ' setups to verify cache is current...');
+    var refreshed = fetchSetups_(token, recentCancelIds);
+    Logger.log('   ' + refreshed.length + ' successfully fetched (' +
+               (recentCancelIds.length - refreshed.length) + ' failures)');
+
+    if (refreshed.length === 0) {
+      Logger.log('❌ All fetches failed — likely PestPac quota or auth issue. Aborting.');
+      return;
+    }
+
+    // 4. Upsert into cache (overwrite by SetupID)
+    var existingMap = {};
+    setups.forEach(function(s) {
+      if (s.SetupID != null) existingMap[String(s.SetupID)] = s;
+    });
+
+    var changed = 0;
+    var newCancels = 0;  // setups where CancelDate flipped from null to populated
+    refreshed.forEach(function(s) {
+      if (s.SetupID == null) return;
+      var key = String(s.SetupID);
+      var prior = existingMap[key];
+      // Detect any change worth logging — CancelDate flip is the big one
+      if (!prior) {
+        newCancels++;
+      } else if (!prior.CancelDate && s.CancelDate) {
+        newCancels++;
+      } else if (prior.CancelReason !== s.CancelReason || prior.CancelDate !== s.CancelDate) {
+        changed++;
+      }
+      existingMap[key] = s;
+    });
+
+    Logger.log('   Updated: ' + changed + ' · NEW cancellations caught: ' + newCancels);
+
+    // 5. Write back if anything changed
+    if (changed === 0 && newCancels === 0) {
+      Logger.log('✅ Cache already current. No write needed.');
+      Logger.log('   Total elapsed: ' + ((new Date() - t0) / 1000).toFixed(1) + 's');
+      return;
+    }
+
+    // Build final array sorted by SetupID (same shape as other writers)
+    var allSetups = [];
+    Object.keys(existingMap).forEach(function(k) { allSetups.push(existingMap[k]); });
+    allSetups.sort(function(a, b) { return Number(a.SetupID) - Number(b.SetupID); });
+
+    // Safety guard: shouldn't shrink the cache
+    if (allSetups.length < setups.length * 0.95) {
+      Logger.log('🛑 SAFETY ABORT: cache would shrink from ' + setups.length +
+                 ' to ' + allSetups.length + '. Not writing.');
+      return;
+    }
+
+    var cache = {
+      updated: new Date().toISOString(),
+      recordCount: allSetups.length,
+      setups: allSetups
+    };
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('4. Writing cache-setups.json: ' + Math.round(jsonStr.length / 1024) +
+               ' KB, ' + allSetups.length.toLocaleString() + ' records');
+    var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS,
+                           'Recent cancellations backfill ' + new Date().toISOString());
+
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('✅ Backfill complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+    Logger.log('   Setups re-fetched: ' + refreshed.length);
+    Logger.log('   New cancels caught by backfill: ' + newCancels +
+               ' (these would have been MISSED by webhooks)');
+    Logger.log('   Other updates: ' + changed);
+  } catch (err) {
+    Logger.log('❌ Backfill error: ' + err.message + '\n' + err.stack);
+  }
+}
+
 // Parallel-fetch /ServiceSetups/{id} for a list of IDs. Returns curated records.
 // Dumps the first successful response's keys to the log so we can adjust
 // CURATED_FIELDS_SETUP if PestPac returns unexpected field names.
