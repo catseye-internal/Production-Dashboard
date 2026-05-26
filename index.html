@@ -23,12 +23,18 @@
     --text-dim: #6B645A;
     --orange: #F47B20;
     --orange-dim: rgba(244, 123, 32, 0.15);
-    --green: #22C55E;
-    --yellow: #F59E0B;
-    --red: #EF4444;
+    --green: #34D399;
+    --green-dim: rgba(52, 211, 153, 0.15);
+    --yellow: #FBBF24;
+    --yellow-dim: rgba(251, 191, 36, 0.15);
+    --red: #F87171;
+    --red-dim: rgba(248, 113, 113, 0.15);
     --blue: #60A5FA;
+    --blue-dim: rgba(96, 165, 250, 0.15);
     --gray: #9CA3AF;
+    --gray-dim: rgba(156, 163, 175, 0.15);
     --purple: #A78BFA;
+    --purple-dim: rgba(167, 139, 250, 0.15);
   }
 
   body {
@@ -426,8 +432,8 @@
     font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums;
     line-height: 1.1;
   }
-  .mtd-banner-value.field  { color: #22C55E; }   /* green */
-  .mtd-banner-value.office { color: #F59E0B; }   /* amber */
+  .mtd-banner-value.field  { color: #34D399; }   /* green */
+  .mtd-banner-value.office { color: #FBBF24; }   /* amber */
   .mtd-banner-value.total  { color: var(--text); }
   .mtd-banner-sub {
     font-size: 10px; color: var(--text-dim); margin-top: 2px;
@@ -513,16 +519,16 @@
     color: var(--text-dim);
   }
   /* Role color treatment for Tech view headers + Class column pill */
-  .role-pest    { background: rgba(34,197,94,0.16); color: #22C55E; }
+  .role-pest    { background: rgba(52,211,153,0.16); color: #34D399; }
   .role-cgnwl   { background: rgba(167,139,250,0.18); color: #A78BFA; }
   /* Score bubble — wraps just the number, not the whole cell */
   .score-pill {
     display: inline-block; padding: 2px 8px; border-radius: 10px;
     font-weight: 700; font-variant-numeric: tabular-nums;
   }
-  .score-pill.score-green  { background: rgba(34,197,94,0.18);  color: #22C55E; }
-  .score-pill.score-yellow { background: rgba(245,158,11,0.22);  color: #F59E0B; }
-  .score-pill.score-red    { background: rgba(239,68,68,0.22); color: #EF4444; }
+  .score-pill.score-green  { background: rgba(52,211,153,0.18);  color: #34D399; }
+  .score-pill.score-yellow { background: rgba(251,191,36,0.22);  color: #FBBF24; }
+  .score-pill.score-red    { background: rgba(248,113,113,0.22); color: #F87171; }
   /* Sub-line in forecast cells — "4 ord · 375" beneath the dollar amount */
   .cell-sub {
     font-size: 10px; color: var(--text-dim); font-weight: 400;
@@ -644,21 +650,21 @@
     margin-top: auto;
   }
   /* Status accent — bold left border + bright text. No background tint. */
-  .hero-good { border-left-color: #22C55E; }
-  .hero-good .hero-card-value { color: #22C55E; }
-  .hero-bad  { border-left-color: #EF4444; }
-  .hero-bad  .hero-card-value { color: #EF4444; }
-  .hero-warn { border-left-color: #F59E0B; }
-  .hero-warn .hero-card-value { color: #F59E0B; }
+  .hero-good { border-left-color: #34D399; }
+  .hero-good .hero-card-value { color: #34D399; }
+  .hero-bad  { border-left-color: #F87171; }
+  .hero-bad  .hero-card-value { color: #F87171; }
+  .hero-warn { border-left-color: #FBBF24; }
+  .hero-warn .hero-card-value { color: #FBBF24; }
   /* Pill spans inside hero-card-sub for inline split metrics */
   .hero-pill {
     display: inline-block; padding: 3px 9px; border-radius: 10px;
     background: rgba(255,255,255,0.06); margin-right: 6px;
     font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
   }
-  .hero-pill.good { background: rgba(34,197,94,0.22);  color: #22C55E; }
-  .hero-pill.bad  { background: rgba(239,68,68,0.22);  color: #EF4444; }
-  .hero-pill.warn { background: rgba(245,158,11,0.22); color: #F59E0B; }
+  .hero-pill.good { background: rgba(52,211,153,0.22);  color: #34D399; }
+  .hero-pill.bad  { background: rgba(248,113,113,0.22);  color: #F87171; }
+  .hero-pill.warn { background: rgba(251,191,36,0.22); color: #FBBF24; }
   @media (max-width: 900px) {
     .hero-strip { grid-template-columns: repeat(2, 1fr); }
     .hero-card-value { font-size: 19px; }
@@ -683,8 +689,8 @@
   .nb-headline-stat {
     font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
   }
-  .nb-headline-stat.pos { color: #22C55E; }
-  .nb-headline-stat.neg { color: #EF4444; }
+  .nb-headline-stat.pos { color: #34D399; }
+  .nb-headline-stat.neg { color: #F87171; }
   .nb-headline-sub {
     font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums;
   }
@@ -748,12 +754,12 @@
     display: inline-block; width: 22px; text-align: right; padding-right: 4px;
     color: var(--text-dim); font-weight: 700;
   }
-  .ptlb-rank.medal-1 { color: #F59E0B; }
+  .ptlb-rank.medal-1 { color: #FBBF24; }
   .ptlb-rank.medal-2 { color: #C0C5CE; }
   .ptlb-rank.medal-3 { color: #CD7F32; }
-  .ptlb-perday-good { color: #22C55E; font-weight: 700; }
-  .ptlb-perday-mid  { color: #F59E0B; font-weight: 700; }
-  .ptlb-perday-bad  { color: #EF4444; font-weight: 700; }
+  .ptlb-perday-good { color: #34D399; font-weight: 700; }
+  .ptlb-perday-mid  { color: #FBBF24; font-weight: 700; }
+  .ptlb-perday-bad  { color: #F87171; font-weight: 700; }
 
   /* ── Forecast Totals — 4 KPI cards (taller, bigger numbers) ── */
   .fc-kpi-grid {
@@ -779,10 +785,10 @@
     font-variant-numeric: tabular-nums; line-height: 1.05;
   }
   /* Pass/fail coloring vs Combined needed/day — accent on left border + value text */
-  .fc-kpi.fc-kpi-card-good { border-left-color: #22C55E; }
-  .fc-kpi.fc-kpi-card-bad  { border-left-color: #EF4444; }
-  .fc-kpi-value.fc-kpi-good { color: #22C55E; }
-  .fc-kpi-value.fc-kpi-bad  { color: #EF4444; }
+  .fc-kpi.fc-kpi-card-good { border-left-color: #34D399; }
+  .fc-kpi.fc-kpi-card-bad  { border-left-color: #F87171; }
+  .fc-kpi-value.fc-kpi-good { color: #34D399; }
+  .fc-kpi-value.fc-kpi-bad  { color: #F87171; }
   .fc-kpi-target {
     margin-top: 8px; padding-top: 8px;
     border-top: 1px solid rgba(255,255,255,0.06);
@@ -889,9 +895,9 @@
   .rpt-card.catseye .rpt-card-hero-val { color: #F47B20; }
   .rpt-card.usx     .rpt-card-hero-val { color: #60A5FA; }
   /* Pest Efficiency card — efficiency-tier coloring on $/drive-hour headline */
-  .rpt-card .pte-hero.eff-good { color: #22C55E !important; }
-  .rpt-card .pte-hero.eff-mid  { color: #F59E0B !important; }
-  .rpt-card .pte-hero.eff-low  { color: #EF4444 !important; }
+  .rpt-card .pte-hero.eff-good { color: #34D399 !important; }
+  .rpt-card .pte-hero.eff-mid  { color: #FBBF24 !important; }
+  .rpt-card .pte-hero.eff-low  { color: #F87171 !important; }
   .rpt-card-hero-sub {
     font-size: 10px; color: var(--text-dim);
     letter-spacing: 0.3px;
@@ -1014,12 +1020,12 @@
   .mtd-prod-header-freshness { font-weight: 600; cursor: help; }
   .mtd-prod-header-freshness.mtd-prod-freshness-fresh  { color: var(--text-dim); }
   .mtd-prod-header-freshness.mtd-prod-freshness-aging  {
-    color: #F59E0B; padding: 1px 6px; border-radius: 3px;
-    background: rgba(245, 158, 11, 0.10);
+    color: #FBBF24; padding: 1px 6px; border-radius: 3px;
+    background: rgba(251, 191, 36, 0.10);
   }
   .mtd-prod-header-freshness.mtd-prod-freshness-stale  {
-    color: #EF4444; padding: 1px 6px; border-radius: 3px;
-    background: rgba(239, 68, 68, 0.10);
+    color: #F87171; padding: 1px 6px; border-radius: 3px;
+    background: rgba(248, 113, 113, 0.10);
   }
   @media (max-width: 720px) {
     .mtd-prod-header-strip { flex-wrap: wrap; justify-content: flex-start; }
@@ -1052,14 +1058,14 @@
   /* Value first (left), label pinned right via margin-left: auto. Joe 2026-05-24. */
   .cvb-daily-val { font-size: 14px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
   /* Actual/day color tiers — green if ≥ Needed, red if below. Joe 2026-05-24. */
-  .cvb-daily-val.pace-ahead   { color: #22C55E; }
-  .cvb-daily-val.pace-behind  { color: #EF4444; }
+  .cvb-daily-val.pace-ahead   { color: #34D399; }
+  .cvb-daily-val.pace-behind  { color: #F87171; }
   .cvb-daily-val.pace-unset   { color: var(--text); }
   .cvb-daily-diff { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
   .cvb-daily-key { font-size: 10px; color: var(--text-dim); margin-left: auto; }
-  .cvb-daily-diff.pace-ahead  { color: #22C55E; background: rgba(34, 197, 94, 0.10); }
-  .cvb-daily-diff.pace-warn   { color: #F59E0B; background: rgba(245, 158, 11, 0.10); }
-  .cvb-daily-diff.pace-behind { color: #EF4444; background: rgba(239, 68, 68, 0.10); }
+  .cvb-daily-diff.pace-ahead  { color: #34D399; background: rgba(52, 211, 153, 0.10); }
+  .cvb-daily-diff.pace-warn   { color: #FBBF24; background: rgba(251, 191, 36, 0.10); }
+  .cvb-daily-diff.pace-behind { color: #F87171; background: rgba(248, 113, 113, 0.10); }
   .cvb-daily-diff.pace-unset  { color: var(--text-dim); }
 
   /* Inline date range picker — From / To inputs + Apply / Reset buttons */
@@ -1109,9 +1115,9 @@
   .mtd-prod-pacing {
     font-weight: 700; font-size: 11px;
   }
-  .mtd-prod-pacing.pace-ahead  { color: #22C55E; }
-  .mtd-prod-pacing.pace-warn   { color: #F59E0B; }
-  .mtd-prod-pacing.pace-behind { color: #EF4444; }
+  .mtd-prod-pacing.pace-ahead  { color: #34D399; }
+  .mtd-prod-pacing.pace-warn   { color: #FBBF24; }
+  .mtd-prod-pacing.pace-behind { color: #F87171; }
   .mtd-prod-pacing.pace-unset  { color: var(--text-dim); font-weight: 500; }
 
   .mtd-prod-metric {
@@ -1311,8 +1317,8 @@
     color: var(--text); line-height: 1;
   }
   .mini-donut-rate-pct.rate-low  { color: var(--green); }
-  .mini-donut-rate-pct.rate-med  { color: #F59E0B; }
-  .mini-donut-rate-pct.rate-high { color: #EF4444; }
+  .mini-donut-rate-pct.rate-med  { color: #FBBF24; }
+  .mini-donut-rate-pct.rate-high { color: #F87171; }
   .mini-donut-rate-sub {
     font-size: 10px; color: var(--text-dim);
     font-variant-numeric: tabular-nums;
@@ -5172,7 +5178,7 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBra
   if (grandTotal === 0) return '<div class="cb-empty">No MTD callbacks yet</div>';
 
   // Build a shared ServiceCode → color map so colors are consistent across donuts
-  var palette = ['#F47B20', '#60A5FA', '#22C55E', '#F59E0B', '#A78BFA', '#EC4899', '#EF4444', '#9CA3AF', '#6B645A', '#FB923C', '#22D3EE'];
+  var palette = ['#F47B20', '#60A5FA', '#34D399', '#FBBF24', '#A78BFA', '#EC4899', '#F87171', '#9CA3AF', '#6B645A', '#FB923C', '#22D3EE'];
   var serviceColors = {};
   var allServices = {};
   branchOrder.forEach(function(b) {
@@ -5553,7 +5559,7 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
           '<div class="rpt-card-metric-val">' + r.dailyStops.toFixed(1) + '</div>' +
         '</div>' +
         '<div class="rpt-card-metric-track">' +
-          '<div class="rpt-card-metric-fill" style="width:' + sPct.toFixed(1) + '%;background:#F59E0B"></div>' +
+          '<div class="rpt-card-metric-fill" style="width:' + sPct.toFixed(1) + '%;background:#FBBF24"></div>' +
         '</div>' +
       '</div>' +
       // $/stop — pricing / upsell (blue)
@@ -5583,7 +5589,7 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
           '<div class="rpt-card-metric-val">$' + Math.round(r.dailyProd).toLocaleString() + '</div>' +
         '</div>' +
         '<div class="rpt-card-metric-track">' +
-          '<div class="rpt-card-metric-fill" style="width:' + pPct.toFixed(1) + '%;background:#22C55E"></div>' +
+          '<div class="rpt-card-metric-fill" style="width:' + pPct.toFixed(1) + '%;background:#34D399"></div>' +
         '</div>' +
       '</div>' +
     '</div>';

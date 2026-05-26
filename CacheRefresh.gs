@@ -1940,6 +1940,267 @@ function _bssFlushCache_(setupsMap, commitMsg) {
   Logger.log('   ' + (ok ? '✓ checkpoint saved' : '✗ checkpoint FAILED'));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// bootstrapRetryUncoveredLocations  (task #151)
+//
+// After bootstrapAllSetupsFromSearchResumable completes, ~7K LocationIDs are
+// "uncovered" — they were queued but their /Locations/{id}/serviceSetups call
+// failed (transient throttling per pestpac_bootstrap_throttling memory). This
+// pass diffs the full LocationID universe against IDs represented in
+// cache-setups.json and retries the gap.
+//
+// Key difference vs the original bootstrap: a knownEmpty persistence layer.
+// Some LocationIDs are legitimately childless — every retry would otherwise
+// re-fetch them forever. When this function receives a 200 OK with [] body,
+// the LocationID is added to BRT_EMPTY_KEY and excluded from future passes.
+// Convergence: each retry pass shrinks the uncovered set toward only real
+// transient failures, which the next pass will recover.
+//
+// Resumable: same checkpoint + 25-min safety-stop pattern as _bssImpl_.
+// State keys are BRT_* (separate from BSS_*) so retry runs don't collide
+// with an in-flight resumable bootstrap.
+// ─────────────────────────────────────────────────────────────────────────────
+var BRT_CURSOR_KEY     = 'brtCursor';
+var BRT_MISSING_KEY    = 'brtMissingIds';     // serialized uncovered list
+var BRT_EMPTY_KEY      = 'brtKnownEmptyIds';  // serialized confirmed-empty list
+
+function bootstrapRetryUncoveredLocations() {
+  return _brtImpl_(false);
+}
+
+function bootstrapRetryUncoveredLocationsResume() {
+  return _brtImpl_(true);
+}
+
+function clearBootstrapRetryState() {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty(BRT_CURSOR_KEY);
+  props.deleteProperty(BRT_MISSING_KEY);
+  // Note: BRT_EMPTY_KEY intentionally preserved — it's a cumulative learning
+  // across retry passes. Use clearKnownEmptyLocations() to nuke it explicitly.
+  Logger.log('Retry cursor + missing list cleared. knownEmpty preserved.');
+}
+
+function clearKnownEmptyLocations() {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty(BRT_EMPTY_KEY);
+  Logger.log('knownEmpty list cleared. Next retry pass will re-confirm empty locations.');
+}
+
+function _brtImpl_(resume) {
+  var t0 = new Date();
+  var props = PropertiesService.getScriptProperties();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🔁 Retry uncovered locations' + (resume ? ' — RESUMING' : ' — fresh start') + ' — ' + t0.toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  var token = ppToken_();
+  var apiHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+
+  // Load the persistent knownEmpty set (cumulative across retry passes)
+  var knownEmptyJson = props.getProperty(BRT_EMPTY_KEY);
+  var knownEmpty = {};
+  if (knownEmptyJson) {
+    try {
+      JSON.parse(knownEmptyJson).forEach(function(id) { knownEmpty[String(id)] = true; });
+    } catch (e) { knownEmpty = {}; }
+  }
+  Logger.log('   knownEmpty set: ' + Object.keys(knownEmpty).length.toLocaleString() + ' LocationIDs cached as legitimately empty');
+
+  // ── Phase 1: get the uncovered LocationID list ──
+  var missingIdsJson = resume ? props.getProperty(BRT_MISSING_KEY) : null;
+  var missingIds;
+  if (missingIdsJson) {
+    Logger.log('1. Restoring uncovered LocationID list from prior retry run...');
+    missingIds = JSON.parse(missingIdsJson);
+    Logger.log('   ' + missingIds.length.toLocaleString() + ' LocationIDs queued for retry');
+  } else {
+    Logger.log('1. Discovering full LocationID universe via /Locations?q=letter searches (26 letters)...');
+    var allIds = {};
+    var alphabet = 'abcdefghijklmnopqrstuvwxyz';
+    for (var i = 0; i < alphabet.length; i++) {
+      var ch = alphabet[i];
+      var r = ppGet_(token, '/Locations?q=' + ch);
+      if (r.code !== 200) continue;
+      try {
+        var locs = JSON.parse(r.text);
+        if (Array.isArray(locs)) {
+          locs.forEach(function(l) { if (l.LocationID) allIds[l.LocationID] = true; });
+        }
+      } catch (e) { /* skip */ }
+      Utilities.sleep(150);
+    }
+    var totalIds = Object.keys(allIds);
+    Logger.log('   Discovered ' + totalIds.length.toLocaleString() + ' unique LocationIDs in universe');
+
+    // Build the "covered" set from cache-setups.json — any LocationID with at
+    // least one setup record is considered covered.
+    var existingForDiff = readSetupsCache_();
+    var covered = {};
+    (existingForDiff.setups || []).forEach(function(s) {
+      if (s.LocationID != null) covered[String(s.LocationID)] = true;
+    });
+    Logger.log('   ' + Object.keys(covered).length.toLocaleString() + ' LocationIDs already represented in cache');
+
+    // Uncovered = in universe AND not in covered AND not knownEmpty
+    missingIds = totalIds.filter(function(id) {
+      var s = String(id);
+      return !covered[s] && !knownEmpty[s];
+    });
+    Logger.log('   ' + missingIds.length.toLocaleString() + ' LocationIDs uncovered (after excluding knownEmpty)');
+
+    props.setProperty(BRT_MISSING_KEY, JSON.stringify(missingIds));
+  }
+
+  if (missingIds.length === 0) {
+    Logger.log('✅ Nothing to retry — all LocationIDs either covered or knownEmpty.');
+    props.deleteProperty(BRT_CURSOR_KEY);
+    props.deleteProperty(BRT_MISSING_KEY);
+    return;
+  }
+
+  // ── Phase 2: load existing setups cache for merge ──
+  Logger.log('2. Loading existing setups cache for merge...');
+  var existing = readSetupsCache_();
+  var setupsMap = {};
+  (existing.setups || []).forEach(function(s) {
+    if (s.SetupID != null) setupsMap[String(s.SetupID)] = s;
+  });
+  Logger.log('   ' + Object.keys(setupsMap).length.toLocaleString() + ' setups already cached');
+
+  // ── Phase 3: batched retry against /Locations/{id}/serviceSetups ──
+  var startIdx = resume ? Number(props.getProperty(BRT_CURSOR_KEY) || 0) : 0;
+  if (startIdx > 0) {
+    Logger.log('3. Resuming from cursor index ' + startIdx.toLocaleString() + ' of ' + missingIds.length.toLocaleString());
+  } else {
+    Logger.log('3. Starting fresh from index 0 of ' + missingIds.length.toLocaleString());
+  }
+
+  var newSetupCount = 0;
+  var cancelledFound = 0;
+  var failedLocations = 0;        // 200-but-bad-body or non-200 — eligible for next retry pass
+  var confirmedEmptyThisRun = 0;  // 200 + [] body — moved to knownEmpty
+  var recoveredLocations = 0;     // 200 + non-empty body — pulled setups in
+  var safetyTriggered = false;
+  var b = startIdx;
+
+  for (b = startIdx; b < missingIds.length; b += BSS_BATCH_SIZE) {
+    var elapsedSec = (new Date() - t0) / 1000;
+    if (elapsedSec >= BSS_SAFETY_STOP_SECONDS) {
+      safetyTriggered = true;
+      Logger.log('   ⏰ Safety stop at ' + elapsedSec.toFixed(0) + 's — saving progress and exiting cleanly');
+      break;
+    }
+
+    var slice = missingIds.slice(b, b + BSS_BATCH_SIZE);
+    var requests = slice.map(function(lid) {
+      return {
+        url: PP_API_BASE + '/Locations/' + lid + '/serviceSetups',
+        method: 'get',
+        headers: apiHeaders,
+        muteHttpExceptions: true
+      };
+    });
+
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      failedLocations += slice.length;
+      continue;
+    }
+
+    for (var k = 0; k < responses.length; k++) {
+      var resp = responses[k];
+      var lid = slice[k];
+      if (resp.getResponseCode() !== 200) { failedLocations++; continue; }
+      try {
+        var setups = JSON.parse(resp.getContentText());
+        if (!Array.isArray(setups)) { failedLocations++; continue; }
+        if (setups.length === 0) {
+          // Legitimately empty — record so future retries skip it
+          knownEmpty[String(lid)] = true;
+          confirmedEmptyThisRun++;
+          continue;
+        }
+        recoveredLocations++;
+        setups.forEach(function(rawSetup) {
+          if (!rawSetup || rawSetup.SetupID == null) return;
+          var curated = curate_(rawSetup, CURATED_FIELDS_SETUP);
+          enrichSetupCreator_(curated, rawSetup);
+          var sid = String(curated.SetupID);
+          if (!setupsMap[sid]) {
+            newSetupCount++;
+            if (curated.CancelDate) cancelledFound++;
+          }
+          setupsMap[sid] = curated;
+        });
+      } catch (e) {
+        failedLocations++;
+      }
+    }
+
+    var done = b + slice.length;
+
+    if (done % BSS_PROGRESS_LOG_EVERY === 0 || done >= missingIds.length) {
+      Logger.log('   [' + done.toLocaleString() + ' / ' + missingIds.length.toLocaleString() + ']  ' +
+                 'recovered: ' + recoveredLocations.toLocaleString() + ' · empty: ' + confirmedEmptyThisRun.toLocaleString() +
+                 ' · new setups: ' + newSetupCount.toLocaleString() +
+                 ' · failed: ' + failedLocations + ' · elapsed: ' + elapsedSec.toFixed(0) + 's');
+    }
+
+    // Incremental flush — cache + knownEmpty + cursor
+    if (done > 0 && (done % BSS_INCREMENTAL_WRITE_EVERY === 0 || done >= missingIds.length)) {
+      _bssFlushCache_(setupsMap, 'Retry uncovered checkpoint ' + done + '/' + missingIds.length);
+      props.setProperty(BRT_CURSOR_KEY, String(done));
+      props.setProperty(BRT_EMPTY_KEY, JSON.stringify(Object.keys(knownEmpty)));
+    }
+
+    if (b + BSS_BATCH_SIZE < missingIds.length) Utilities.sleep(BSS_BATCH_PAUSE_MS);
+  }
+
+  // Safety-stop branch: write what we have, keep state for resume
+  if (safetyTriggered) {
+    _bssFlushCache_(setupsMap, 'Retry uncovered safety-stop checkpoint');
+    props.setProperty(BRT_CURSOR_KEY, String(b));
+    props.setProperty(BRT_EMPTY_KEY, JSON.stringify(Object.keys(knownEmpty)));
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('⏸  PAUSED for safety. Re-run bootstrapRetryUncoveredLocationsResume() to continue.');
+    Logger.log('   Cursor saved at index ' + b.toLocaleString() + ' of ' + missingIds.length.toLocaleString());
+    Logger.log('   Recovered locations so far: ' + recoveredLocations.toLocaleString() +
+               ' · confirmed empty: ' + confirmedEmptyThisRun.toLocaleString() +
+               ' · still failing: ' + failedLocations.toLocaleString());
+    return;
+  }
+
+  // Completion — write final state, clean retry cursor/missing, preserve knownEmpty
+  props.setProperty(BRT_EMPTY_KEY, JSON.stringify(Object.keys(knownEmpty)));
+  props.deleteProperty(BRT_CURSOR_KEY);
+  props.deleteProperty(BRT_MISSING_KEY);
+
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('✅ Retry pass COMPLETE');
+  Logger.log('   Locations retried:       ' + missingIds.length.toLocaleString());
+  Logger.log('   Recovered (had setups):  ' + recoveredLocations.toLocaleString());
+  Logger.log('   Confirmed empty:         ' + confirmedEmptyThisRun.toLocaleString() + ' (added to knownEmpty)');
+  Logger.log('   Still failing:           ' + failedLocations.toLocaleString() + ' (eligible for next retry pass)');
+  Logger.log('   New setups discovered:   ' + newSetupCount.toLocaleString());
+  Logger.log('   Cancelled in new:        ' + cancelledFound.toLocaleString());
+  Logger.log('   knownEmpty cumulative:   ' + Object.keys(knownEmpty).length.toLocaleString());
+  Logger.log('   Total elapsed:           ' + ((new Date() - t0) / 1000).toFixed(1) + 's');
+  Logger.log('');
+  if (failedLocations > 0) {
+    Logger.log('NEXT: re-run bootstrapRetryUncoveredLocations() to chip at the remaining ' +
+               failedLocations.toLocaleString() + ' transient failures.');
+  } else {
+    Logger.log('NEXT: run reenrichCancelledSetups() to backfill CancelReason on newly-discovered cancellations.');
+  }
+}
+
 function bootstrapAllSetupsFromSearch() {
   var t0 = new Date();
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
