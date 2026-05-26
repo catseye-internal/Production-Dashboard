@@ -1450,6 +1450,149 @@ function backfillInvoicesByNumber(startFrom) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// LIST-DRIVEN BACKFILL (Joe directive 2026-05-26)
+// Takes an explicit list of InvoiceNumbers (string or numeric, "A"-prefixed
+// allowed for CB/PR types), fetches each via /Invoices?invoiceNumber=X,
+// curates, and merges into cache-invoices.json in one commit.
+//
+// Use when:
+//   - InvoiceNumbers aren't sequential (PestPac issues in sparse blocks) so
+//     a forward-walk by number can't find them
+//   - You have a definitive list (e.g. from a PestPac PDF or Report Writer
+//     export) of what needs to be in the cache
+//
+// Usage example:
+//   backfillInvoicesByList_(['1340478','A1340024','1340524', ...])
+//
+// To run from the function dropdown, define a small wrapper:
+//   function backfillTodaysInvoices_() {
+//     return backfillInvoicesByList_(['1241396','1316461', ...]);
+//   }
+// ──────────────────────────────────────────────────────────────
+function backfillInvoicesByList_(invoiceNumbers) {
+  var t0 = new Date();
+  Logger.log('🩹 List-driven invoice backfill — ' + (invoiceNumbers || []).length + ' invoice numbers');
+  if (!invoiceNumbers || !invoiceNumbers.length) {
+    Logger.log('  ⚠️ Empty list — nothing to do');
+    return;
+  }
+  try {
+    var token = ppToken_();
+    var headers = {
+      'Authorization': 'Bearer ' + token,
+      'apikey': PP_API_KEY,
+      'tenant-id': PP_TENANT_ID
+    };
+    var BATCH = 30;
+    var fetched = [];
+    var statsByCode = {};
+    var samples = { ok: [], notFound: [], error: [] };
+
+    for (var i = 0; i < invoiceNumbers.length; i += BATCH) {
+      var slice = invoiceNumbers.slice(i, i + BATCH);
+      var requests = slice.map(function(n) {
+        return {
+          url: PP_API_BASE + '/Invoices?invoiceNumber=' + encodeURIComponent(n),
+          method: 'get',
+          headers: headers,
+          muteHttpExceptions: true
+        };
+      });
+      var responses;
+      try { responses = UrlFetchApp.fetchAll(requests); }
+      catch (e) { Logger.log('    batch ' + i + ' failed: ' + e.message); continue; }
+
+      for (var k = 0; k < responses.length; k++) {
+        var resp = responses[k];
+        var code = resp.getResponseCode();
+        var body = resp.getContentText() || '';
+        var thisNum = slice[k];
+        statsByCode[code] = (statsByCode[code] || 0) + 1;
+        if (code !== 200) {
+          if (samples.notFound.length < 5) samples.notFound.push({ num: thisNum, code: code, body: body.substring(0, 120) });
+          continue;
+        }
+        var inv = null;
+        try {
+          var parsed = JSON.parse(body);
+          if (Array.isArray(parsed)) {
+            if (parsed.length > 0 && parsed[0] && parsed[0].InvoiceNumber) inv = parsed[0];
+          } else if (parsed && parsed.InvoiceNumber) {
+            inv = parsed;
+          }
+        } catch (e) {
+          if (samples.error.length < 3) samples.error.push({ num: thisNum, code: code, body: 'PARSE ERR: ' + body.substring(0, 120) });
+        }
+        if (inv) {
+          fetched.push(inv);
+          if (samples.ok.length < 3) samples.ok.push({ num: thisNum, total: inv.Total, date: inv.InvoiceDate, type: inv.InvoiceType });
+        } else {
+          if (samples.notFound.length < 5) samples.notFound.push({ num: thisNum, code: code, body: body.substring(0, 120) });
+        }
+      }
+      if (i + BATCH < invoiceNumbers.length) Utilities.sleep(200);
+    }
+
+    Logger.log('  HTTP status breakdown: ' + JSON.stringify(statsByCode));
+    if (samples.ok.length)       Logger.log('  Sample SUCCESS: ' + JSON.stringify(samples.ok));
+    if (samples.notFound.length) Logger.log('  Sample NOT-FOUND: ' + JSON.stringify(samples.notFound));
+    if (samples.error.length)    Logger.log('  Sample ERRORS: ' + JSON.stringify(samples.error));
+    Logger.log('  Fetched ' + fetched.length + ' / ' + invoiceNumbers.length + ' invoices');
+
+    if (fetched.length === 0) {
+      Logger.log('  ❌ Nothing fetched — cache NOT updated');
+      return;
+    }
+
+    // Merge into cache
+    var cache = readInvoicesCacheDirect_();
+    var curated = fetched.map(curateInvoiceForBackfill_);
+    var byKey = {};
+    (cache.invoices || []).forEach(function(inv) {
+      if (inv.InvoiceNumber) byKey[String(inv.InvoiceNumber)] = inv;
+    });
+    var added = 0, updated = 0;
+    curated.forEach(function(inv) {
+      var k = String(inv.InvoiceNumber);
+      if (byKey[k]) { byKey[k] = inv; updated++; }
+      else          { byKey[k] = inv; added++; }
+    });
+    var merged = Object.keys(byKey).map(function(k) { return byKey[k]; });
+    cache.invoices = merged;
+    cache.updated = new Date().toISOString();
+    cache.recordCount = merged.length;
+    cache.lastBackfill = new Date().toISOString();
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('  Writing cache-invoices.json: ' + Math.round(jsonStr.length / 1024) + ' KB | added ' + added + ', updated ' + updated);
+
+    var ok = pushToGitHub_(jsonStr, GH_PATH_INVOICES_FOR_BACKFILL, 'List-driven invoice backfill (' + fetched.length + ' invoices) ' + new Date().toISOString());
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('✅ Backfill complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Backfill error: ' + err.message + '\n' + err.stack);
+  }
+}
+
+// Wrapper for today's 45 invoices from the 05/26/26 PestPac PDF.
+// Run from the function dropdown. Will populate cache-invoices.json with
+// the actual list of invoices Joe posted on 5/26.
+function backfillTodaysInvoices_2026_05_26_() {
+  return backfillInvoicesByList_([
+    // IN type
+    '1241396','1316461','1333637','1333714','1333871','1333887','1333909',
+    '1334218','1334972','1335399','1335789','1337443','1337455','1338855',
+    '1338883','1338964','1339268','1339520','1340185','1340439',
+    // CM type (credit memos)
+    '1340478','1340481','1340488','1340496','1340500','1340510','1340516','1340524',
+    // CB type (callbacks — "A" prefix)
+    'A1316960','A1340024','A1340073','A1340151','A1340249',
+    // PR type (production — "A" prefix)
+    'A1332478','A1332974','A1333105','A1333157','A1339345','A1339393',
+    'A1339745','A1339841','A1340009','A1340119','A1340209','A1340403'
+  ]);
+}
+
 // Read cache-invoices.json directly from GitHub Pages (raw mirror is the same)
 function readInvoicesCacheDirect_() {
   try {
