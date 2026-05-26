@@ -1722,6 +1722,224 @@ function _reenrichCancelledImpl_(resume, limit, dryRun) {
 // Joe directive 2026-05-25 — pair with reenrichCancelledSetups to populate
 // CancelReason on newly-discovered cancelled setups.
 
+// Resume-friendly version of bootstrapAllSetupsFromSearch. Saves progress
+// every 500 locations and writes cache to GitHub every 2,000 locations.
+// On Apps Script timeout (30 min), all progress to the last write is preserved.
+// Call bootstrapAllSetupsFromSearchResume() to continue.
+//
+// At ~15 calls/sec, expect ~21K locations per 25-min run. Full 49K = ~3 runs.
+
+var BSS_BATCH_SIZE = 30;
+var BSS_BATCH_PAUSE_MS = 100;
+var BSS_PROGRESS_LOG_EVERY = 500;
+var BSS_INCREMENTAL_WRITE_EVERY = 2000;
+var BSS_SAFETY_STOP_SECONDS = 1500;  // 25 min — bail before Apps Script kills us
+var BSS_CURSOR_KEY = 'bssCursor';
+var BSS_LOCATION_IDS_KEY = 'bssLocationIds';  // serialized after discovery phase
+
+function bootstrapAllSetupsFromSearchResumable() {
+  return _bssImpl_(false);
+}
+
+function bootstrapAllSetupsFromSearchResume() {
+  return _bssImpl_(true);
+}
+
+function clearBootstrapSearchCursor() {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty(BSS_CURSOR_KEY);
+  props.deleteProperty(BSS_LOCATION_IDS_KEY);
+  Logger.log('Cursor + cached LocationID list cleared. Next call will start from scratch.');
+}
+
+function _bssImpl_(resume) {
+  var t0 = new Date();
+  var props = PropertiesService.getScriptProperties();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🌐 Extended bootstrap (RESUMABLE)' + (resume ? ' — RESUMING' : ' — fresh start') + ' — ' + t0.toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  var token = ppToken_();
+  var apiHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+
+  // ── Phase 1: get the LocationID list ──
+  // If resuming AND we have a cached list, use it. Otherwise run the alphabet search.
+  var locationIdsJson = resume ? props.getProperty(BSS_LOCATION_IDS_KEY) : null;
+  var missingIds;
+  if (locationIdsJson) {
+    Logger.log('1. Restoring LocationID list from prior run state...');
+    missingIds = JSON.parse(locationIdsJson);
+    Logger.log('   ' + missingIds.length.toLocaleString() + ' LocationIDs queued from prior search');
+  } else {
+    Logger.log('1. Discovering LocationIDs via /Locations?q=letter searches (26 letters)...');
+    var allIds = {};
+    var alphabet = 'abcdefghijklmnopqrstuvwxyz';
+    for (var i = 0; i < alphabet.length; i++) {
+      var ch = alphabet[i];
+      var r = ppGet_(token, '/Locations?q=' + ch);
+      if (r.code !== 200) continue;
+      try {
+        var locs = JSON.parse(r.text);
+        if (Array.isArray(locs)) {
+          locs.forEach(function(l) { if (l.LocationID) allIds[l.LocationID] = true; });
+        }
+      } catch (e) { /* skip */ }
+      Utilities.sleep(150);
+    }
+    var totalIds = Object.keys(allIds);
+    Logger.log('   Discovered ' + totalIds.length.toLocaleString() + ' unique LocationIDs');
+
+    // Identify which aren't in setups cache
+    var existingForDiff = readSetupsCache_();
+    var setupsByLocation = {};
+    (existingForDiff.setups || []).forEach(function(s) {
+      if (s.LocationID != null) setupsByLocation[String(s.LocationID)] = true;
+    });
+    missingIds = totalIds.filter(function(id) { return !setupsByLocation[String(id)]; });
+    Logger.log('   ' + missingIds.length.toLocaleString() + ' LocationIDs missing from setups cache');
+
+    // Stash the list so Resume doesn't have to re-discover
+    props.setProperty(BSS_LOCATION_IDS_KEY, JSON.stringify(missingIds));
+  }
+
+  if (missingIds.length === 0) {
+    Logger.log('✅ Nothing to fetch.');
+    return;
+  }
+
+  // ── Phase 2: load existing setups cache for merging ──
+  Logger.log('2. Loading existing setups cache for merge...');
+  var existing = readSetupsCache_();
+  var setupsMap = {};
+  (existing.setups || []).forEach(function(s) {
+    if (s.SetupID != null) setupsMap[String(s.SetupID)] = s;
+  });
+  Logger.log('   ' + Object.keys(setupsMap).length.toLocaleString() + ' setups already cached');
+
+  // ── Phase 3: fetch /Locations/{id}/serviceSetups in batches ──
+  var startIdx = resume ? Number(props.getProperty(BSS_CURSOR_KEY) || 0) : 0;
+  if (startIdx > 0) {
+    Logger.log('3. Resuming from cursor index ' + startIdx.toLocaleString() + ' of ' + missingIds.length.toLocaleString());
+  } else {
+    Logger.log('3. Starting fresh from index 0 of ' + missingIds.length.toLocaleString());
+  }
+
+  var newSetupCount = 0;
+  var cancelledFound = 0;
+  var failedLocations = 0;
+  var safetyTriggered = false;
+
+  for (var b = startIdx; b < missingIds.length; b += BSS_BATCH_SIZE) {
+    // Safety check — bail before Apps Script kills us
+    var elapsedSec = (new Date() - t0) / 1000;
+    if (elapsedSec >= BSS_SAFETY_STOP_SECONDS) {
+      safetyTriggered = true;
+      Logger.log('   ⏰ Safety stop at ' + elapsedSec.toFixed(0) + 's — saving progress and exiting cleanly');
+      break;
+    }
+
+    var slice = missingIds.slice(b, b + BSS_BATCH_SIZE);
+    var requests = slice.map(function(lid) {
+      return {
+        url: PP_API_BASE + '/Locations/' + lid + '/serviceSetups',
+        method: 'get',
+        headers: apiHeaders,
+        muteHttpExceptions: true
+      };
+    });
+
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      failedLocations += slice.length;
+      continue;
+    }
+    for (var k = 0; k < responses.length; k++) {
+      var resp = responses[k];
+      if (resp.getResponseCode() !== 200) { failedLocations++; continue; }
+      try {
+        var setups = JSON.parse(resp.getContentText());
+        if (!Array.isArray(setups)) continue;
+        setups.forEach(function(rawSetup) {
+          if (!rawSetup || rawSetup.SetupID == null) return;
+          var curated = curate_(rawSetup, CURATED_FIELDS_SETUP);
+          enrichSetupCreator_(curated, rawSetup);
+          var sid = String(curated.SetupID);
+          if (!setupsMap[sid]) {
+            newSetupCount++;
+            if (curated.CancelDate) cancelledFound++;
+          }
+          setupsMap[sid] = curated;
+        });
+      } catch (e) { /* skip */ }
+    }
+
+    var done = b + slice.length;
+
+    if (done % BSS_PROGRESS_LOG_EVERY === 0 || done >= missingIds.length) {
+      Logger.log('   [' + done.toLocaleString() + ' / ' + missingIds.length.toLocaleString() + ']  ' +
+                 'new setups: ' + newSetupCount.toLocaleString() + ' · cancelled in new: ' + cancelledFound.toLocaleString() +
+                 ' · failed: ' + failedLocations + ' · elapsed: ' + elapsedSec.toFixed(0) + 's');
+    }
+
+    // Incremental cache write — flush to GitHub every N locations
+    if (done > 0 && (done % BSS_INCREMENTAL_WRITE_EVERY === 0 || done >= missingIds.length)) {
+      _bssFlushCache_(setupsMap, 'Bootstrap progress checkpoint ' + done + '/' + missingIds.length);
+      props.setProperty(BSS_CURSOR_KEY, String(done));
+    }
+
+    if (b + BSS_BATCH_SIZE < missingIds.length) Utilities.sleep(BSS_BATCH_PAUSE_MS);
+  }
+
+  // Final flush + cursor save
+  if (safetyTriggered) {
+    var lastDone = Math.floor((Math.min(b, missingIds.length)) / BSS_INCREMENTAL_WRITE_EVERY) * BSS_INCREMENTAL_WRITE_EVERY;
+    // Force a write right now so we save what's in memory
+    _bssFlushCache_(setupsMap, 'Bootstrap safety-stop checkpoint');
+    props.setProperty(BSS_CURSOR_KEY, String(b));
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('⏸  PAUSED for safety. Re-run bootstrapAllSetupsFromSearchResume() to continue.');
+    Logger.log('   Cursor saved at index ' + b.toLocaleString());
+    Logger.log('   New setups so far: ' + newSetupCount.toLocaleString() + ' · cancelled: ' + cancelledFound.toLocaleString());
+    return;
+  }
+
+  // Completion — clean up cursor
+  props.deleteProperty(BSS_CURSOR_KEY);
+  props.deleteProperty(BSS_LOCATION_IDS_KEY);
+
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('✅ Extended bootstrap COMPLETE');
+  Logger.log('   Locations processed: ' + missingIds.length.toLocaleString());
+  Logger.log('   New setups discovered: ' + newSetupCount.toLocaleString());
+  Logger.log('   Cancelled setups in new: ' + cancelledFound.toLocaleString());
+  Logger.log('   Failed location calls: ' + failedLocations);
+  Logger.log('   Total elapsed: ' + ((new Date() - t0) / 1000).toFixed(1) + 's');
+  Logger.log('');
+  Logger.log('NEXT: run reenrichCancelledSetups() to populate CancelReason on newly-discovered cancellations.');
+}
+
+function _bssFlushCache_(setupsMap, commitMsg) {
+  var allSetups = [];
+  Object.keys(setupsMap).forEach(function(k) { allSetups.push(setupsMap[k]); });
+  allSetups.sort(function(a, b) { return Number(a.SetupID) - Number(b.SetupID); });
+  var cache = {
+    updated: new Date().toISOString(),
+    recordCount: allSetups.length,
+    lastBootstrapCheckpoint: new Date().toISOString(),
+    setups: allSetups
+  };
+  var jsonStr = JSON.stringify(cache);
+  Logger.log('   💾 Flushing ' + allSetups.length.toLocaleString() + ' setups (' + Math.round(jsonStr.length / 1024) + ' KB) to GitHub...');
+  var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS, commitMsg + ' ' + new Date().toISOString());
+  Logger.log('   ' + (ok ? '✓ checkpoint saved' : '✗ checkpoint FAILED'));
+}
+
 function bootstrapAllSetupsFromSearch() {
   var t0 = new Date();
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
