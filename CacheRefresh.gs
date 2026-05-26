@@ -1708,6 +1708,176 @@ function _reenrichCancelledImpl_(resume, limit, dryRun) {
 // cancellations not currently in cache.
 
 // Second probe: /Locations requires 'q' or 'ids'. Find out what 'q' accepts.
+// ══════════════════════════════════════════════════════════════
+// EXTENDED BOOTSTRAP — discover ALL customers via /Locations?q=...
+// search (not just those in cache-locations.json) and pull their setups.
+//
+// Why: cache-locations.json only contains customers with orders in the
+// 90-day forward window. Cancelled customers with no upcoming orders are
+// missing entirely. The /Locations endpoint is a fulltext NAME search:
+// q=a returns 8,178 results, q=Smith returns 380. By searching every letter
+// of the alphabet and deduping by LocationID, we discover every customer
+// whose name contains any letter (= ~all customers).
+//
+// Joe directive 2026-05-25 — pair with reenrichCancelledSetups to populate
+// CancelReason on newly-discovered cancelled setups.
+
+function bootstrapAllSetupsFromSearch() {
+  var t0 = new Date();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🌐 Extended bootstrap — discover ALL setups via name search');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  var token = ppToken_();
+  var apiHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+
+  // ── Phase 1: enumerate LocationIDs via letter searches ──
+  Logger.log('1. Discovering LocationIDs via /Locations?q=letter searches...');
+  var allIds = {};   // LocationID → true
+  var alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  for (var i = 0; i < alphabet.length; i++) {
+    var ch = alphabet[i];
+    var r = ppGet_(token, '/Locations?q=' + ch);
+    if (r.code !== 200) {
+      Logger.log('   q=' + ch + ' → HTTP ' + r.code);
+      continue;
+    }
+    try {
+      var locs = JSON.parse(r.text);
+      if (Array.isArray(locs)) {
+        var newCount = 0;
+        locs.forEach(function(l) {
+          if (l.LocationID && !allIds[l.LocationID]) {
+            allIds[l.LocationID] = true;
+            newCount++;
+          }
+        });
+        Logger.log('   q=' + ch + ' → ' + locs.length + ' results · ' + newCount + ' new · ' + Object.keys(allIds).length + ' total unique');
+      }
+    } catch (e) { /* skip */ }
+    Utilities.sleep(200);
+  }
+  var totalIds = Object.keys(allIds);
+  Logger.log('   ✓ Discovered ' + totalIds.length.toLocaleString() + ' unique LocationIDs across all letter searches');
+
+  // ── Phase 2: identify which LocationIDs aren't currently in our setups cache ──
+  Logger.log('');
+  Logger.log('2. Loading current cache-setups.json to identify which locations we already have...');
+  var existing = readSetupsCache_();
+  var setupsByLocation = {};
+  (existing.setups || []).forEach(function(s) {
+    if (s.LocationID != null) {
+      if (!setupsByLocation[String(s.LocationID)]) setupsByLocation[String(s.LocationID)] = [];
+      setupsByLocation[String(s.LocationID)].push(s);
+    }
+  });
+  var cachedLocationCount = Object.keys(setupsByLocation).length;
+  Logger.log('   Setups cache covers ' + cachedLocationCount.toLocaleString() + ' unique locations');
+
+  var missingIds = totalIds.filter(function(id) { return !setupsByLocation[String(id)]; });
+  Logger.log('   ' + missingIds.length.toLocaleString() + ' LocationIDs in PestPac but NOT in setups cache → these are our target');
+
+  if (missingIds.length === 0) {
+    Logger.log('✅ Nothing to discover. Setups cache is fully synced with name-search results.');
+    return;
+  }
+
+  // ── Phase 3: fetch /Locations/{id}/serviceSetups for each missing LocationID ──
+  Logger.log('');
+  Logger.log('3. Fetching setups for missing locations in batches of 25...');
+  var setupsMap = {};
+  // Preserve all existing setups (we're ADDING, not replacing)
+  (existing.setups || []).forEach(function(s) {
+    if (s.SetupID != null) setupsMap[String(s.SetupID)] = s;
+  });
+
+  var newSetupCount = 0;
+  var cancelledFound = 0;
+  var failedLocations = 0;
+  var BATCH = 25;
+
+  for (var b = 0; b < missingIds.length; b += BATCH) {
+    var slice = missingIds.slice(b, b + BATCH);
+    var requests = slice.map(function(lid) {
+      return {
+        url: PP_API_BASE + '/Locations/' + lid + '/serviceSetups',
+        method: 'get',
+        headers: apiHeaders,
+        muteHttpExceptions: true
+      };
+    });
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      failedLocations += slice.length;
+      continue;
+    }
+    for (var k = 0; k < responses.length; k++) {
+      var resp = responses[k];
+      if (resp.getResponseCode() !== 200) { failedLocations++; continue; }
+      try {
+        var setups = JSON.parse(resp.getContentText());
+        if (!Array.isArray(setups)) continue;
+        setups.forEach(function(rawSetup) {
+          if (!rawSetup || rawSetup.SetupID == null) return;
+          var curated = curate_(rawSetup, CURATED_FIELDS_SETUP);
+          enrichSetupCreator_(curated, rawSetup);
+          var sid = String(curated.SetupID);
+          if (!setupsMap[sid]) {
+            newSetupCount++;
+            if (curated.CancelDate) cancelledFound++;
+          }
+          setupsMap[sid] = curated;
+        });
+      } catch (e) { /* skip */ }
+    }
+    var done = b + slice.length;
+    if (done % 200 === 0 || done === missingIds.length) {
+      var elapsed = ((new Date() - t0) / 1000);
+      Logger.log('   [' + done.toLocaleString() + ' / ' + missingIds.length.toLocaleString() + ']  new setups: ' + newSetupCount.toLocaleString() + ' · cancelled in new: ' + cancelledFound.toLocaleString() + ' · failed: ' + failedLocations + ' · elapsed: ' + elapsed.toFixed(0) + 's');
+    }
+    if (b + BATCH < missingIds.length) Utilities.sleep(200);
+  }
+
+  // ── Phase 4: write merged cache back to GitHub ──
+  var allSetups = [];
+  Object.keys(setupsMap).forEach(function(k) { allSetups.push(setupsMap[k]); });
+  allSetups.sort(function(a, b) { return Number(a.SetupID) - Number(b.SetupID); });
+
+  Logger.log('');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('SUMMARY');
+  Logger.log('   Unique LocationIDs from search: ' + totalIds.length.toLocaleString());
+  Logger.log('   Missing from setups cache:      ' + missingIds.length.toLocaleString());
+  Logger.log('   New setups discovered:          ' + newSetupCount.toLocaleString());
+  Logger.log('   Cancelled (CancelDate populated) in new: ' + cancelledFound.toLocaleString());
+  Logger.log('   Failed location calls:          ' + failedLocations);
+  Logger.log('   Total setups in cache (post):   ' + allSetups.length.toLocaleString());
+
+  var cache = {
+    updated: new Date().toISOString(),
+    recordCount: allSetups.length,
+    lastExtendedBootstrapAt: new Date().toISOString(),
+    setups: allSetups
+  };
+  var jsonStr = JSON.stringify(cache);
+  Logger.log('');
+  Logger.log('4. Writing cache-setups.json: ' + Math.round(jsonStr.length / 1024) + ' KB');
+  var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS, 'Extended bootstrap setups ' + new Date().toISOString());
+  Logger.log('   push: ' + (ok ? 'OK' : 'FAIL'));
+
+  var totalElapsed = ((new Date() - t0) / 1000).toFixed(1);
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('✅ Extended bootstrap complete in ' + totalElapsed + 's');
+  Logger.log('');
+  Logger.log('NEXT: run reenrichCancelledSetups() to populate CancelReason on the newly-discovered cancellations.');
+}
+
 function probeLocationsQueryParam() {
   var token = ppToken_();
   Logger.log('🧪 PROBE — /Locations?q=... query syntax');
