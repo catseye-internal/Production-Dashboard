@@ -1080,6 +1080,231 @@ function readSetupsCache_() {
 // then iterate every Active location and pull its setups via whichever pattern
 // PestPac supports. Idempotent — safe to re-run.
 
+// One-time bootstrap. Iterates every location in cache-locations.json, fetches
+// /Locations/{id}/serviceSetups for each, curates the returned setups + enriches
+// EnteredBy/SalesBy via the shared helper, and merges everything into
+// cache-setups.json. Captures setups that the incremental refresh misses
+// (setups whose first SO is far in the future, recently cancelled setups with
+// no remaining orders, etc.).
+//
+// Idempotent. Backs up cache before writing. Resume-friendly via Script Property.
+// Manual-run only (might exceed the 6-min trigger limit at full scale).
+//
+// USAGE
+//   bootstrapAllSetups()          — full run, fresh start (clears resume state)
+//   bootstrapAllSetupsResume()    — pick up from last resume checkpoint
+//   bootstrapAllSetupsTest(50)    — test against first N locations, write nothing
+//
+// Joe directive 2026-05-25.
+
+var BOOTSTRAP_BATCH_SIZE = 25;
+var BOOTSTRAP_BATCH_PAUSE_MS = 200;
+var BOOTSTRAP_CHECKPOINT_EVERY = 200;  // save resume state every N locations
+var BOOTSTRAP_RESUME_KEY = 'bootstrapSetupsCursor';
+var BOOTSTRAP_PENDING_KEY = 'bootstrapSetupsPending';  // JSON blob: { setups: [...] }
+
+function bootstrapAllSetups() {
+  PropertiesService.getScriptProperties().deleteProperty(BOOTSTRAP_RESUME_KEY);
+  PropertiesService.getScriptProperties().deleteProperty(BOOTSTRAP_PENDING_KEY);
+  return _bootstrapImpl_(false, null);
+}
+
+function bootstrapAllSetupsResume() {
+  return _bootstrapImpl_(true, null);
+}
+
+function bootstrapAllSetupsTest(limit) {
+  PropertiesService.getScriptProperties().deleteProperty(BOOTSTRAP_RESUME_KEY);
+  PropertiesService.getScriptProperties().deleteProperty(BOOTSTRAP_PENDING_KEY);
+  return _bootstrapImpl_(false, limit || 50, /*dryRun=*/true);
+}
+
+function _bootstrapImpl_(resume, limit, dryRun) {
+  var t0 = new Date();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log((dryRun ? '🧪 DRY RUN — Bootstrap setups' : '📦 Bootstrap setups') +
+             (resume ? ' (RESUMING)' : '') + ' — ' + t0.toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  // 1. Load locations from GitHub Pages
+  Logger.log('1. Loading cache-locations.json...');
+  var locResp = UrlFetchApp.fetch(
+    'https://catseye-internal.github.io/Production-Dashboard/cache-locations.json',
+    { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+  );
+  if (locResp.getResponseCode() !== 200) {
+    Logger.log('❌ cache-locations.json fetch HTTP ' + locResp.getResponseCode());
+    return;
+  }
+  var allLocs = (JSON.parse(locResp.getContentText()).locations || [])
+    .filter(function(l) { return l.LocationID; });
+  Logger.log('   ' + allLocs.length.toLocaleString() + ' locations in cache');
+
+  // 2. Load existing setups (so we merge instead of overwrite)
+  Logger.log('2. Loading existing cache-setups.json...');
+  var existing = readSetupsCache_();
+  var setupsMap = {};
+  (existing.setups || []).forEach(function(s) {
+    if (s.SetupID != null) setupsMap[String(s.SetupID)] = s;
+  });
+  Logger.log('   ' + Object.keys(setupsMap).length.toLocaleString() + ' setups already cached');
+
+  // 3. Apply resume state — start from last checkpoint
+  var props = PropertiesService.getScriptProperties();
+  var startIdx = 0;
+  if (resume) {
+    var cursor = Number(props.getProperty(BOOTSTRAP_RESUME_KEY) || 0);
+    if (cursor > 0 && cursor < allLocs.length) {
+      startIdx = cursor;
+      Logger.log('   Resuming from index ' + startIdx.toLocaleString());
+    }
+    // Reload pending setups from prior run
+    var pendingStr = props.getProperty(BOOTSTRAP_PENDING_KEY);
+    if (pendingStr) {
+      try {
+        var pending = JSON.parse(pendingStr).setups || [];
+        pending.forEach(function(s) {
+          if (s.SetupID != null) setupsMap[String(s.SetupID)] = s;
+        });
+        Logger.log('   Restored ' + pending.length.toLocaleString() + ' pending setups from checkpoint');
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  // 4. Apply limit (test mode)
+  var locList = allLocs;
+  if (limit) {
+    locList = allLocs.slice(0, limit);
+    Logger.log('   Limited to first ' + locList.length + ' locations (test mode)');
+  }
+
+  // 5. Auth + iterate
+  Logger.log('3. Fetching PestPac token...');
+  var token = ppToken_();
+  var apiHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+
+  Logger.log('4. Iterating locations in batches of ' + BOOTSTRAP_BATCH_SIZE + '...');
+  var processed = startIdx;
+  var newSetupCount = 0;
+  var updatedSetupCount = 0;
+  var failedLocations = 0;
+
+  for (var i = startIdx; i < locList.length; i += BOOTSTRAP_BATCH_SIZE) {
+    var slice = locList.slice(i, i + BOOTSTRAP_BATCH_SIZE);
+    var requests = slice.map(function(l) {
+      return {
+        url: PP_API_BASE + '/Locations/' + l.LocationID + '/serviceSetups',
+        method: 'get',
+        headers: apiHeaders,
+        muteHttpExceptions: true
+      };
+    });
+
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      Logger.log('   Batch starting at ' + i + ' failed entirely: ' + e.message);
+      failedLocations += slice.length;
+      continue;
+    }
+
+    for (var k = 0; k < responses.length; k++) {
+      var resp = responses[k];
+      if (resp.getResponseCode() !== 200) { failedLocations++; continue; }
+      try {
+        var setups = JSON.parse(resp.getContentText());
+        if (!Array.isArray(setups)) continue;
+        setups.forEach(function(rawSetup) {
+          if (!rawSetup || rawSetup.SetupID == null) return;
+          var curated = curate_(rawSetup, CURATED_FIELDS_SETUP);
+          enrichSetupCreator_(curated, rawSetup);
+          var key = String(curated.SetupID);
+          if (setupsMap[key]) updatedSetupCount++;
+          else newSetupCount++;
+          setupsMap[key] = curated;
+        });
+      } catch (e) { /* skip parse error */ }
+    }
+
+    processed += slice.length;
+
+    // Progress + checkpoint
+    if (processed % 100 === 0 || processed === locList.length) {
+      var elapsed = ((new Date() - t0) / 1000);
+      var rate = processed > startIdx ? (processed - startIdx) / elapsed : 0;
+      var remaining = locList.length - processed;
+      var etaMin = rate > 0 ? (remaining / rate / 60).toFixed(1) : '?';
+      Logger.log('   [' + processed.toLocaleString() + ' / ' + locList.length.toLocaleString() + ']  ' +
+                 'setups: ' + (newSetupCount + Object.keys(setupsMap).length - (existing.setups || []).length).toLocaleString() + ' new, ' +
+                 updatedSetupCount.toLocaleString() + ' refreshed · ' +
+                 failedLocations + ' failed locations · ' +
+                 rate.toFixed(0) + '/s · eta ' + etaMin + 'm');
+    }
+
+    // Save checkpoint
+    if (!dryRun && processed % BOOTSTRAP_CHECKPOINT_EVERY === 0) {
+      props.setProperty(BOOTSTRAP_RESUME_KEY, String(processed));
+      var pendingArr = [];
+      Object.keys(setupsMap).forEach(function(k) { pendingArr.push(setupsMap[k]); });
+      // Don't try to serialize giant blobs to ScriptProperties (50KB limit) —
+      // just save the cursor. If interrupted, resume will reload from GitHub
+      // cache + pick up new setups from the resume cursor onward.
+    }
+
+    if (i + BOOTSTRAP_BATCH_SIZE < locList.length) Utilities.sleep(BOOTSTRAP_BATCH_PAUSE_MS);
+  }
+
+  // 6. Write the merged cache back to GitHub
+  var allSetups = [];
+  Object.keys(setupsMap).forEach(function(k) { allSetups.push(setupsMap[k]); });
+  allSetups.sort(function(a, b) { return Number(a.SetupID) - Number(b.SetupID); });
+
+  Logger.log('');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('SUMMARY');
+  Logger.log('   Locations processed:   ' + processed.toLocaleString());
+  Logger.log('   Failed location calls: ' + failedLocations.toLocaleString());
+  Logger.log('   Setups before:         ' + (existing.setups || []).length.toLocaleString());
+  Logger.log('   Setups after:          ' + allSetups.length.toLocaleString());
+  Logger.log('   Net new:               ' + (allSetups.length - (existing.setups || []).length).toLocaleString());
+  Logger.log('   Refreshed (duplicate): ' + updatedSetupCount.toLocaleString());
+
+  if (dryRun) {
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('🧪 DRY RUN — cache NOT written');
+    return;
+  }
+
+  // Write back via the existing pushToGitHub_ helper (same as refreshSetupsCache)
+  var cache = {
+    updated: new Date().toISOString(),
+    recordCount: allSetups.length,
+    lastBootstrapAt: new Date().toISOString(),
+    setups: allSetups
+  };
+  var jsonStr = JSON.stringify(cache);
+  Logger.log('');
+  Logger.log('5. Writing cache-setups.json: ' + Math.round(jsonStr.length / 1024) + ' KB, ' +
+             allSetups.length + ' records');
+  var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS, 'Bootstrap setups refresh ' + new Date().toISOString());
+  Logger.log('   push: ' + (ok ? 'OK' : 'FAIL'));
+
+  // Clear resume state on successful completion
+  if (ok) {
+    props.deleteProperty(BOOTSTRAP_RESUME_KEY);
+    props.deleteProperty(BOOTSTRAP_PENDING_KEY);
+  }
+
+  var totalElapsed = ((new Date() - t0) / 1000).toFixed(1);
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('✅ Bootstrap complete in ' + totalElapsed + 's');
+}
+
 function probeLocationSetupsEndpoint() {
   var token = ppToken_();
   // Grab a known LocationID from cache-locations.json
