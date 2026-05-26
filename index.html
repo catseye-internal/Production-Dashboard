@@ -3537,16 +3537,16 @@ function renderTechView_() {
       renderPestTechLeaderboard_(byBranch, workingElapsedMtd, STATE.employeesMap) +
     '</div>';
 
-  // Cat-Guard Installer Leaderboard — CG/NWL installers ranked by MTD $.
-  // Mirrors Pest Tech Leaderboard structure. Filters byBranch to techs whose
-  // PRIMARY role is cgnwl (excludes pest techs who happen to appear on a CG
-  // warranty visit). Two-tech CG jobs split 50/50 in byBranch upstream.
-  // Joe directive 2026-05-26.
+  // CG Leaderboard — Cat-Guard / NWL installers ranked by MTD INSTALL revenue.
+  // Filters raw invoices to actual install work (ServiceClass = CATGUARD /
+  // CAT-GUARD / CG WARRANT / NWL, InvoiceType = IN), then ranks techs by
+  // MTD revenue. Two-tech jobs split 50/50. Excludes managers + non-tech
+  // codes. Joe directive 2026-05-26.
   var cardCatGuardLeaderboard =
     '<div class="chart-card">' +
-      '<h3 class="chart-title">CAT-GUARD INSTALLER LEADERBOARD</h3>' +
-      '<div class="chart-meta">CG/NWL installers ranked by MTD revenue · two-tech jobs split 50/50 · excludes managers and pest techs · gold/silver/bronze top 3 · green ≥$3,500/install, yellow ≥$2,000, red <$2,000</div>' +
-      renderCatGuardLeaderboard_(byBranch, workingElapsedMtd, STATE.employeesMap) +
+      '<h3 class="chart-title">CG LEADERBOARD</h3>' +
+      '<div class="chart-meta">CG/NWL installers ranked by MTD install revenue · only Initial (IN) invoices counted (excludes free follow-ups) · two-tech jobs split 50/50 · excludes managers · gold/silver/bronze top 3 · green ≥$3,500/install, yellow ≥$2,000, red <$2,000</div>' +
+      renderCatGuardLeaderboard_(workingElapsedMtd, dSom, dYest, STATE.employeesMap) +
     '</div>';
 
   // Stack order: Forecast Totals → Completed vs Budget → Callbacks by Branch
@@ -5989,25 +5989,41 @@ function renderPestTechLeaderboard_(byBranch, workingDays, employeesMap) {
 // ─────────────────────────────────────────────────────────────────────────────
 // renderCatGuardLeaderboard_
 //
-// Cat-Guard / NWL installer leaderboard, MTD. Mirrors renderPestTechLeaderboard_
-// exactly — reads from the same `byBranch` aggregation that already handles the
-// Tech1+Tech2 50/50 revenue split for CG/NWL invoices. The ONLY difference is
-// the role filter: `t.role === 'cgnwl'` instead of `t.role === 'pest'`.
+// CG / NWL install leaderboard, MTD. Iterates raw invoices (NOT byBranch,
+// because byBranch aggregates a tech's ENTIRE revenue regardless of class — a
+// pest tech's pest-service revenue would show up here as fake "CG installs").
 //
-// This approach (vs. iterating raw invoices and filtering by ServiceClass)
-// correctly excludes pest techs who occasionally appear on a CG warranty visit
-// — only techs whose PRIMARY role is CG/NWL (majority of their jobs) show up.
-// Manager exclusion is identical to Pest Tech Leaderboard.
+// Filter rules (data tightened 2026-05-26 after Joe spotted pest techs leaking
+// in via byBranch):
+//   • ServiceClass ∈ { CATGUARD, CAT-GUARD, CG WARRANT, NWL } — the actual
+//     install classes. PG CG / PG CG PRE (pest courtesy CG follow-ups) are
+//     intentionally excluded.
+//   • InvoiceType = 'IN' (Initial install) — excludes PR free follow-ups, PI
+//     pre-install auto-bills, CM credits.
+//   • InvoiceDate ∈ [dSom, dYest] (MTD, 1st of month through yesterday).
+//   • Tech1 must be present + non-manager + non-NonTechCode.
+//   • If Tech2 present + non-NonTechCode, revenue splits 50/50, each gets
+//     +1 install. Managers as Tech2 are allowed (an install is an install).
 //
-// Scoring tiers on $/Install — CG installs run $1.5K–$8K depending on scope:
+// Scoring tiers on $/Install — real CG installs run $1.5K–$8K:
 //   green  ≥ $3,500/install
 //   yellow ≥ $2,000/install
 //   red    <  $2,000/install
 // ─────────────────────────────────────────────────────────────────────────────
-function renderCatGuardLeaderboard_(byBranch, workingDays, employeesMap) {
-  // Reuse the same manager-exclusion logic as Pest Tech Leaderboard. Static
-  // managers come from isManagerCode (config.js hardcoded set + employees
-  // cache JobTitle keyword match); dynamic ones come from STATE.dynamicMgrSet.
+var CG_INSTALL_CLASSES = (function() {
+  var s = {};
+  ['CATGUARD', 'CAT-GUARD', 'CG WARRANT', 'NWL'].forEach(function(x) {
+    s[x.toUpperCase()] = true;
+  });
+  return s;
+})();
+
+function renderCatGuardLeaderboard_(workingDays, dSom, dYest, employeesMap) {
+  var invoices = (typeof productionInvoices_ === 'function')
+    ? productionInvoices_()
+    : ((STATE.invoiceCache && STATE.invoiceCache.invoices) || []);
+
+  // Reuse manager + non-tech filters
   var dynamicMgrSet = (typeof STATE !== 'undefined' && STATE.dynamicMgrSet) ? STATE.dynamicMgrSet : new Set();
   function isMgr_(code) {
     if (!code) return false;
@@ -6015,30 +6031,67 @@ function renderCatGuardLeaderboard_(byBranch, workingDays, employeesMap) {
     if (typeof isManagerCode === 'function' && isManagerCode(c)) return true;
     return dynamicMgrSet.has(c);
   }
+  function isNon_(code) {
+    if (!code) return true;
+    return (typeof isNonTechCode === 'function') ? isNonTechCode(code) : false;
+  }
 
-  // Flatten: collect all CG/NWL techs across branches, exclude managers
-  var rows = [];
-  Object.keys(byBranch).forEach(function(branch) {
-    (byBranch[branch] || []).forEach(function(t) {
-      if (t.role !== 'cgnwl') return;
-      if (isMgr_(t.tech)) return;
-      var installs = t.data.completedCount || 0;
-      var revenue  = t.data.completed || 0;
-      var perDay   = revenue / workingDays;
-      var perInstall = installs > 0 ? revenue / installs : 0;
-      rows.push({
-        code: t.tech,
-        branch: branch,
-        installs: installs,
-        revenue: revenue,
-        perDay: perDay,
-        perInstall: perInstall
-      });
+  // techCode → { installs, revenue, branchVotes }
+  var techRows = {};
+  function bumpTech_(code, dollars, branch) {
+    if (!techRows[code]) techRows[code] = { installs: 0, revenue: 0, branchVotes: {} };
+    techRows[code].installs += 1;
+    techRows[code].revenue += dollars;
+    if (branch) techRows[code].branchVotes[branch] = (techRows[code].branchVotes[branch] || 0) + 1;
+  }
+
+  invoices.forEach(function(inv) {
+    // Filter 1: ServiceClass must be a real CG install class
+    var sc = String(inv.ServiceClass || '').toUpperCase().trim();
+    if (!CG_INSTALL_CLASSES[sc]) return;
+    // Filter 2: InvoiceType must be IN (Initial install)
+    if (String(inv.InvoiceType || '').toUpperCase() !== 'IN') return;
+    // Filter 3: InvoiceDate in MTD window
+    var date = String(inv.InvoiceDate || '').substring(0, 10);
+    if (date < dSom || date > dYest) return;
+    // Filter 4: meaningful subtotal
+    var amount = Number(inv.SubTotal) || 0;
+    if (amount <= 0) return;
+
+    var tech1 = inv.Tech ? String(inv.Tech).toUpperCase() : null;
+    var tech2 = inv.Tech2 ? String(inv.Tech2).toUpperCase() : null;
+
+    if (!tech1 || isMgr_(tech1) || isNon_(tech1)) return;
+    if (tech2 && (isNon_(tech2) || tech2 === tech1)) tech2 = null;
+
+    if (tech2) {
+      bumpTech_(tech1, amount / 2, inv.Branch);
+      bumpTech_(tech2, amount / 2, inv.Branch);
+    } else {
+      bumpTech_(tech1, amount, inv.Branch);
+    }
+  });
+
+  // Flatten + derive per-tech metrics
+  var rows = Object.keys(techRows).map(function(code) {
+    var r = techRows[code];
+    var branch = '';
+    var topVotes = 0;
+    Object.keys(r.branchVotes).forEach(function(b) {
+      if (r.branchVotes[b] > topVotes) { branch = b; topVotes = r.branchVotes[b]; }
     });
+    return {
+      code: code,
+      branch: branch,
+      installs: r.installs,
+      revenue: r.revenue,
+      perInstall: r.installs > 0 ? r.revenue / r.installs : 0,
+      perDay: workingDays > 0 ? r.revenue / workingDays : 0
+    };
   });
 
   if (rows.length === 0) {
-    return '<div class="nb-empty">No Cat-Guard / NWL installer MTD data yet</div>';
+    return '<div class="nb-empty">No CG/NWL install activity MTD</div>';
   }
 
   rows.sort(function(a, b) { return b.revenue - a.revenue; });
