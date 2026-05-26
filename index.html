@@ -621,11 +621,10 @@
     gap: 10px; margin-bottom: 14px;
   }
   .hero-card {
-    /* Neutral dark card — match the rest of the Dashboard's chart-card pattern.
-       Status color shows up only in the left accent border + the value text.
-       Tinted backgrounds were washing out the colors (Joe directive 2026-05-25). */
-    background: rgba(0,0,0,0.25);
-    border: 1px solid rgba(255,255,255,0.08);
+    /* Match the standard chart-card background so the hero strip + Forecast
+       Totals + all other dashboard cards look unified (Joe directive 2026-05-25). */
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-left: 3px solid rgba(255,255,255,0.10);
     border-radius: 10px;
     padding: 12px 16px 14px;
@@ -760,11 +759,12 @@
   .fc-kpi-grid {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
   }
-  /* Match the Hero Strip card style — dark neutral fill, colored left-border
-     accent based on pass/fail vs target. Joe directive 2026-05-25 (consistency). */
+  /* Match the standard chart-card background — keeps Forecast Totals visually
+     unified with everything else on the dashboard. Status shows as left-border
+     accent. Joe directive 2026-05-25. */
   .fc-kpi {
-    background: rgba(0,0,0,0.25);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-left: 3px solid rgba(255,255,255,0.10);
     border-radius: 8px; padding: 10px 14px 12px;
     display: flex; flex-direction: column; justify-content: space-between;
@@ -1041,7 +1041,7 @@
   }
   .cvb-daily-tile.catseye  { border-left-color: #F47B20; }
   .cvb-daily-tile.usx      { border-left-color: #60A5FA; }
-  .cvb-daily-tile.combined { border-left-color: #C4B5FD; background: rgba(167, 139, 250, 0.04); }
+  .cvb-daily-tile.combined { border-left-color: #C4B5FD; }
   .cvb-daily-label {
     font-size: 9px; font-weight: 700; letter-spacing: 0.6px;
     text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;
@@ -1216,7 +1216,7 @@
   }
   .mtd-prod-branch-total.catseye  .mtd-prod-branch-label { color: #F47B20; font-size: 13px; font-weight: 800; }
   .mtd-prod-branch-total.usx      .mtd-prod-branch-label { color: #60A5FA; font-size: 13px; font-weight: 800; }
-  .mtd-prod-branch-total.combined { background: rgba(167, 139, 250, 0.06); }
+  .mtd-prod-branch-total.combined { background: transparent; }
   .mtd-prod-branch-total.combined .mtd-prod-branch-label { color: #C4B5FD; font-size: 13px; font-weight: 800; }
   .mtd-prod-branch-total .mtd-prod-metric { font-size: 12px; }
   .mtd-prod-branch-total .mtd-prod-metric-bar { height: 11px; }
