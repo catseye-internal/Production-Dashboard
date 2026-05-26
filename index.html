@@ -4042,6 +4042,24 @@ function renderTechView_() {
     fcTotals.d2Min      += (r.d2Min      || 0);
     fcTotals.d3Min      += (r.d3Min      || 0);
   });
+  // Joe directive 2026-05-26: the hero strip (Yesterday/Today/Tomorrow) must
+  // include Office-credited revenue — credit memos, auto-renewals, non-tech-
+  // code billings. Previously fcTotals only summed techRows so office revenue
+  // was invisible on the hero. Tech master cards still treat Office separately
+  // as their own row (that's appropriate per-tech), but the company-wide top
+  // numbers should reflect the whole business.
+  ['catseye','usx'].forEach(function(co) {
+    var o = officeByCompany[co];
+    if (!o) return;
+    fcTotals.today += (o.today || 0);
+    fcTotals.tmrw  += (o.tmrw  || 0);
+    fcTotals.d2    += (o.d2    || 0);
+    fcTotals.d3    += (o.d3    || 0);
+    fcTotals.todayCount += (o.todayCount || 0);
+    fcTotals.tmrwCount  += (o.tmrwCount  || 0);
+    fcTotals.d2Count    += (o.d2Count    || 0);
+    fcTotals.d3Count    += (o.d3Count    || 0);
+  });
   // Single pass capturing both total orders per branch AND callbacks per branch
   // (next 4 days). Estimates are excluded from the denominator.
   var totalsByBranch = {};
