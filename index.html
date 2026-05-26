@@ -1488,6 +1488,7 @@
     <button class="tab" data-view="techdetail">Tech</button>
     <button class="tab" data-view="orders">Forecast</button>
     <button class="tab" data-view="invoices">Production</button>
+    <button class="tab" data-view="setups">Setups</button>
     <button class="tab" data-view="summary">Summary</button>
   </nav>
   <div class="header-right">
@@ -1746,6 +1747,10 @@ var VIEW_DEFS = {
   // Summary view aggregates Invoices by branch + service class. Same date key
   // and lens semantics as the regular Invoices view.
   summary:  { source: 'invoices', dateKey: 'InvoiceDate', layout: 'summary' },
+  // Setups list view — every ServiceSetup from cache-setups.json. dateKey is
+  // StartDate. No period filter by default (shows all setups); user can apply
+  // one via the filter bar. Joe directive 2026-05-26.
+  setups:   { source: 'setups',   dateKey: 'StartDate' },
   // Tech view source depends on STATE.techMode (forecast = orders, completed = invoices).
   // dateKey resolved at render time.
   // 'tech'       = Dashboard tab (chartsGrid: hero strip + cards)
@@ -1797,6 +1802,8 @@ function wireTabs() {
         STATE.sort = { key: 'WorkDate', dir: 'desc' };
       } else if (STATE.view === 'invoices' || STATE.view === 'summary') {
         STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
+      } else if (STATE.view === 'setups') {
+        STATE.sort = { key: 'StartDate', dir: 'desc' };
       }
       // Tech + Dashboard views always need invoices (MTD completed column on master cards
       // + chartsGrid); Invoices and Summary need them too. 'techdetail' = Tech tab.
@@ -1842,7 +1849,7 @@ function applyViewVisibility_() {
   var summaryView = document.getElementById('summaryView');
   var techView = document.getElementById('techView');
   var techDetailView = document.getElementById('techDetailView');
-  if (tableCard)      tableCard.style.display      = (view === 'orders' || view === 'invoices') ? '' : 'none';
+  if (tableCard)      tableCard.style.display      = (view === 'orders' || view === 'invoices' || view === 'setups') ? '' : 'none';
   if (summaryView)    summaryView.style.display    = (view === 'summary') ? '' : 'none';
   if (techView)       techView.style.display       = (view === 'tech') ? '' : 'none';
   if (techDetailView) techDetailView.style.display = (view === 'techdetail') ? '' : 'none';
@@ -2368,6 +2375,38 @@ function getRecordsForView() {
   if (def.source === 'invoices') {
     return nonEstimateInvoices_();
   }
+  if (def.source === 'setups') {
+    // Setups list view — every ServiceSetup record from cache-setups.json,
+    // enriched at read time with the joined location's Code + CustomerName
+    // (cache-setups.json doesn't carry those fields; cache-locations.json does).
+    // Joe 2026-05-26.
+    if (!STATE.setupsCache) return [];
+    var setups = STATE.setupsCache.setups || [];
+    var locMap = STATE.locationsMap || {};
+    return setups.map(function(s) {
+      var loc = (s.LocationID != null) ? locMap[String(s.LocationID)] : null;
+      // Don't mutate the original record — write to a shallow copy
+      var out = {};
+      Object.keys(s).forEach(function(k) { out[k] = s[k]; });
+      if (loc) {
+        // Customer name: prefer Company, fall back to FirstName + LastName
+        var name = (loc.Company && loc.Company.trim())
+          ? loc.Company.trim()
+          : ((loc.FirstName || '') + ' ' + (loc.LastName || '')).trim();
+        out._LocCustomer = name || '';
+        out._LocCodeLink = loc.LocationCode
+          ? { text: loc.LocationCode, href: 'https://app.pestpac.com/location/edit.asp?Mode=Detail&LocationID=' + loc.LocationID }
+          : null;
+      } else {
+        out._LocCustomer = '';
+        out._LocCodeLink = null;
+      }
+      // For the Active column: surface a string instead of a raw bool
+      // (the text renderer handles strings; booleans render as 'true'/'false').
+      if (typeof out.Active === 'boolean') out.Active = out.Active ? 'Yes' : 'No';
+      return out;
+    });
+  }
   if (!STATE.rawCache) return [];
   // Service Orders = everything except Estimates. Production OrderType is folded
   // in — it's PestPac's auto-generated follow-up work on CG/NWL projects.
@@ -2612,7 +2651,9 @@ function render() {
   if (STATE.view === 'techdetail') return renderTechView_();
 
   var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.all;
-  var columns = (def.source === 'invoices') ? INVOICES_COLUMNS : SERVICE_ORDERS_COLUMNS;
+  var columns = (def.source === 'invoices') ? INVOICES_COLUMNS
+              : (def.source === 'setups')   ? SETUPS_COLUMNS
+              : SERVICE_ORDERS_COLUMNS;
   var defaultCols = columns.filter(function(c) { return c.default; });
 
   // Header
@@ -3496,13 +3537,25 @@ function renderTechView_() {
       renderPestTechLeaderboard_(byBranch, workingElapsedMtd, STATE.employeesMap) +
     '</div>';
 
-  // Hero Strip sits ABOVE the chartsGrid as its own banner row.
+  // Cat-Guard Installer Leaderboard — Cat-Guard installers ranked by MTD $.
+  // Mirrors Pest Tech Leaderboard structure. Two-tech CG jobs split 50/50
+  // (both installers worked on it). Filters to Cat-Guard ServiceClass set.
+  // Joe directive 2026-05-26.
+  var cardCatGuardLeaderboard =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">CAT-GUARD INSTALLER LEADERBOARD</h3>' +
+      '<div class="chart-meta">Cat-Guard installers ranked by MTD revenue · two-tech jobs split 50/50 · gold/silver/bronze top 3 · green ≥$3,500/install, yellow ≥$2,000, red <$2,000</div>' +
+      renderCatGuardLeaderboard_(workingElapsedMtd, dSom, dYest, STATE.employeesMap) +
+    '</div>';
+
   // Stack order: Forecast Totals → Completed vs Budget → Callbacks by Branch
-  //              → New Business → Rev/Tech → Pest Efficiency → Pest Tech Leaderboard.
+  //              → New Business → Rev/Tech → Pest Efficiency → Pest Tech
+  //              → Cat-Guard Installer Leaderboard.
   // Joe 2026-05-25: Callbacks moved above New Business so the "quality"
   // signal sits right next to "production" before "growth" further down.
+  // Joe 2026-05-26: Hero Strip (TODAY/TOMORROW/THIS MONTH/HOT QUEUE) removed
+  // from the top of the Dashboard view per directive.
   var chartsGrid =
-    heroStripHtml +
     '<div class="tech-charts-stack">' +
       cardForecastTotals +
       cardMtdProduction +
@@ -3511,6 +3564,7 @@ function renderTechView_() {
       cardRevPerTech +
       cardPestEfficiency +
       cardPestTechLeaderboard +
+      cardCatGuardLeaderboard +
     '</div>';
 
   // Master cards — one per company (Catseye + USX Pest), full-width
@@ -5931,6 +5985,155 @@ function renderPestTechLeaderboard_(byBranch, workingDays, employeesMap) {
     '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// renderCatGuardLeaderboard_
+//
+// Cat-Guard installer leaderboard, MTD. Mirrors renderPestTechLeaderboard_ in
+// shape (rank medals, color-tiered score, table layout) but filters to
+// Cat-Guard ServiceClass values and splits two-tech jobs 50/50.
+//
+// Scoring (color tiers on $/Install): CG installs are bigger-ticket than
+// recurring pest stops — typical jobs run $1.5K–$8K depending on scope. Tiers
+// calibrated accordingly.
+//   green  ≥ $3,500/install
+//   yellow ≥ $2,000/install
+//   red    <  $2,000/install
+//
+// Filtering rules:
+//   • InvoiceDate must fall in [dSom, dYest] (1st of month → yesterday)
+//   • ServiceClass must be in the Cat-Guard set (see CG_INSTALLER_CLASSES)
+//   • Tech1 must be present and not a manager / non-tech code
+//   • Tech2 dropped if non-tech code or duplicate of Tech1
+//   • Two-tech invoices split SubTotal 50/50 between Tech1 and Tech2,
+//     each gets +1 install
+// ─────────────────────────────────────────────────────────────────────────────
+var CG_INSTALLER_CLASSES = (function() {
+  // Case-normalized set of ServiceClass values that count as Cat-Guard install
+  // work. Drawn from observed data + the CG_CLASSES + CG_PATTERN_CLASSES sets
+  // in config.js. Joe 2026-05-26 — verify when first run and tune if needed.
+  var raw = [
+    'CATGUARD', 'CAT-GUARD', 'CG WARRANT',
+    'PG CG', 'PG CG PRE', 'PG CG INIT'
+  ];
+  var s = {};
+  raw.forEach(function(x) { s[x.toUpperCase()] = true; });
+  return s;
+})();
+
+function renderCatGuardLeaderboard_(workingDays, dSom, dYest, employeesMap) {
+  // Pull the invoice array via the same lens the Tech view uses.
+  // productionInvoices_() returns the PRODUCTION lens (IN+PR+CM+CB only),
+  // excluding PI auto-bills — same baseline as Pest Tech Leaderboard.
+  var invoices = (typeof productionInvoices_ === 'function')
+    ? productionInvoices_()
+    : (STATE.invoices || []);
+
+  // Reuse manager + non-tech filters from the Pest Tech path. dynamicMgrSet is
+  // built upstream in renderTechView_; if absent (defensive), fall back to a
+  // permissive check.
+  function isMgr_(code) {
+    if (!code) return false;
+    var c = String(code).toUpperCase();
+    if (typeof isManagerCode === 'function' && isManagerCode(c)) return true;
+    if (typeof dynamicMgrSet !== 'undefined' && dynamicMgrSet.has) return dynamicMgrSet.has(c);
+    return false;
+  }
+  function isNon_(code) {
+    if (!code) return true;
+    return (typeof isNonTechCode === 'function') ? isNonTechCode(code) : false;
+  }
+
+  // techCode → { installs, revenue, branchVotes }
+  var techRows = {};
+  function bumpTech_(code, dollars, branch) {
+    if (!techRows[code]) techRows[code] = { installs: 0, revenue: 0, branchVotes: {} };
+    techRows[code].installs += 1;
+    techRows[code].revenue += dollars;
+    if (branch) techRows[code].branchVotes[branch] = (techRows[code].branchVotes[branch] || 0) + 1;
+  }
+
+  invoices.forEach(function(inv) {
+    var sc = String(inv.ServiceClass || '').toUpperCase().trim();
+    if (!CG_INSTALLER_CLASSES[sc]) return;
+    var date = String(inv.InvoiceDate || '').substring(0, 10);
+    if (date < dSom || date > dYest) return;
+
+    var amount = Number(inv.SubTotal) || 0;
+    if (amount <= 0) return;
+
+    var tech1 = inv.Tech ? String(inv.Tech).toUpperCase() : null;
+    var tech2 = inv.Tech2 ? String(inv.Tech2).toUpperCase() : null;
+
+    if (!tech1 || isMgr_(tech1) || isNon_(tech1)) return;
+    if (tech2 && (isNon_(tech2) || tech2 === tech1)) tech2 = null;
+    // Don't suppress tech2 just because they're a manager — installs are
+    // installs. (If you want to exclude managers from CG too, add isMgr_ here.)
+
+    if (tech2) {
+      bumpTech_(tech1, amount / 2, inv.Branch);
+      bumpTech_(tech2, amount / 2, inv.Branch);
+    } else {
+      bumpTech_(tech1, amount, inv.Branch);
+    }
+  });
+
+  // Flatten + derive per-tech metrics
+  var rows = Object.keys(techRows).map(function(code) {
+    var r = techRows[code];
+    var branch = '';
+    var topVotes = 0;
+    Object.keys(r.branchVotes).forEach(function(b) {
+      if (r.branchVotes[b] > topVotes) { branch = b; topVotes = r.branchVotes[b]; }
+    });
+    return {
+      code: code,
+      branch: branch,
+      installs: r.installs,
+      revenue: r.revenue,
+      perInstall: r.installs > 0 ? r.revenue / r.installs : 0,
+      perDay: workingDays > 0 ? r.revenue / workingDays : 0
+    };
+  });
+
+  if (rows.length === 0) {
+    return '<div class="nb-empty">No Cat-Guard installer activity MTD</div>';
+  }
+
+  rows.sort(function(a, b) { return b.revenue - a.revenue; });
+
+  function nameLookup(code) {
+    if (!employeesMap || !code) return code;
+    var emp = employeesMap[String(code).toUpperCase()];
+    if (!emp) return code;
+    var nm = (emp.FullName || ((emp.LastName || '') + ', ' + (emp.FirstName || ''))).trim();
+    return nm.replace(/^,\s*/, '').replace(/,\s*$/, '') || code;
+  }
+
+  function scoreClass_(perInstall) {
+    if (perInstall >= 3500) return 'ptlb-perday-good';
+    if (perInstall >= 2000) return 'ptlb-perday-mid';
+    return 'ptlb-perday-bad';
+  }
+
+  var bodyRows = rows.map(function(r, i) {
+    var rank = i + 1;
+    var medalCls = rank === 1 ? 'medal-1' : rank === 2 ? 'medal-2' : rank === 3 ? 'medal-3' : '';
+    var brandPill = (typeof renderBranchChip === 'function') ? renderBranchChip(r.branch) : escapeHtml(r.branch);
+    return '<tr>' +
+      '<td><span class="ptlb-rank ' + medalCls + '">' + rank + '</span> ' + escapeHtml(nameLookup(r.code)) + ' <span style="color:var(--text-dim);font-size:10px;">(' + escapeHtml(r.code) + ')</span></td>' +
+      '<td>' + brandPill + '</td>' +
+      '<td class="num">' + r.installs.toLocaleString() + '</td>' +
+      '<td class="num"><span class="' + scoreClass_(r.perInstall) + '">$' + Math.round(r.perInstall).toLocaleString() + '</span></td>' +
+      '<td class="num">$' + Math.round(r.perDay).toLocaleString() + '</td>' +
+      '<td class="num">$' + Math.round(r.revenue).toLocaleString() + '</td>' +
+    '</tr>';
+  }).join('');
+
+  return '<table class="ptlb-table"><thead><tr>' +
+    '<th>Installer</th><th>Branch</th><th class="num">Installs</th><th class="num">$/Install</th><th class="num">$/Day</th><th class="num">MTD $</th>' +
+    '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
+}
+
 function renderForecastKpiCards_(fcTotals, dateLabel, neededPerDay) {
   var max = Math.max(fcTotals.today, fcTotals.tmrw, fcTotals.d2, fcTotals.d3, 1);
   var needed = Number(neededPerDay) || 0;
@@ -6166,7 +6369,9 @@ function populateFilterOptions() {
 
 /* ── CSV export ───────────────────────────────────────────────── */
 function exportCsv() {
-  var columns = (STATE.view === 'orders') ? SERVICE_ORDERS_COLUMNS : INVOICES_COLUMNS;
+  var columns = (STATE.view === 'orders') ? SERVICE_ORDERS_COLUMNS
+              : (STATE.view === 'setups') ? SETUPS_COLUMNS
+              : INVOICES_COLUMNS;
   var defaultCols = columns.filter(function(c) { return c.default; });
   var rows = applySort(applyFilters(getRecordsForView(), defaultCols));
   var header = defaultCols.map(function(c) { return '"' + c.label + '"'; }).join(',');

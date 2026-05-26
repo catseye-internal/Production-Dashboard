@@ -173,6 +173,43 @@ const INVOICES_COLUMNS = [
   { key: 'LocationID',         label: 'Loc ID (raw)',  type: 'number',         sortable: true, default: false },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SETUPS_COLUMNS — drives the Setups list view (Joe 2026-05-26).
+//
+// Data source: cache-setups.json (loaded via loadSetupsCache → STATE.setupsCache).
+// Each row is a single ServiceSetup record. Customer name + Loc # are derived
+// at render time by joining LocationID → STATE.locationsMap (cache-locations.json).
+// ─────────────────────────────────────────────────────────────────────────────
+const SETUPS_COLUMNS = [
+  { key: 'StartDate',              label: 'Start',          type: 'date',           sortable: true, default: true,  width: 90 },
+  { key: 'Branch',                 label: 'Branch',         type: 'branch',         sortable: true, default: true,  width: 75 },
+  { key: '_LocCodeLink',           label: 'Loc #',          type: 'pp-loc-link',    sortable: true, default: true,  width: 70 },
+  { key: '_LocCustomer',           label: 'Customer',       type: 'text-truncate',  sortable: true, default: true,  width: 150 },
+  { key: 'ServiceCode',            label: 'Service',        type: 'text',           sortable: true, default: true,  width: 110 },
+  { key: 'Description',            label: 'Description',    type: 'text-truncate',  sortable: true, default: true,  width: 180 },
+  { key: 'SalesBy',                label: 'Sales By',       type: 'text',           sortable: true, default: true,  width: 75 },
+  { key: 'Total',                  label: 'Initial $',      type: 'money',          sortable: true, default: true,  width: 80 },
+  { key: 'AnnualValue',            label: 'Annual $',       type: 'money',          sortable: true, default: true,  width: 80 },
+  { key: 'BillingAmount',          label: 'Billing $',      type: 'money',          sortable: true, default: true,  width: 80 },
+  { key: 'FrequencyDescription',   label: 'Frequency',      type: 'text',           sortable: true, default: true,  width: 110 },
+  { key: 'Active',                 label: 'Active',         type: 'text',           sortable: true, default: true,  width: 60 },
+  { key: 'CancelDate',             label: 'Cancel Date',    type: 'date',           sortable: true, default: true,  width: 95 },
+  { key: 'CancelReason',           label: 'Cancel Reason',  type: 'text-truncate',  sortable: true, default: true,  width: 150 },
+  // Non-default
+  { key: 'SetupID',                label: 'Setup ID',       type: 'number',         sortable: true, default: false },
+  { key: 'AddDate',                label: 'Created',        type: 'date',           sortable: true, default: false },
+  { key: 'EnteredBy',              label: 'Entered By',     type: 'text',           sortable: true, default: false },
+  { key: 'Source',                 label: 'Source',         type: 'text',           sortable: true, default: false },
+  { key: 'FirstYearValue',         label: 'First-Year $',   type: 'money',          sortable: true, default: false },
+  { key: 'Route',                  label: 'Route',          type: 'text',           sortable: true, default: false },
+  { key: 'AutoBill',               label: 'Auto-Bill',      type: 'text',           sortable: true, default: false },
+  { key: 'BillingFrequencyDescription', label: 'Billing Freq', type: 'text',        sortable: true, default: false },
+  { key: 'BillingSchedule',        label: 'Billing Schedule', type: 'text',         sortable: true, default: false },
+  { key: 'ExpirationDate',         label: 'Expires',        type: 'date',           sortable: true, default: false },
+  { key: 'RenewalDate',            label: 'Renews',         type: 'date',           sortable: true, default: false },
+  { key: 'LocationID',             label: 'Loc ID (raw)',   type: 'number',         sortable: true, default: false },
+];
+
 // ── Division classification (Pest vs CG vs NWL, Resi vs Commercial) ──
 // Per Joe 2026-05-20.
 //

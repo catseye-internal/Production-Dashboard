@@ -930,6 +930,24 @@ function refreshSetupsCacheImpl_(forceFull) {
     Object.keys(existingMap).forEach(function(k) { allSetups.push(existingMap[k]); });
     allSetups.sort(function(a, b) { return Number(a.SetupID) - Number(b.SetupID); });
 
+    // ─── Safety guard (added 2026-05-26 after the 03:44 ET data-loss event) ───
+    // Refuse to write a dramatically smaller file than what was on disk. This
+    // catches edge cases where readSetupsCache_ would have returned a partial
+    // result (network blip, GitHub Pages 5xx, etc.) and we'd otherwise destroy
+    // the bootstrap-built historical setups. Threshold: if existing > 5K and
+    // new < 50% of existing, abort. Use rebuildSetupsCache() for intentional
+    // full rebuilds — that path sets forceFull=true and bypasses this guard.
+    var existingCount = (existing.setups || []).length;
+    var newCount = allSetups.length;
+    if (!forceFull && existingCount > 5000 && newCount < existingCount * 0.5) {
+      Logger.log('🛑 SAFETY ABORT: would shrink cache-setups.json from ' +
+                 existingCount.toLocaleString() + ' to ' + newCount.toLocaleString() +
+                 ' records (' + Math.round(newCount * 100 / existingCount) + '%). ' +
+                 'Likely cause: readSetupsCache_ returned a partial result or this trigger fired during a Pages rebuild. ' +
+                 'NOT writing. To force-rebuild intentionally, run rebuildSetupsCache() instead.');
+      return;
+    }
+
     var cache = {
       updated: new Date().toISOString(),
       recordCount: allSetups.length,
@@ -1195,17 +1213,45 @@ function curateInvoiceForBackfill_(rec) {
 }
 const GH_PATH_INVOICES_FOR_BACKFILL = 'cache-invoices.json';
 
+// readSetupsCache_ — fetch cache-setups.json from GitHub Pages.
+//
+// HISTORY: This used to silently return `{ setups: [] }` on any non-200 or
+// parse error. That caused a catastrophic data loss on 2026-05-26 03:44 ET:
+// GitHub Pages briefly failed to serve the file (likely during a Pages
+// rebuild after the 34MB bootstrap push), this function returned empty, and
+// `refreshSetupsCacheImpl_` then wrote a fresh 1,806-record file that
+// clobbered the bootstrap's 49,310 historical setups. Recovery required
+// restoring from git history.
+//
+// New contract: 3 attempts with exponential backoff. If all attempts fail,
+// throw. Callers must handle the throw — silently writing on bad reads is
+// what caused the prior outage.
 function readSetupsCache_() {
-  try {
-    var resp = UrlFetchApp.fetch(
-      'https://catseye-internal.github.io/Production-Dashboard/cache-setups.json',
-      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
-    );
-    if (resp.getResponseCode() !== 200) return { setups: [] };
-    return JSON.parse(resp.getContentText());
-  } catch (e) {
-    return { setups: [] };
+  var lastError = null;
+  var MAX_ATTEMPTS = 3;
+  for (var attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      var resp = UrlFetchApp.fetch(
+        'https://catseye-internal.github.io/Production-Dashboard/cache-setups.json',
+        { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+      );
+      var code = resp.getResponseCode();
+      if (code === 200) {
+        var parsed = JSON.parse(resp.getContentText());
+        if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.setups)) {
+          throw new Error('cache-setups.json parsed but shape is wrong (no .setups array)');
+        }
+        return parsed;
+      }
+      lastError = 'HTTP ' + code;
+      Logger.log('  ⚠️ readSetupsCache_ attempt ' + attempt + '/' + MAX_ATTEMPTS + ': ' + lastError);
+    } catch (e) {
+      lastError = e.message;
+      Logger.log('  ⚠️ readSetupsCache_ attempt ' + attempt + '/' + MAX_ATTEMPTS + ': ' + e.message);
+    }
+    if (attempt < MAX_ATTEMPTS) Utilities.sleep(2000 * attempt);  // 2s, 4s
   }
+  throw new Error('readSetupsCache_ failed after ' + MAX_ATTEMPTS + ' attempts. Last error: ' + lastError);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2104,11 +2150,18 @@ var BRT_MISSING_KEY    = 'brtMissingIds';     // serialized uncovered list
 var BRT_EMPTY_KEY      = 'brtKnownEmptyIds';  // serialized confirmed-empty list
 
 function bootstrapRetryUncoveredLocations() {
-  return _brtImpl_(false);
+  return _brtImpl_(false, false);
 }
 
 function bootstrapRetryUncoveredLocationsResume() {
-  return _brtImpl_(true);
+  return _brtImpl_(true, false);
+}
+
+// Override variant — bypasses the workday quota guard. Use ONLY if you've
+// confirmed the URLfetch quota has plenty of headroom for the day.
+// Safer alternative: just wait until after midnight Pacific (3 AM ET).
+function bootstrapRetryUncoveredLocationsForce() {
+  return _brtImpl_(false, true);
 }
 
 function clearBootstrapRetryState() {
@@ -2126,11 +2179,35 @@ function clearKnownEmptyLocations() {
   Logger.log('knownEmpty list cleared. Next retry pass will re-confirm empty locations.');
 }
 
-function _brtImpl_(resume) {
+function _brtImpl_(resume, forceOverride) {
   var t0 = new Date();
   var props = PropertiesService.getScriptProperties();
+
+  // ─── Quota safety guard (added 2026-05-26) ───
+  // This retry burns ~50K URLfetch calls in a full run, which is half the
+  // 100K daily Workspace quota. Running during the workday starves the
+  // 10-min refreshCache + webhook handlers, freezing the dashboard. Window
+  // is midnight–5 AM Pacific (= 3 AM–8 AM ET), AFTER the daily quota reset
+  // and BEFORE the workday's normal traffic ramps up.
+  if (!forceOverride) {
+    var hourPT = parseInt(Utilities.formatDate(t0, 'America/Los_Angeles', 'HH'), 10);
+    if (hourPT >= 5) {
+      Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      Logger.log('🚫 REFUSING TO START — currently hour ' + hourPT + ' Pacific Time.');
+      Logger.log('   The bootstrap retry must run between midnight and 5 AM Pacific');
+      Logger.log('   (= 3 AM to 8 AM Eastern) to avoid burning URLfetch quota during');
+      Logger.log('   the workday. Options:');
+      Logger.log('   1. Wait until after midnight Pacific (3 AM ET) and run again.');
+      Logger.log('   2. Set up a time-based trigger for 4 AM Pacific (7 AM ET).');
+      Logger.log('   3. Run bootstrapRetryUncoveredLocationsForce() ONLY if you have');
+      Logger.log('      verified URLfetch quota headroom for the day.');
+      Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      return;
+    }
+  }
+
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  Logger.log('🔁 Retry uncovered locations' + (resume ? ' — RESUMING' : ' — fresh start') + ' — ' + t0.toISOString());
+  Logger.log('🔁 Retry uncovered locations' + (resume ? ' — RESUMING' : ' — fresh start') + (forceOverride ? ' — FORCE OVERRIDE' : '') + ' — ' + t0.toISOString());
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   var token = ppToken_();
