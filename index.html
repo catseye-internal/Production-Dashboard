@@ -3606,14 +3606,21 @@ function renderTechView_() {
     var d = new Date(todayD); d.setDate(d.getDate() + n);
     return fmtDate(d);
   }
-  // Yesterday — skip Sundays. If yesterday was Sunday (today=Monday), look
-  // back to Saturday instead. Catseye dispatches Mon-Sat so Sundays produce
-  // no invoices and would always show $0. Joe directive 2026-05-26.
+  // "Previous production day" — walk backwards from today until we find a
+  // day Catseye actually dispatches. Sundays are closed (skip). US federal
+  // holidays are closed (skip). Saturdays count as production days (bonus,
+  // but the team is in the field most weekends). Joe directive 2026-05-26:
+  // on the Tuesday after Memorial Day, this should look past Mon-holiday +
+  // Sun-closed back to Saturday rather than show $0 on Monday.
   function lastWorkdayOffset_() {
-    var dow = todayD.getDay();   // 0=Sun, 1=Mon, ..., 6=Sat
-    if (dow === 1) return -2;    // Today=Mon → yesterday=Sun → skip to Sat
-    if (dow === 0) return -1;    // Today=Sun → yesterday=Sat → show Sat
-    return -1;                   // Any other day → show real yesterday
+    for (var n = -1; n >= -14; n--) {
+      var d = new Date(todayD);
+      d.setDate(d.getDate() + n);
+      if (d.getDay() === 0) continue;   // Sunday → skip
+      if (isUsHoliday_(d)) continue;     // Federal holiday → skip
+      return n;
+    }
+    return -1; // fallback (shouldn't hit — 2-week walkback always finds one)
   }
   // US federal holidays the company is closed for. Returns the holiday name
   // if the given Date is one, else null. Catseye runs Mon-Sat dispatch and
@@ -6841,10 +6848,14 @@ function renderHeroStrip_(ctx) {
            '</div>';
   }
 
-  // Label resolution — use fcDateLabel function if provided
-  // Yesterday's offset is workday-aware: -2 on Mondays (skip Sunday) else -1
+  // Label resolution — use fcDateLabel function if provided.
+  // Offset is "previous production day" aware: -1 most days, -2 on Mondays
+  // (skip Sun), -3+ when there's a holiday Monday + Sunday + Saturday landing.
+  // When we look back further than 1 day, swap "YESTERDAY" → "PREV PROD" so
+  // the label honestly reflects what's shown. Joe directive 2026-05-26.
   var ydayOffset = (typeof ctx.fcYesterdayOffset === 'number') ? ctx.fcYesterdayOffset : -1;
-  var ydayLbl  = (typeof ctx.fcDateLabel === 'function') ? ('YESTERDAY · ' + ctx.fcDateLabel(ydayOffset)) : 'YESTERDAY';
+  var ydayPrefix = (ydayOffset === -1) ? 'YESTERDAY' : 'PREV PROD';
+  var ydayLbl  = (typeof ctx.fcDateLabel === 'function') ? (ydayPrefix + ' · ' + ctx.fcDateLabel(ydayOffset)) : ydayPrefix;
   var todayLbl = (typeof ctx.fcDateLabel === 'function') ? ('TODAY · ' + ctx.fcDateLabel(0)) : 'TODAY';
   var tmrwLbl  = (typeof ctx.fcDateLabel === 'function') ? ('TOMORROW · ' + ctx.fcDateLabel(1)) : 'TOMORROW';
 
