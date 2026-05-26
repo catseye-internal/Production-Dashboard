@@ -560,6 +560,19 @@
   .tech-charts-stack > .chart-card .chart-title {
     font-size: 14px; letter-spacing: 1.1px; margin-bottom: 14px;
   }
+  /* Mobile: tighten chart-card padding + allow horizontal scroll for any
+     wide leaderboard tables. Joe directive 2026-05-26. */
+  @media (max-width: 700px) {
+    .tech-charts-stack { gap: 14px; }
+    .tech-charts-stack > .chart-card { padding: 14px 14px; }
+    .tech-charts-stack > .chart-card .chart-title {
+      font-size: 12px; margin-bottom: 10px;
+    }
+    .tech-charts-stack > .chart-card .ptlb-table { font-size: 12px; }
+    .tech-charts-stack > .chart-card .ptlb-table th { font-size: 10px; padding: 6px 6px; }
+    .tech-charts-stack > .chart-card .ptlb-table td { padding: 7px 6px; }
+    .tech-charts-stack > .chart-card .ptlb-table td.num { font-size: 13px; }
+  }
 
   /* ══════════════════════════════════════════════════════════════
      CANCELS VIEW — dashboard-style scope cards (Joe redesign 2026-05-26)
@@ -590,6 +603,15 @@
     border-radius: 12px;
     padding: 18px 22px;
     margin-bottom: 14px;
+  }
+  @media (max-width: 700px) {
+    .cx-scope-card { padding: 14px 14px; margin-bottom: 10px; }
+    .cx-scope-header { gap: 8px; margin-bottom: 10px; }
+    .cx-scope-label { font-size: 13px; letter-spacing: 0.6px; }
+    .cx-scope-count { font-size: 18px; }
+    .cx-scope-arr { font-size: 15px; }
+    .cx-hero-row { gap: 10px; margin-bottom: 14px; }
+    .cx-section { margin-bottom: 14px; }
   }
   .cx-scope-combined { border-left-color: #A78BFA; }    /* purple — neutral combined */
   .cx-scope-catseye  { border-left-color: #F47B20; }    /* orange — Catseye brand */
@@ -666,11 +688,21 @@
     display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
     margin-top: 8px;
   }
+  /* 2-card variant — used for USX (only 2 branches). Cards stay the same
+     width as a 3-col card and center horizontally. Joe 2026-05-26. */
+  .cx-branch-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, calc((100% - 24px) / 3)));
+    justify-content: center;
+  }
   @media (max-width: 1100px) {
     .cx-branch-grid { grid-template-columns: 1fr 1fr; }
+    .cx-branch-grid-2 {
+      grid-template-columns: repeat(2, minmax(0, calc((100% - 12px) / 2)));
+    }
   }
   @media (max-width: 700px) {
     .cx-branch-grid { grid-template-columns: 1fr; }
+    .cx-branch-grid-2 { grid-template-columns: 1fr; }
   }
 
   /* T2: Leaderboard "Show all" expand toggle */
@@ -866,9 +898,21 @@
     .hero-ctx-row { grid-template-columns: repeat(3, 1fr); }
   }
   @media (max-width: 700px) {
-    .hero-v2-row { grid-template-columns: 1fr; }
-    .hero-v2-value { font-size: 40px; }
+    .hero-v2-row { grid-template-columns: 1fr; gap: 10px; margin-bottom: 8px; }
+    .hero-v2-card { padding: 14px 16px 16px; min-height: 120px; }
+    .hero-v2-value { font-size: 42px; letter-spacing: -1px; }
+    .hero-v2-label { font-size: 10px; letter-spacing: 0.8px; }
+    .hero-v2-meta { font-size: 12px; }
+    .hero-v2-hint { font-size: 11px; }
+    .hero-ctx-row { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .hero-ctx-card { padding: 10px 12px; min-height: 72px; }
+    .hero-ctx-value { font-size: 20px; }
+  }
+  @media (max-width: 400px) {
+    .hero-v2-value { font-size: 36px; }
+    .hero-v2-card { padding: 12px 14px 14px; min-height: 108px; }
     .hero-ctx-row { grid-template-columns: 1fr 1fr; }
+    .hero-ctx-value { font-size: 18px; }
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -3434,7 +3478,7 @@ function renderCancelsCards_() {
     '</div>' +
     '<div class="cx-section">' +
       usxCard +
-      '<div class="cx-branch-grid">' + usxBranchCards + '</div>' +
+      '<div class="cx-branch-grid cx-branch-grid-2">' + usxBranchCards + '</div>' +
     '</div>';
 }
 
@@ -6360,7 +6404,7 @@ function renderHeroStrip_(ctx) {
     if (ratio >= 1.10) return 'ahead by ' + Math.round((ratio - 1) * 100) + '%';
     if (ratio >= 1.00) return 'on pace';
     if (ratio >= 0.85) return 'push to close gap';
-    return 'dispatch more today';
+    return 'dispatch more';
   }
 
   function buildHeroCard_(opts) {
