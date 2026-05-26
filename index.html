@@ -562,74 +562,109 @@
   }
 
   /* ══════════════════════════════════════════════════════════════
-     CANCELS VIEW — breakdown cards
+     CANCELS VIEW — dashboard-style scope cards (Joe redesign 2026-05-26)
+     Layout: hero strip (3 cards) + Combined scope card + Catseye scope
+     card (large) followed by its branch scope cards (small), same for USX.
+     Each scope card shows class + reason mini-tables side-by-side.
      ══════════════════════════════════════════════════════════════ */
-  .cancels-hero-row {
-    display: grid; grid-template-columns: 1fr 1fr;
+  .cx-hero-row {
+    display: grid; grid-template-columns: repeat(3, 1fr);
     gap: 16px; margin-bottom: 24px;
   }
-  @media (max-width: 700px) {
-    .cancels-hero-row { grid-template-columns: 1fr; }
+  @media (max-width: 900px) {
+    .cx-hero-row { grid-template-columns: 1fr; }
   }
-  /* By Company side-by-side */
-  .cancels-co-row {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
-  }
-  .cancels-co-card {
-    background: var(--bg-table-row);
+  .cx-section { margin-bottom: 24px; }
+
+  /* Scope card — the main dashboard-style unit */
+  .cx-scope-card {
+    background: var(--bg-card);
     border: 1px solid var(--border);
     border-left: 4px solid rgba(255,255,255,0.10);
-    border-radius: 10px; padding: 16px 20px;
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
   }
-  .cancels-co-catseye { border-left-color: #F47B20; }
-  .cancels-co-usx     { border-left-color: #60A5FA; }
-  .cancels-co-label {
-    font-size: 11px; font-weight: 700; letter-spacing: 1.0px;
-    text-transform: uppercase; color: var(--text-dim);
-    margin-bottom: 12px;
+  .cx-scope-combined { border-left-color: #A78BFA; }    /* purple — neutral combined */
+  .cx-scope-catseye  { border-left-color: #F47B20; }    /* orange — Catseye brand */
+  .cx-scope-usx      { border-left-color: #60A5FA; }    /* blue — USX brand */
+
+  .cx-scope-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 16px; flex-wrap: wrap; margin-bottom: 14px;
   }
-  .cancels-co-catseye .cancels-co-label { color: #F47B20; }
-  .cancels-co-usx     .cancels-co-label { color: #60A5FA; }
-  .cancels-co-stats {
-    display: flex; gap: 28px;
+  .cx-scope-label {
+    font-size: 16px; font-weight: 800; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--text);
   }
-  .cancels-co-stat-val {
-    font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums;
-    line-height: 1.0; letter-spacing: -0.5px; color: var(--text);
+  .cx-scope-combined .cx-scope-label { color: #A78BFA; }
+  .cx-scope-catseye  .cx-scope-label { color: #F47B20; }
+  .cx-scope-usx      .cx-scope-label { color: #60A5FA; }
+  .cx-scope-totals {
+    font-size: 13px; color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
   }
-  .cancels-co-stat-lbl {
-    font-size: 10px; color: var(--text-dim); margin-top: 4px;
-    text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600;
+  .cx-scope-count {
+    font-size: 22px; font-weight: 800; color: var(--text);
+    margin-right: 2px;
   }
-  /* By Branch row — 5 cards */
-  .cancels-br-row {
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+  .cx-scope-arr {
+    font-size: 18px; font-weight: 700; color: #F87171;
   }
-  @media (max-width: 1000px) {
-    .cancels-br-row { grid-template-columns: repeat(3, 1fr); }
+
+  /* Mini-tables side-by-side inside a scope card */
+  .cx-scope-tables {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
   }
   @media (max-width: 700px) {
-    .cancels-br-row { grid-template-columns: 1fr 1fr; }
+    .cx-scope-tables { grid-template-columns: 1fr; }
   }
-  .cancels-br-card {
-    background: var(--bg-table-row);
-    border: 1px solid var(--border);
-    border-left: 3px solid rgba(255,255,255,0.10);
-    border-radius: 8px; padding: 12px 14px;
+  .cx-mini-block { }
+  .cx-mini-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px;
   }
-  .cancels-br-catseye { border-left-color: #F47B20; }
-  .cancels-br-usx     { border-left-color: #60A5FA; }
-  .cancels-br-label {
-    font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
-    text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;
+  .cx-mini-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 12px; font-variant-numeric: tabular-nums;
   }
-  .cancels-br-count {
-    font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums;
-    color: var(--text); line-height: 1.0;
+  .cx-mini-table th {
+    text-align: left; padding: 6px 6px; color: var(--text-dim);
+    font-weight: 700; font-size: 10px; letter-spacing: 0.4px;
+    border-bottom: 1px solid var(--border);
   }
-  .cancels-br-arr {
-    font-size: 11px; color: var(--text-dim); margin-top: 4px;
-    font-variant-numeric: tabular-nums;
+  .cx-mini-table th.num { text-align: right; }
+  .cx-mini-table td { padding: 5px 6px; }
+  .cx-mini-table td.num { text-align: right; }
+  .cx-mini-table tbody tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+  .cx-mini-key { color: var(--text); font-weight: 600; }
+  .cx-mini-count { color: var(--text); font-weight: 700; }
+  .cx-mini-pct { color: var(--text-dim); font-size: 10px; }
+  .cx-mini-arr { color: #F87171; font-weight: 700; }
+  .cx-mini-empty {
+    text-align: center; padding: 16px; color: var(--text-dim);
+    font-size: 11px; font-style: italic;
+  }
+
+  /* Small variant — used for branch cards under each company section */
+  .cx-scope-sm { padding: 14px 16px; }
+  .cx-scope-sm .cx-scope-label { font-size: 13px; letter-spacing: 0.6px; }
+  .cx-scope-sm .cx-scope-count { font-size: 18px; }
+  .cx-scope-sm .cx-scope-arr   { font-size: 15px; }
+  .cx-scope-sm .cx-scope-tables { gap: 14px; }
+  .cx-scope-sm .cx-mini-title { font-size: 9px; margin-bottom: 4px; }
+  .cx-scope-sm .cx-mini-table { font-size: 11px; }
+
+  /* Branch cards grid — under each company section */
+  .cx-branch-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+    margin-top: 8px;
+  }
+  @media (max-width: 1100px) {
+    .cx-branch-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 700px) {
+    .cx-branch-grid { grid-template-columns: 1fr; }
   }
 
   /* T2: Leaderboard "Show all" expand toggle */
@@ -3216,44 +3251,6 @@ function renderCancelsCards_() {
     return dateInPeriod(r.CancelDate, range);
   });
 
-  // ── Aggregations ──
-  var totalCount = filtered.length;
-  var totalArr   = filtered.reduce(function(s, r) { return s + (Number(r.AnnualValue) || 0); }, 0);
-
-  // By Company
-  var company = {
-    catseye: { count: 0, arr: 0 },
-    usx:     { count: 0, arr: 0 }
-  };
-  // By Branch
-  var byBranch = {};
-  // By Service Class
-  var byClass = {};
-  // By Reason
-  var byReason = {};
-
-  filtered.forEach(function(r) {
-    var branch = r.Branch || '(no branch)';
-    var co = isUsxBranch(branch) ? 'usx' : 'catseye';
-    var arr = Number(r.AnnualValue) || 0;
-    company[co].count++;
-    company[co].arr += arr;
-
-    if (!byBranch[branch]) byBranch[branch] = { count: 0, arr: 0 };
-    byBranch[branch].count++;
-    byBranch[branch].arr += arr;
-
-    var cls = (r._ServiceClass || '(unknown)').toUpperCase();
-    if (!byClass[cls]) byClass[cls] = { count: 0, arr: 0 };
-    byClass[cls].count++;
-    byClass[cls].arr += arr;
-
-    var reason = (r.CancelReason || '(no reason)').toUpperCase().trim() || '(no reason)';
-    if (!byReason[reason]) byReason[reason] = { count: 0, arr: 0 };
-    byReason[reason].count++;
-    byReason[reason].arr += arr;
-  });
-
   // ── Helpers ──
   function fmtMoney(n) {
     n = Math.round(n || 0);
@@ -3263,10 +3260,88 @@ function renderCancelsCards_() {
   }
   function escHtml(s) { return (typeof escapeHtml === 'function') ? escapeHtml(String(s || '')) : String(s || ''); }
 
-  // ── Hero strip — 3 cards (TOTAL CANCELS, ARR LOST, AVG PER CANCEL) ──
-  var avgArr = totalCount > 0 ? totalArr / totalCount : 0;
+  // Aggregate a list of cancel records by a key function. Returns sorted-by-count
+  // array of { key, count, arr } objects, capped at limit.
+  function aggregate_(list, keyFn, limit) {
+    var bucket = {};
+    list.forEach(function(r) {
+      var k = keyFn(r) || '(unknown)';
+      if (!bucket[k]) bucket[k] = { key: k, count: 0, arr: 0 };
+      bucket[k].count++;
+      bucket[k].arr += (Number(r.AnnualValue) || 0);
+    });
+    var arr = Object.keys(bucket).map(function(k) { return bucket[k]; });
+    arr.sort(function(a, b) { return b.count - a.count; });
+    return limit ? arr.slice(0, limit) : arr;
+  }
+
+  // Mini-table renderer used inside scope cards
+  function miniTable_(rows, labelCol, totalCount) {
+    if (rows.length === 0) {
+      return '<div class="cx-mini-empty">No data</div>';
+    }
+    var body = rows.map(function(r) {
+      var pct = totalCount > 0 ? (r.count / totalCount * 100).toFixed(1) : '0.0';
+      return '<tr>' +
+               '<td class="cx-mini-key">' + escHtml(r.key) + '</td>' +
+               '<td class="num cx-mini-count">' + r.count + '</td>' +
+               '<td class="num cx-mini-pct">' + pct + '%</td>' +
+               '<td class="num cx-mini-arr">' + fmtMoney(r.arr) + '</td>' +
+             '</tr>';
+    }).join('');
+    return '<table class="cx-mini-table">' +
+             '<thead><tr>' +
+               '<th>' + escHtml(labelCol) + '</th>' +
+               '<th class="num">#</th>' +
+               '<th class="num">%</th>' +
+               '<th class="num">ARR</th>' +
+             '</tr></thead>' +
+             '<tbody>' + body + '</tbody>' +
+           '</table>';
+  }
+
+  // Build one scope card with class + reason mini-tables side by side
+  function scopeCard_(label, brandCls, scopeList, size) {
+    var count = scopeList.length;
+    var arr = scopeList.reduce(function(s, r) { return s + (Number(r.AnnualValue) || 0); }, 0);
+    var classes = aggregate_(scopeList, function(r) { return (r._ServiceClass || '(unknown)').toUpperCase(); }, 8);
+    var reasons = aggregate_(scopeList, function(r) {
+      var rs = (r.CancelReason || '').toUpperCase().trim();
+      return rs || '(no reason)';
+    }, 8);
+    var sizeCls = (size === 'sm') ? ' cx-scope-sm' : '';
+    return '<div class="cx-scope-card ' + brandCls + sizeCls + '">' +
+             '<div class="cx-scope-header">' +
+               '<div class="cx-scope-label">' + escHtml(label) + '</div>' +
+               '<div class="cx-scope-totals">' +
+                 '<span class="cx-scope-count">' + count.toLocaleString() + '</span> cancels' +
+                 ' · <span class="cx-scope-arr">' + fmtMoney(arr) + '</span> ARR lost' +
+               '</div>' +
+             '</div>' +
+             '<div class="cx-scope-tables">' +
+               '<div class="cx-mini-block">' +
+                 '<div class="cx-mini-title">BY SERVICE CLASS</div>' +
+                 miniTable_(classes, 'Class', count) +
+               '</div>' +
+               '<div class="cx-mini-block">' +
+                 '<div class="cx-mini-title">BY REASON</div>' +
+                 miniTable_(reasons, 'Reason', count) +
+               '</div>' +
+             '</div>' +
+           '</div>';
+  }
+
+  // ── Slice the data by scope ──
+  var catseyeList = filtered.filter(function(r) { return !isUsxBranch(r.Branch); });
+  var usxList     = filtered.filter(function(r) { return  isUsxBranch(r.Branch); });
+
+  var totalCount = filtered.length;
+  var totalArr   = filtered.reduce(function(s, r) { return s + (Number(r.AnnualValue) || 0); }, 0);
+  var avgArr     = totalCount > 0 ? totalArr / totalCount : 0;
+
+  // ── Hero strip — 3 big cards ──
   var heroHtml =
-    '<div class="cancels-hero-row">' +
+    '<div class="cx-hero-row">' +
       '<div class="hero-v2-card hero-bad">' +
         '<div class="hero-v2-label">TOTAL CANCELS · ' + escHtml(periodLabel) + '</div>' +
         '<div class="hero-v2-value">' + totalCount.toLocaleString() + '</div>' +
@@ -3275,103 +3350,50 @@ function renderCancelsCards_() {
       '<div class="hero-v2-card hero-bad">' +
         '<div class="hero-v2-label">ARR LOST</div>' +
         '<div class="hero-v2-value">' + fmtMoney(totalArr) + '</div>' +
-        '<div class="hero-v2-meta"><span class="hero-v2-target">avg ' + fmtMoney(avgArr) + ' / cancel</span></div>' +
+        '<div class="hero-v2-meta"><span class="hero-v2-target">total annual value lost</span></div>' +
+      '</div>' +
+      '<div class="hero-v2-card hero-bad">' +
+        '<div class="hero-v2-label">AVG PER CANCEL</div>' +
+        '<div class="hero-v2-value">' + fmtMoney(avgArr) + '</div>' +
+        '<div class="hero-v2-meta"><span class="hero-v2-target">mean ARR per cancellation</span></div>' +
       '</div>' +
     '</div>';
 
-  // ── By Company row — Catseye + USX side-by-side ──
-  function companyCardHtml(label, data, brandCls) {
-    return '<div class="cancels-co-card cancels-co-' + brandCls + '">' +
-             '<div class="cancels-co-label">' + escHtml(label) + '</div>' +
-             '<div class="cancels-co-stats">' +
-               '<div class="cancels-co-stat">' +
-                 '<div class="cancels-co-stat-val">' + data.count.toLocaleString() + '</div>' +
-                 '<div class="cancels-co-stat-lbl">cancels</div>' +
-               '</div>' +
-               '<div class="cancels-co-stat">' +
-                 '<div class="cancels-co-stat-val">' + fmtMoney(data.arr) + '</div>' +
-                 '<div class="cancels-co-stat-lbl">ARR lost</div>' +
-               '</div>' +
-             '</div>' +
-           '</div>';
-  }
-  var byCompanyHtml =
-    '<div class="chart-card">' +
-      '<h3 class="chart-title">BY COMPANY</h3>' +
-      '<div class="cancels-co-row">' +
-        companyCardHtml('CATSEYE', company.catseye, 'catseye') +
-        companyCardHtml('USX PEST', company.usx, 'usx') +
-      '</div>' +
-    '</div>';
+  // ── Scope cards ──
+  // Combined — full width, no brand color
+  var combinedCard = scopeCard_('COMBINED', 'cx-scope-combined', filtered, 'lg');
 
-  // ── By Branch row — one card per branch (existing BRANCH_ALL order) ──
-  // Sort branches by count descending so highest-cancel branch is first.
-  var branchOrder = (typeof BRANCH_ALL !== 'undefined') ? BRANCH_ALL.slice() : Object.keys(byBranch);
-  // Include any branches we have data for that aren't in BRANCH_ALL
-  Object.keys(byBranch).forEach(function(b) {
-    if (branchOrder.indexOf(b) === -1) branchOrder.push(b);
-  });
-  var byBranchCards = branchOrder.map(function(b) {
-    var d = byBranch[b] || { count: 0, arr: 0 };
-    var brandCls = isUsxBranch(b) ? 'cancels-br-usx' : 'cancels-br-catseye';
-    return '<div class="cancels-br-card ' + brandCls + '">' +
-             '<div class="cancels-br-label">' + escHtml(b) + '</div>' +
-             '<div class="cancels-br-count">' + d.count.toLocaleString() + '</div>' +
-             '<div class="cancels-br-arr">' + fmtMoney(d.arr) + ' ARR lost</div>' +
-           '</div>';
+  // Catseye + branches
+  var catseyeBranches = (typeof BRANCH_ALL !== 'undefined')
+    ? BRANCH_ALL.filter(function(b) { return !isUsxBranch(b); })
+    : Object.keys({}).filter(function(b) { return !isUsxBranch(b); });
+  var catseyeCard = scopeCard_('CATSEYE', 'cx-scope-catseye', catseyeList, 'lg');
+  var catseyeBranchCards = catseyeBranches.map(function(b) {
+    var bList = filtered.filter(function(r) { return r.Branch === b; });
+    return scopeCard_(b, 'cx-scope-catseye', bList, 'sm');
   }).join('');
-  var byBranchHtml =
-    '<div class="chart-card">' +
-      '<h3 class="chart-title">BY BRANCH</h3>' +
-      '<div class="cancels-br-row">' + byBranchCards + '</div>' +
-    '</div>';
 
-  // ── By Service Class table ──
-  function buildTable_(title, agg, labelCol) {
-    var rows = Object.keys(agg).map(function(k) {
-      return { key: k, count: agg[k].count, arr: agg[k].arr };
-    }).sort(function(a, b) { return b.count - a.count; });
-    if (rows.length === 0) {
-      return '<div class="chart-card">' +
-               '<h3 class="chart-title">' + escHtml(title) + '</h3>' +
-               '<div class="nb-empty">No cancellations in window</div>' +
-             '</div>';
-    }
-    var totalC = rows.reduce(function(s, r) { return s + r.count; }, 0);
-    var bodyRows = rows.map(function(r) {
-      var pct = totalC > 0 ? (r.count / totalC * 100).toFixed(1) : '0.0';
-      return '<tr>' +
-               '<td>' + escHtml(r.key) + '</td>' +
-               '<td class="num">' + r.count.toLocaleString() + '</td>' +
-               '<td class="num"><span style="color:var(--text-dim);font-size:11px">' + pct + '%</span></td>' +
-               '<td class="num">' + fmtMoney(r.arr) + '</td>' +
-             '</tr>';
-    }).join('');
-    return '<div class="chart-card">' +
-             '<h3 class="chart-title">' + escHtml(title) + '</h3>' +
-             '<table class="nb-table">' +
-               '<thead><tr>' +
-                 '<th>' + escHtml(labelCol) + '</th>' +
-                 '<th class="num">Count</th>' +
-                 '<th class="num">% of total</th>' +
-                 '<th class="num">ARR Lost</th>' +
-               '</tr></thead>' +
-               '<tbody>' + bodyRows + '</tbody>' +
-             '</table>' +
-           '</div>';
-  }
+  // USX + branches
+  var usxBranches = (typeof BRANCH_ALL !== 'undefined')
+    ? BRANCH_ALL.filter(function(b) { return isUsxBranch(b); })
+    : [];
+  var usxCard = scopeCard_('USX PEST', 'cx-scope-usx', usxList, 'lg');
+  var usxBranchCards = usxBranches.map(function(b) {
+    var bList = filtered.filter(function(r) { return r.Branch === b; });
+    return scopeCard_(b, 'cx-scope-usx', bList, 'sm');
+  }).join('');
 
-  var byClassHtml  = buildTable_('BY SERVICE CLASS', byClass, 'Class');
-  var byReasonHtml = buildTable_('BY REASON',        byReason, 'Reason');
-
-  // Stitch everything together
+  // Stitch
   container.innerHTML =
     heroHtml +
-    '<div class="tech-charts-stack">' +
-      byCompanyHtml +
-      byBranchHtml +
-      byClassHtml +
-      byReasonHtml +
+    '<div class="cx-section">' + combinedCard + '</div>' +
+    '<div class="cx-section">' +
+      catseyeCard +
+      '<div class="cx-branch-grid">' + catseyeBranchCards + '</div>' +
+    '</div>' +
+    '<div class="cx-section">' +
+      usxCard +
+      '<div class="cx-branch-grid">' + usxBranchCards + '</div>' +
     '</div>';
 }
 

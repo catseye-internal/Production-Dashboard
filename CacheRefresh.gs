@@ -2303,6 +2303,40 @@ function bootstrapRetryUncoveredLocationsForce() {
   return _brtImpl_(false, true);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// bootstrapRetryUncoveredLocationsSlow — throttle-safe variant (Joe 2026-05-26)
+//
+// The fast variant trips PestPac's burst-rate ceiling after ~7K calls/30min.
+// This variant stays well below it:
+//   • Batch size 5     (vs 30) — fewer concurrent requests per second
+//   • Pause 1500ms     (vs 100ms) — only ~3.3 calls/sec sustained = 200/min
+//   • Safety stop 10m  (vs 25m) — shorter run, less sustained pressure
+//
+// At ~200 calls/min × 10 min = ~2000 locations per run. The ~7K uncovered
+// pool finishes in ~4 runs. Schedule nightly at 4 AM ET trigger and it'll
+// chip through within a week without ever tripping the throttle.
+//
+// Reuses the same BRT_* state keys + knownEmpty learning as the fast variant
+// — Resume from either is interchangeable.
+// ─────────────────────────────────────────────────────────────────────────────
+function bootstrapRetryUncoveredLocationsSlow() {
+  return _brtImpl_(false, false, {
+    batchSize: 5,
+    batchPauseMs: 1500,
+    safetyStopSec: 600,         // 10 min vs 25 min default
+    label: 'SLOW'
+  });
+}
+
+function bootstrapRetryUncoveredLocationsSlowResume() {
+  return _brtImpl_(true, false, {
+    batchSize: 5,
+    batchPauseMs: 1500,
+    safetyStopSec: 600,
+    label: 'SLOW'
+  });
+}
+
 function clearBootstrapRetryState() {
   var props = PropertiesService.getScriptProperties();
   props.deleteProperty(BRT_CURSOR_KEY);
@@ -2318,9 +2352,17 @@ function clearKnownEmptyLocations() {
   Logger.log('knownEmpty list cleared. Next retry pass will re-confirm empty locations.');
 }
 
-function _brtImpl_(resume, forceOverride) {
+function _brtImpl_(resume, forceOverride, overrides) {
   var t0 = new Date();
   var props = PropertiesService.getScriptProperties();
+
+  // Throttle overrides — Slow variant passes smaller batch + longer pause +
+  // shorter safety stop. Defaults fall back to module constants.
+  overrides = overrides || {};
+  var BATCH_SIZE     = overrides.batchSize     || BSS_BATCH_SIZE;
+  var BATCH_PAUSE_MS = overrides.batchPauseMs  || BSS_BATCH_PAUSE_MS;
+  var SAFETY_STOP_SEC = overrides.safetyStopSec || BSS_SAFETY_STOP_SECONDS;
+  var RUN_LABEL      = overrides.label         || '';
 
   // ─── Quota safety guard (added 2026-05-26) ───
   // This retry burns ~50K URLfetch calls in a full run, which is half the
@@ -2346,7 +2388,12 @@ function _brtImpl_(resume, forceOverride) {
   }
 
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  Logger.log('🔁 Retry uncovered locations' + (resume ? ' — RESUMING' : ' — fresh start') + (forceOverride ? ' — FORCE OVERRIDE' : '') + ' — ' + t0.toISOString());
+  Logger.log('🔁 Retry uncovered locations' + (resume ? ' — RESUMING' : ' — fresh start') +
+             (RUN_LABEL ? ' — ' + RUN_LABEL : '') +
+             (forceOverride ? ' — FORCE OVERRIDE' : '') + ' — ' + t0.toISOString());
+  Logger.log('   Throttle: batchSize=' + BATCH_SIZE + ' · pauseMs=' + BATCH_PAUSE_MS +
+             ' · safetyStop=' + SAFETY_STOP_SEC + 's' +
+             ' · sustained=~' + Math.round((BATCH_SIZE / (BATCH_PAUSE_MS / 1000 + 0.1)) * 60) + ' calls/min');
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   var token = ppToken_();
@@ -2443,15 +2490,15 @@ function _brtImpl_(resume, forceOverride) {
   var safetyTriggered = false;
   var b = startIdx;
 
-  for (b = startIdx; b < missingIds.length; b += BSS_BATCH_SIZE) {
+  for (b = startIdx; b < missingIds.length; b += BATCH_SIZE) {
     var elapsedSec = (new Date() - t0) / 1000;
-    if (elapsedSec >= BSS_SAFETY_STOP_SECONDS) {
+    if (elapsedSec >= SAFETY_STOP_SEC) {
       safetyTriggered = true;
       Logger.log('   ⏰ Safety stop at ' + elapsedSec.toFixed(0) + 's — saving progress and exiting cleanly');
       break;
     }
 
-    var slice = missingIds.slice(b, b + BSS_BATCH_SIZE);
+    var slice = missingIds.slice(b, b + BATCH_SIZE);
     var requests = slice.map(function(lid) {
       return {
         url: PP_API_BASE + '/Locations/' + lid + '/serviceSetups',
@@ -2515,7 +2562,7 @@ function _brtImpl_(resume, forceOverride) {
       props.setProperty(BRT_EMPTY_KEY, JSON.stringify(Object.keys(knownEmpty)));
     }
 
-    if (b + BSS_BATCH_SIZE < missingIds.length) Utilities.sleep(BSS_BATCH_PAUSE_MS);
+    if (b + BATCH_SIZE < missingIds.length) Utilities.sleep(BATCH_PAUSE_MS);
   }
 
   // Safety-stop branch: write what we have, keep state for resume
@@ -2524,7 +2571,9 @@ function _brtImpl_(resume, forceOverride) {
     props.setProperty(BRT_CURSOR_KEY, String(b));
     props.setProperty(BRT_EMPTY_KEY, JSON.stringify(Object.keys(knownEmpty)));
     Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    Logger.log('⏸  PAUSED for safety. Re-run bootstrapRetryUncoveredLocationsResume() to continue.');
+    Logger.log('⏸  PAUSED for safety. Re-run ' +
+               (RUN_LABEL === 'SLOW' ? 'bootstrapRetryUncoveredLocationsSlowResume()' : 'bootstrapRetryUncoveredLocationsResume()') +
+               ' to continue.');
     Logger.log('   Cursor saved at index ' + b.toLocaleString() + ' of ' + missingIds.length.toLocaleString());
     Logger.log('   Recovered locations so far: ' + recoveredLocations.toLocaleString() +
                ' · confirmed empty: ' + confirmedEmptyThisRun.toLocaleString() +
