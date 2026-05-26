@@ -609,6 +609,155 @@
     .chart-card-titlerow .mtd-prod-header-strip { justify-content: flex-start; }
   }
 
+  /* ══════════════════════════════════════════════════════════════
+     HERO STRIP — top-of-Dashboard "are we winning?" status bar
+     Joe directive 2026-05-25. Single horizontal row of 4 cells:
+     TODAY · TOMORROW · MTD · HOT QUEUE.
+     ══════════════════════════════════════════════════════════════ */
+  .hero-strip {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px; margin-bottom: 14px;
+  }
+  .hero-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 12px 16px 14px;
+    display: flex; flex-direction: column; gap: 4px;
+    min-height: 90px;
+  }
+  .hero-card-label {
+    font-size: 10px; color: var(--text-dim); font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase;
+  }
+  .hero-card-value {
+    font-size: 22px; font-weight: 700; line-height: 1.15;
+    font-variant-numeric: tabular-nums; color: var(--text);
+  }
+  .hero-card-sub {
+    font-size: 11px; color: var(--text-dim); line-height: 1.35;
+    margin-top: auto;
+  }
+  .hero-good {
+    background: rgba(52,211,153,0.08);
+    border-color: rgba(52,211,153,0.35);
+  }
+  .hero-good .hero-card-value { color: #34D399; }
+  .hero-bad {
+    background: rgba(248,113,113,0.08);
+    border-color: rgba(248,113,113,0.35);
+  }
+  .hero-bad .hero-card-value { color: #F87171; }
+  .hero-warn {
+    background: rgba(251,191,36,0.08);
+    border-color: rgba(251,191,36,0.30);
+  }
+  .hero-warn .hero-card-value { color: #FBBF24; }
+  /* Pill spans inside hero-card-sub for inline split metrics */
+  .hero-pill {
+    display: inline-block; padding: 2px 7px; border-radius: 10px;
+    background: rgba(255,255,255,0.06); margin-right: 4px;
+    font-size: 10px; letter-spacing: 0.3px;
+  }
+  .hero-pill.good { background: rgba(52,211,153,0.15); color: #34D399; }
+  .hero-pill.bad  { background: rgba(248,113,113,0.15); color: #F87171; }
+  .hero-pill.warn { background: rgba(251,191,36,0.15); color: #FBBF24; }
+  @media (max-width: 900px) {
+    .hero-strip { grid-template-columns: repeat(2, 1fr); }
+    .hero-card-value { font-size: 19px; }
+  }
+  @media (max-width: 480px) {
+    .hero-strip { grid-template-columns: 1fr; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     NEW SETUPS / CANCELLATIONS — twin cards (same shape, opposite signals)
+     ══════════════════════════════════════════════════════════════ */
+  .nb-card-row {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+  }
+  @media (max-width: 900px) {
+    .nb-card-row { grid-template-columns: 1fr; }
+  }
+  .nb-headline {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+  }
+  .nb-headline-stat {
+    font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .nb-headline-stat.pos { color: #34D399; }
+  .nb-headline-stat.neg { color: #F87171; }
+  .nb-headline-sub {
+    font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums;
+  }
+  .nb-window-toggle {
+    display: inline-flex; gap: 4px; margin-left: auto;
+    background: rgba(255,255,255,0.04); padding: 2px; border-radius: 6px;
+  }
+  .nb-window-btn {
+    border: none; background: transparent; color: var(--text-dim);
+    font-size: 10px; padding: 4px 10px; cursor: pointer; border-radius: 4px;
+    font-weight: 600; letter-spacing: 0.4px;
+  }
+  .nb-window-btn.active { background: rgba(244,123,32,0.20); color: #F47B20; }
+  .nb-table {
+    margin-top: 12px; width: 100%; border-collapse: collapse;
+    font-size: 12px; font-variant-numeric: tabular-nums;
+  }
+  .nb-table th {
+    text-align: left; padding: 6px 8px; font-weight: 700;
+    color: var(--text-dim); font-size: 10px; letter-spacing: 0.4px;
+    text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .nb-table td {
+    padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .nb-table td.num { text-align: right; font-weight: 600; }
+  .nb-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .nb-empty {
+    text-align: center; color: var(--text-dim); padding: 20px;
+    font-size: 12px; font-style: italic;
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     PEST TECH LEADERBOARD — ranked list of field techs
+     ══════════════════════════════════════════════════════════════ */
+  .ptlb-toggle {
+    display: inline-flex; gap: 4px; margin-left: 12px;
+    background: rgba(255,255,255,0.04); padding: 2px; border-radius: 6px;
+  }
+  .ptlb-toggle-btn {
+    border: none; background: transparent; color: var(--text-dim);
+    font-size: 10px; padding: 4px 10px; cursor: pointer; border-radius: 4px;
+    font-weight: 600; letter-spacing: 0.4px;
+  }
+  .ptlb-toggle-btn.active { background: rgba(244,123,32,0.20); color: #F47B20; }
+  .ptlb-table {
+    margin-top: 10px; width: 100%; border-collapse: collapse;
+    font-size: 12px; font-variant-numeric: tabular-nums;
+  }
+  .ptlb-table th {
+    text-align: left; padding: 6px 8px; font-weight: 700;
+    color: var(--text-dim); font-size: 10px; letter-spacing: 0.4px;
+    text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .ptlb-table th.num { text-align: right; }
+  .ptlb-table td {
+    padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .ptlb-table td.num { text-align: right; font-weight: 600; }
+  .ptlb-rank {
+    display: inline-block; width: 22px; text-align: right; padding-right: 4px;
+    color: var(--text-dim); font-weight: 700;
+  }
+  .ptlb-rank.medal-1 { color: #FBBF24; }
+  .ptlb-rank.medal-2 { color: #C0C5CE; }
+  .ptlb-rank.medal-3 { color: #CD7F32; }
+  .ptlb-perday-good { color: #34D399; font-weight: 700; }
+  .ptlb-perday-mid  { color: #FBBF24; font-weight: 700; }
+  .ptlb-perday-bad  { color: #F87171; font-weight: 700; }
+
   /* ── Forecast Totals — 4 KPI cards (taller, bigger numbers) ── */
   .fc-kpi-grid {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
@@ -1523,6 +1672,8 @@ var STATE = {
   budgets: null,              // { Branch: { 'YYYY-MM': dollars } } from budgets.json
   budgetsLoadPromise: null,
   techCardSort: {},           // branch → { key, dir } — per-card sort on Tech view
+  newSetupsWindow: 7,         // 7 or 30 — rolling-day window for New Setups card
+  cancellationsWindow: 7,     // 7 or 30 — rolling-day window for Cancellations card
   // Completed vs Budget card — optional custom date range. null = default to
   // SOM-through-yesterday MTD. If set, the card recomputes its actuals from
   // productionInvoices_() filtered to this window and reframes pace/budget
@@ -1594,6 +1745,7 @@ document.addEventListener('DOMContentLoaded', function() {
   wireFilters();
   wireTabs();
   wireTechCardSort_();       // event delegation for Tech view column-header clicks
+  wireWindowToggles_();      // event delegation for New Setups / Cancellations 7D/30D toggles
   renderHeader();
   populateFilterOptions();  // populate from config even before cache lands
   render();                  // show structure immediately
@@ -3174,11 +3326,14 @@ function renderTechView_() {
   // renderMtdProductionCard_() (combinedAgg.budgetWithCgw / workingTotal).
   // Joe directive 2026-05-24.
   var fcNeededPerDay = 0;
+  var heroMtdBudget = 0;       // combined budget for the hero strip
+  var heroWorkingTotal = 0;    // total working days in month
   try {
     var fcYear  = todayD.getFullYear();
     var fcMonth = todayD.getMonth();
     var fcWorkingTotal = (typeof workingDaysInMonth_ === 'function')
                           ? workingDaysInMonth_(fcYear, fcMonth) : 0;
+    heroWorkingTotal = fcWorkingTotal;
     if (fcWorkingTotal > 0 && STATE && STATE.budgets) {
       var DASH_CATS = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial','cgw_generated'];
       var fcCombinedBudget = 0;
@@ -3190,8 +3345,59 @@ function renderTechView_() {
         DASH_CATS.forEach(function(c) { fcCombinedBudget += Number(cats[c] || 0); });
       });
       fcNeededPerDay = fcCombinedBudget / fcWorkingTotal;
+      heroMtdBudget = fcCombinedBudget;
     }
   } catch (e) { /* leave fcNeededPerDay = 0 → renderer skips coloring */ }
+
+  // Hero Strip data — total MTD actual across branches (matches the
+  // Completed vs Budget card methodology: same 5 categories, excludes
+  // plat_nonbillable). Joe directive 2026-05-25.
+  var heroMtdActual = 0;
+  try {
+    var HERO_CATS = ['cg_nwl','pest_rodent_initial','recurring_residential','recurring_commercial','cgw_generated'];
+    BRANCH_ALL.forEach(function(b) {
+      var bcats = (mtdByBranchCategory && mtdByBranchCategory[b]) || {};
+      HERO_CATS.forEach(function(c) { heroMtdActual += Number(bcats[c] || 0); });
+    });
+  } catch (e) { /* leave heroMtdActual = 0 */ }
+
+  // Hero Strip: setups created + cancellations in last 7 days
+  var heroSetupsCount = 0, heroCancelsCount = 0;
+  try {
+    var setupCutoff = new Date(todayD.getTime() - 7 * 86400000);
+    var setupsArr = (STATE.setupsCache && STATE.setupsCache.setups) || [];
+    setupsArr.forEach(function(s) {
+      var ad = s.AddDate ? new Date(String(s.AddDate).split('.')[0]) : null;
+      if (ad && !isNaN(ad.getTime()) && ad >= setupCutoff) heroSetupsCount++;
+      var cd = s.CancelDate ? new Date(String(s.CancelDate).split('.')[0]) : null;
+      if (cd && !isNaN(cd.getTime()) && cd >= setupCutoff) heroCancelsCount++;
+    });
+  } catch (e) { /* leave at 0 */ }
+
+  // Hero Strip: callbacks scheduled for today (still on SO side, not yet posted)
+  var heroCallbacksToday = 0;
+  try {
+    if (STATE.rawCache && STATE.rawCache.orders) {
+      STATE.rawCache.orders.forEach(function(o) {
+        if ((o.OrderType || '') !== 'CallBack') return;
+        var d = String(o.WorkDate || '').substring(0, 10);
+        if (d === dToday) heroCallbacksToday++;
+      });
+    }
+  } catch (e) { /* leave at 0 */ }
+
+  var heroStripHtml = renderHeroStrip_({
+    fcToday:         fcTotals.today,
+    fcTmrw:          fcTotals.tmrw,
+    fcNeededPerDay:  fcNeededPerDay,
+    mtdActual:       heroMtdActual,
+    mtdBudget:       heroMtdBudget,
+    workingElapsed:  workingElapsedMtd,
+    workingTotal:    heroWorkingTotal,
+    setupsWeekCount: heroSetupsCount,
+    cancelsWeekCount: heroCancelsCount,
+    callbacksToday:  heroCallbacksToday
+  });
 
   var cardForecastTotals =
     '<div class="chart-card">' +
@@ -3230,14 +3436,51 @@ function renderTechView_() {
       '<div class="chart-meta">Pest techs only · auto-excludes managers via PestPac JobTitle (manager / supervisor / director) · big number = $ per drive hour · sub-bars decompose daily output into Stops/day · $/stop · Drive time · Production</div>' +
       renderPestEfficiencyCards_(byBranch, workingElapsedMtd, computeDriveMiles_) +
     '</div>';
-  // Single-column stack. Order: Forecast Totals → Completed vs Budget →
-  // Revenue per Tech → Pest Team Efficiency → Callbacks by Branch.
+
+  // New Business cards — New Setups + Cancellations (Joe directive 2026-05-25).
+  // Twin cards in a 2-column row showing weekly setup activity. CSR leaderboard
+  // for setups; cancel-reason breakdown for cancellations.
+  var setupsArr = (STATE.setupsCache && STATE.setupsCache.setups) || [];
+  // Read user's chosen window from STATE (default 7), one per card
+  var setupsWindow = STATE.newSetupsWindow || 7;
+  var cancelsWindow = STATE.cancellationsWindow || 7;
+  var cardNewSetups =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">NEW BUSINESS WRITTEN</h3>' +
+      '<div class="chart-meta">New service setups created · attribution by EnteredBy (CSR who built it) · ARR = first-year value</div>' +
+      renderNewSetupsCard_(setupsArr, setupsWindow, STATE.employeesMap) +
+    '</div>';
+  var cardCancellations =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">CANCELLATIONS</h3>' +
+      '<div class="chart-meta">Setups cancelled (CancelDate populated) · ARR lost = annual value of cancelled setups</div>' +
+      renderCancellationsCard_(setupsArr, cancelsWindow) +
+    '</div>';
+  var cardNewBusinessRow =
+    '<div class="nb-card-row">' + cardNewSetups + cardCancellations + '</div>';
+
+  // Pest Tech Leaderboard — ranked field techs by MTD $/working day.
+  // Companion to Pest Team Efficiency. Same manager exclusion. Joe directive
+  // 2026-05-25.
+  var cardPestTechLeaderboard =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">PEST TECH LEADERBOARD</h3>' +
+      '<div class="chart-meta">Field pest techs ranked by MTD $/working day · excludes managers · gold/silver/bronze top 3 · green ≥$1,700, yellow ≥$1,500, red <$1,500</div>' +
+      renderPestTechLeaderboard_(byBranch, workingElapsedMtd, STATE.employeesMap) +
+    '</div>';
+
+  // Hero Strip sits ABOVE the chartsGrid as its own banner row.
+  // Stack order: Forecast Totals → Completed vs Budget → New Business → Rev/Tech
+  //              → Pest Efficiency → Pest Tech Leaderboard → Callbacks by Branch.
   var chartsGrid =
+    heroStripHtml +
     '<div class="tech-charts-stack">' +
       cardForecastTotals +
       cardMtdProduction +
+      cardNewBusinessRow +
       cardRevPerTech +
       cardPestEfficiency +
+      cardPestTechLeaderboard +
       cardCallbacksByBranch +
     '</div>';
 
@@ -4259,6 +4502,26 @@ function sortTechsForCard_(techs, sortState) {
 // One-time click delegation for sortable Tech view headers — installed in boot.
 // (Re-rendering innerHTML wipes any listeners on the inner THs; delegating on
 // the persistent #techView container survives every render.)
+// Event delegation for the 7D / 30D toggle buttons inside the New Setups +
+// Cancellations cards. Joe directive 2026-05-25. Persists across re-renders
+// because it's attached to the static techView container (which itself is
+// never replaced — only its innerHTML changes).
+function wireWindowToggles_() {
+  var container = document.getElementById('techView');
+  if (!container || container.__windowTogglesWired) return;
+  container.__windowTogglesWired = true;
+  container.addEventListener('click', function(e) {
+    var btn = e.target.closest && e.target.closest('.nb-window-btn');
+    if (!btn) return;
+    var card = btn.parentElement && btn.parentElement.getAttribute('data-card');
+    var win  = Number(btn.getAttribute('data-window')) || 7;
+    if (!card) return;
+    if (card === 'new-setups')      STATE.newSetupsWindow = win;
+    else if (card === 'cancellations') STATE.cancellationsWindow = win;
+    render();
+  });
+}
+
 function wireTechCardSort_() {
   var container = document.getElementById('techView');
   if (!container || container.__sortWired) return;
@@ -5308,6 +5571,301 @@ function renderPestEfficiencyCards_(byBranch, workingDays, computeDriveFn) {
 
 // 4 KPI cards: TODAY / TOMORROW / +2 / +3. Each shows date label, big dollar
 // amount in brand orange, plus a thin proportional bar (% of the max day).
+// ══════════════════════════════════════════════════════════════
+// HERO STRIP — top-of-Dashboard 4-cell status banner
+// Joe directive 2026-05-25. Single horizontal row, answers the
+// "are we winning?" question in one glance.
+// ══════════════════════════════════════════════════════════════
+function renderHeroStrip_(ctx) {
+  // ctx = { fcToday, fcTmrw, fcNeededPerDay, mtdActual, mtdBudget,
+  //         workingElapsed, workingTotal, setups, callbacksToday }
+  var todayStatus = (ctx.fcToday > 0 && ctx.fcNeededPerDay > 0)
+                    ? (ctx.fcToday >= ctx.fcNeededPerDay ? 'good' : 'bad') : 'neutral';
+  var todayDelta = ctx.fcToday - ctx.fcNeededPerDay;
+  var todayDeltaLabel = (ctx.fcNeededPerDay > 0)
+    ? (todayDelta >= 0 ? '+$' + Math.round(Math.abs(todayDelta)).toLocaleString() + ' ahead'
+                       : '–$' + Math.round(Math.abs(todayDelta)).toLocaleString() + ' behind')
+    : 'no target set';
+  var todayCard =
+    '<div class="hero-card hero-' + todayStatus + '">' +
+      '<div class="hero-card-label">TODAY · Production</div>' +
+      '<div class="hero-card-value">$' + Math.round(ctx.fcToday).toLocaleString() + '</div>' +
+      '<div class="hero-card-sub">' +
+        (ctx.fcNeededPerDay > 0 ? 'Target $' + Math.round(ctx.fcNeededPerDay).toLocaleString() + ' · ' : '') +
+        todayDeltaLabel +
+      '</div>' +
+    '</div>';
+
+  // Tomorrow — color vs daily target
+  var tmrwStatus = (ctx.fcTmrw > 0 && ctx.fcNeededPerDay > 0)
+                    ? (ctx.fcTmrw >= ctx.fcNeededPerDay ? 'good' : 'bad') : 'neutral';
+  var tmrwDelta = ctx.fcTmrw - ctx.fcNeededPerDay;
+  var tmrwDeltaLabel = (ctx.fcNeededPerDay > 0)
+    ? (tmrwDelta >= 0 ? '+$' + Math.round(Math.abs(tmrwDelta)).toLocaleString() + ' ahead'
+                      : '–$' + Math.round(Math.abs(tmrwDelta)).toLocaleString() + ' behind')
+    : 'no target set';
+  var tmrwCard =
+    '<div class="hero-card hero-' + tmrwStatus + '">' +
+      '<div class="hero-card-label">TOMORROW · Scheduled</div>' +
+      '<div class="hero-card-value">$' + Math.round(ctx.fcTmrw).toLocaleString() + '</div>' +
+      '<div class="hero-card-sub">' +
+        (ctx.fcNeededPerDay > 0 ? 'Target $' + Math.round(ctx.fcNeededPerDay).toLocaleString() + ' · ' : '') +
+        tmrwDeltaLabel +
+      '</div>' +
+    '</div>';
+
+  // MTD — projected EOM vs full month budget
+  var mtdPct = ctx.mtdBudget > 0 ? (ctx.mtdActual / ctx.mtdBudget * 100) : 0;
+  var projectedEom = (ctx.workingElapsed > 0)
+                     ? (ctx.mtdActual / ctx.workingElapsed * ctx.workingTotal) : 0;
+  var onPace = (ctx.mtdBudget > 0 && projectedEom >= ctx.mtdBudget);
+  var mtdStatus = (ctx.mtdBudget > 0) ? (onPace ? 'good' : 'bad') : 'neutral';
+  var dayProgress = ctx.workingTotal > 0
+    ? 'Day ' + ctx.workingElapsed + ' of ' + ctx.workingTotal
+    : '';
+  var mtdSub = (ctx.mtdBudget > 0)
+    ? dayProgress + ' · Pace $' + (projectedEom / 1000 >= 100
+        ? Math.round(projectedEom / 1000) + 'k'
+        : Math.round(projectedEom).toLocaleString()) + ' EOM'
+    : dayProgress;
+  var mtdValue = (ctx.mtdBudget > 0)
+    ? '$' + (ctx.mtdActual / 1000 >= 100
+        ? Math.round(ctx.mtdActual / 1000) + 'k'
+        : Math.round(ctx.mtdActual).toLocaleString()) +
+      ' / $' + (ctx.mtdBudget / 1000 >= 100
+        ? Math.round(ctx.mtdBudget / 1000) + 'k'
+        : Math.round(ctx.mtdBudget).toLocaleString())
+    : '$' + Math.round(ctx.mtdActual).toLocaleString();
+  var mtdCard =
+    '<div class="hero-card hero-' + mtdStatus + '">' +
+      '<div class="hero-card-label">THIS MONTH · ' + Math.round(mtdPct) + '%</div>' +
+      '<div class="hero-card-value">' + mtdValue + '</div>' +
+      '<div class="hero-card-sub">' + mtdSub + '</div>' +
+    '</div>';
+
+  // HOT QUEUE — actionable counts
+  // setups this week, cancellations this week, callbacks today
+  var setupsWeekCount = ctx.setupsWeekCount || 0;
+  var cancelsWeekCount = ctx.cancelsWeekCount || 0;
+  var callbacksToday = ctx.callbacksToday || 0;
+  // Status: warn if cancellations approach/exceed new setups (net negative growth)
+  var queueStatus = 'neutral';
+  if (cancelsWeekCount > 0 && setupsWeekCount > 0 && cancelsWeekCount >= setupsWeekCount * 0.5) queueStatus = 'warn';
+  var queueValue =
+    '<span class="hero-pill good">+' + setupsWeekCount + '</span>' +
+    '<span class="hero-pill bad">–' + cancelsWeekCount + '</span>' +
+    '<span class="hero-pill warn">' + callbacksToday + ' CB</span>';
+  var queueSub =
+    setupsWeekCount + ' new setups · ' +
+    cancelsWeekCount + ' cancellations · ' +
+    callbacksToday + ' callbacks today';
+  var queueCard =
+    '<div class="hero-card hero-' + queueStatus + '">' +
+      '<div class="hero-card-label">HOT QUEUE · This week</div>' +
+      '<div class="hero-card-value" style="font-size:18px;">' + queueValue + '</div>' +
+      '<div class="hero-card-sub">' + queueSub + '</div>' +
+    '</div>';
+
+  return '<div class="hero-strip">' + todayCard + tmrwCard + mtdCard + queueCard + '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════
+// NEW SETUPS / CANCELLATIONS — twin cards from cache-setups.json
+// Toggle: 7-day vs 30-day rolling window. Shows headline count + ARR
+// plus a top-CSR (for setups) or top-reason (for cancellations) table.
+// ══════════════════════════════════════════════════════════════
+function renderNewSetupsCard_(setups, windowDays, employeesMap) {
+  var now = new Date();
+  var cutoff = new Date(now.getTime() - windowDays * 86400000);
+  var matches = (setups || []).filter(function(s) {
+    if (!s.AddDate) return false;
+    var d = new Date(String(s.AddDate).split('.')[0]);
+    return !isNaN(d.getTime()) && d >= cutoff;
+  });
+  var count = matches.length;
+  var arr = 0;
+  var byCsr = {};
+  var byBranch = {};
+  matches.forEach(function(s) {
+    var v = Number(s.FirstYearValue || s.AnnualValue) || 0;
+    arr += v;
+    var who = s.EnteredBy || '(unknown)';
+    if (!byCsr[who]) byCsr[who] = { count: 0, arr: 0 };
+    byCsr[who].count++;
+    byCsr[who].arr += v;
+    var b = s.Branch || '(no branch)';
+    if (!byBranch[b]) byBranch[b] = { count: 0, arr: 0 };
+    byBranch[b].count++;
+    byBranch[b].arr += v;
+  });
+
+  // Top 5 CSRs sorted by count
+  var csrRows = Object.keys(byCsr).map(function(c) {
+    return { code: c, count: byCsr[c].count, arr: byCsr[c].arr };
+  }).sort(function(a, b) { return b.count - a.count; }).slice(0, 5);
+
+  // Build human-readable name from employees map when available
+  function namelookup(code) {
+    if (!employeesMap || !code) return code;
+    var emp = employeesMap[String(code).toUpperCase()];
+    if (!emp) return code;
+    var nm = (emp.FullName || ((emp.FirstName || '') + ' ' + (emp.LastName || ''))).trim();
+    return nm || code;
+  }
+
+  var csrTable = csrRows.length === 0
+    ? '<div class="nb-empty">No new setups in window</div>'
+    : '<table class="nb-table"><thead><tr><th>CSR</th><th class="num">Setups</th><th class="num">ARR</th></tr></thead><tbody>' +
+        csrRows.map(function(r) {
+          return '<tr>' +
+            '<td>' + escapeHtml(namelookup(r.code)) + ' <span style="color:var(--text-dim);font-size:10px;">(' + escapeHtml(r.code) + ')</span></td>' +
+            '<td class="num">' + r.count + '</td>' +
+            '<td class="num">$' + Math.round(r.arr).toLocaleString() + '</td>' +
+          '</tr>';
+        }).join('') +
+      '</tbody></table>';
+
+  return '<div class="nb-headline">' +
+           '<div>' +
+             '<div class="nb-headline-stat pos">+' + count + '</div>' +
+             '<div class="nb-headline-sub">$' + Math.round(arr).toLocaleString() + ' new ARR · last ' + windowDays + ' days</div>' +
+           '</div>' +
+           '<div class="nb-window-toggle" data-card="new-setups">' +
+             '<button class="nb-window-btn ' + (windowDays === 7 ? 'active' : '') + '" data-window="7">7D</button>' +
+             '<button class="nb-window-btn ' + (windowDays === 30 ? 'active' : '') + '" data-window="30">30D</button>' +
+           '</div>' +
+         '</div>' +
+         csrTable;
+}
+
+function renderCancellationsCard_(setups, windowDays) {
+  var now = new Date();
+  var cutoff = new Date(now.getTime() - windowDays * 86400000);
+  var matches = (setups || []).filter(function(s) {
+    if (!s.CancelDate) return false;
+    var d = new Date(String(s.CancelDate).split('.')[0]);
+    return !isNaN(d.getTime()) && d >= cutoff;
+  });
+  var count = matches.length;
+  var arrLost = 0;
+  var byReason = {};
+  var byBranch = {};
+  matches.forEach(function(s) {
+    var v = Number(s.AnnualValue || s.FirstYearValue) || 0;
+    arrLost += v;
+    var r = (s.CancelReason && String(s.CancelReason).trim()) || '(no reason)';
+    if (!byReason[r]) byReason[r] = { count: 0, arr: 0 };
+    byReason[r].count++;
+    byReason[r].arr += v;
+    var b = s.Branch || '(no branch)';
+    if (!byBranch[b]) byBranch[b] = { count: 0, arr: 0 };
+    byBranch[b].count++;
+    byBranch[b].arr += v;
+  });
+
+  // Top 5 reasons sorted by count
+  var reasonRows = Object.keys(byReason).map(function(r) {
+    return { reason: r, count: byReason[r].count, arr: byReason[r].arr };
+  }).sort(function(a, b) { return b.count - a.count; }).slice(0, 5);
+
+  var reasonTable = reasonRows.length === 0
+    ? '<div class="nb-empty">No cancellations in window</div>'
+    : '<table class="nb-table"><thead><tr><th>Reason</th><th class="num">Count</th><th class="num">ARR Lost</th></tr></thead><tbody>' +
+        reasonRows.map(function(r) {
+          var displayReason = r.reason.length > 35 ? r.reason.substring(0, 35) + '…' : r.reason;
+          return '<tr>' +
+            '<td title="' + escapeHtml(r.reason) + '">' + escapeHtml(displayReason) + '</td>' +
+            '<td class="num">' + r.count + '</td>' +
+            '<td class="num">$' + Math.round(r.arr).toLocaleString() + '</td>' +
+          '</tr>';
+        }).join('') +
+      '</tbody></table>';
+
+  return '<div class="nb-headline">' +
+           '<div>' +
+             '<div class="nb-headline-stat neg">–' + count + '</div>' +
+             '<div class="nb-headline-sub">$' + Math.round(arrLost).toLocaleString() + ' ARR lost · last ' + windowDays + ' days</div>' +
+           '</div>' +
+           '<div class="nb-window-toggle" data-card="cancellations">' +
+             '<button class="nb-window-btn ' + (windowDays === 7 ? 'active' : '') + '" data-window="7">7D</button>' +
+             '<button class="nb-window-btn ' + (windowDays === 30 ? 'active' : '') + '" data-window="30">30D</button>' +
+           '</div>' +
+         '</div>' +
+         reasonTable;
+}
+
+// ══════════════════════════════════════════════════════════════
+// PEST TECH LEADERBOARD — field-tech ranking by MTD $/working day
+// Excludes managers (same filter as Pest Efficiency + Rev/Tech).
+// Tier toggle: ALL / RECURRING / START (Joe directive 2026-05-25).
+// ══════════════════════════════════════════════════════════════
+function renderPestTechLeaderboard_(byBranch, workingDays, employeesMap) {
+  workingDays = Math.max(1, Number(workingDays) || 1);
+  var dynamicMgrSet = (typeof getDynamicManagerSet_ === 'function') ? getDynamicManagerSet_() : new Set();
+  function isMgr_(code) {
+    if (!code) return false;
+    var c = String(code).toUpperCase();
+    if (typeof isManagerCode === 'function' && isManagerCode(c)) return true;
+    return dynamicMgrSet.has(c);
+  }
+
+  // Flatten: collect all pest techs across branches, exclude managers
+  var rows = [];
+  Object.keys(byBranch).forEach(function(branch) {
+    (byBranch[branch] || []).forEach(function(t) {
+      if (t.role !== 'pest') return;
+      if (isMgr_(t.tech)) return;
+      var perDay = (t.data.completed || 0) / workingDays;
+      rows.push({
+        code: t.tech,
+        branch: branch,
+        completed: t.data.completed || 0,
+        stops: t.data.completedCount || 0,
+        perDay: perDay,
+        perStop: (t.data.completedCount > 0) ? (t.data.completed / t.data.completedCount) : 0
+      });
+    });
+  });
+
+  if (rows.length === 0) {
+    return '<div class="nb-empty">No pest tech MTD data yet</div>';
+  }
+
+  rows.sort(function(a, b) { return b.perDay - a.perDay; });
+
+  function nameLookup(code) {
+    if (!employeesMap || !code) return code;
+    var emp = employeesMap[String(code).toUpperCase()];
+    if (!emp) return code;
+    var nm = (emp.FullName || ((emp.LastName || '') + ', ' + (emp.FirstName || ''))).trim();
+    return nm.replace(/^,\s*/, '').replace(/,\s*$/, '') || code;
+  }
+
+  function scoreClass_(pd) {
+    if (pd >= 1700) return 'ptlb-perday-good';
+    if (pd >= 1500) return 'ptlb-perday-mid';
+    return 'ptlb-perday-bad';
+  }
+
+  var bodyRows = rows.map(function(r, i) {
+    var rank = i + 1;
+    var medalCls = rank === 1 ? 'medal-1' : rank === 2 ? 'medal-2' : rank === 3 ? 'medal-3' : '';
+    var brandPill = (typeof renderBranchChip === 'function') ? renderBranchChip(r.branch) : escapeHtml(r.branch);
+    return '<tr>' +
+      '<td><span class="ptlb-rank ' + medalCls + '">' + rank + '</span> ' + escapeHtml(nameLookup(r.code)) + ' <span style="color:var(--text-dim);font-size:10px;">(' + escapeHtml(r.code) + ')</span></td>' +
+      '<td>' + brandPill + '</td>' +
+      '<td class="num">' + r.stops.toLocaleString() + '</td>' +
+      '<td class="num"><span class="' + scoreClass_(r.perDay) + '">$' + Math.round(r.perDay).toLocaleString() + '</span></td>' +
+      '<td class="num">$' + Math.round(r.perStop).toLocaleString() + '</td>' +
+      '<td class="num">$' + Math.round(r.completed).toLocaleString() + '</td>' +
+    '</tr>';
+  }).join('');
+
+  return '<table class="ptlb-table"><thead><tr>' +
+    '<th>Tech</th><th>Branch</th><th class="num">Stops</th><th class="num">$/Day</th><th class="num">$/Stop</th><th class="num">MTD</th>' +
+    '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
+}
+
 function renderForecastKpiCards_(fcTotals, dateLabel, neededPerDay) {
   var max = Math.max(fcTotals.today, fcTotals.tmrw, fcTotals.d2, fcTotals.d3, 1);
   var needed = Number(neededPerDay) || 0;
