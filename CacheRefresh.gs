@@ -48,6 +48,7 @@ const GH_PATH_CURATED   = 'cache.json';
 const GH_PATH_RAW       = 'cache-raw.json';
 const GH_PATH_LOCATIONS = 'cache-locations.json';
 const GH_PATH_SETUPS    = 'cache-setups.json';
+const GH_PATH_EMPLOYEES = 'cache-employees.json';
 
 // ── Raw refresh cadence ──
 const RAW_REFRESH_MIN_HOURS = 20;          // ≥ this many hours since last raw write → write again
@@ -162,6 +163,23 @@ const CURATED_FIELDS_SETUP = [
   'SubTotal', 'Total', 'AnnualValue', 'FirstYearValue',
   // Billing
   'AutoBill', 'AutoBillThroughDate', 'CardOnFile'
+];
+
+// Curated Employee whitelist for /lookups/employees.
+// Confirmed shape 2026-05-21 via first refresh run: PestPac uses `Username`
+// (e.g., "ADMN", "GRA", "BAG2") as the 3-letter join key that matches
+// ServiceOrders.Tech1, ServiceOrders.Tech2, and Invoice.Tech values.
+const CURATED_FIELDS_EMPLOYEE = [
+  // Identity / join keys
+  'Username', 'EmployeeID', 'UserID', 'TechID', 'EmployeeNumber',
+  // Name fields
+  'FirstName', 'MiddleName', 'LastName',
+  // Status / lifecycle
+  'Active', 'IsUser', 'IsTech', 'HireDate', 'TerminationDate',
+  // Context
+  'DefaultBranch', 'JobTitle',
+  // Contact (kept compact for size)
+  'Email', 'Mobile', 'Phone'
 ];
 
 // TechnicianComment can be a paragraph — cap to keep cache.json under control.
@@ -720,6 +738,127 @@ function readLocationsCache_() {
     return JSON.parse(resp.getContentText());
   } catch (e) {
     return { locations: [] };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// One-time bulk backfill: fetch every Location referenced by an MTD invoice
+// that isn't already in cache-locations.json. Uses /Locations/code/{code}
+// because invoices carry LocationCode but not LocationID.
+//
+// USE WHEN: the Tech view's MTD Drive Dist column shows "—" for many techs
+// because their service stops haven't been picked up by the regular
+// 7-day-window refreshLocationsCache yet.
+// ──────────────────────────────────────────────────────────────
+function backfillLocationsForMtdInvoices() {
+  var t0 = new Date();
+  Logger.log('🩹 MTD location backfill — ' + t0.toISOString());
+  try {
+    var token = ppToken_();
+
+    // Existing locations cache
+    var existing = readLocationsCache_();
+    var existingMap = {};
+    var existingByCode = {};
+    (existing.locations || []).forEach(function(l) {
+      if (l.LocationID != null) existingMap[String(l.LocationID)] = l;
+      if (l.LocationCode != null) existingByCode[String(l.LocationCode)] = l;
+    });
+    Logger.log('  Existing cache: ' + Object.keys(existingMap).length + ' locations');
+
+    // Read live invoice cache from GitHub Pages
+    var invResp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache-invoices.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (invResp.getResponseCode() !== 200) {
+      throw new Error('cache-invoices.json fetch HTTP ' + invResp.getResponseCode());
+    }
+    var invData = JSON.parse(invResp.getContentText());
+
+    // MTD range — 1st of current month through yesterday (matches dashboard)
+    var now = new Date();
+    var som = new Date(now.getFullYear(), now.getMonth(), 1);
+    var yest = new Date(now); yest.setDate(yest.getDate() - 1); yest.setHours(0, 0, 0, 0);
+    var somStr = fmt_(som);
+    var yestStr = fmt_(yest);
+
+    // Unique LocationCodes referenced by MTD non-ES invoices, not already in cache
+    var needed = {};
+    var mtdInvoiceCount = 0;
+    (invData.invoices || []).forEach(function(inv) {
+      if ((inv.InvoiceType || '') === 'ES') return;
+      var date = String(inv.InvoiceDate || '').substring(0, 10);
+      if (date < somStr || date > yestStr) return;
+      mtdInvoiceCount++;
+      var code = inv.LocationCode;
+      if (code != null && !existingByCode[String(code)]) {
+        needed[String(code)] = true;
+      }
+    });
+    var codes = Object.keys(needed);
+    Logger.log('  MTD invoices scanned: ' + mtdInvoiceCount);
+    Logger.log('  Missing LocationCodes to fetch: ' + codes.length);
+    if (codes.length === 0) {
+      Logger.log('✅ All MTD invoice locations already in cache');
+      return;
+    }
+
+    // Parallel fetch /Locations/code/{code} in batches of 30
+    var BATCH = 30;
+    var headers = {
+      'Authorization': 'Bearer ' + token,
+      'apikey': PP_API_KEY,
+      'tenant-id': PP_TENANT_ID
+    };
+    var fetched = 0, failed = 0;
+    for (var i = 0; i < codes.length; i += BATCH) {
+      var slice = codes.slice(i, i + BATCH);
+      var requests = slice.map(function(code) {
+        return {
+          url: PP_API_BASE + '/Locations/code/' + encodeURIComponent(code),
+          method: 'get',
+          headers: headers,
+          muteHttpExceptions: true
+        };
+      });
+      try {
+        var responses = UrlFetchApp.fetchAll(requests);
+        for (var k = 0; k < responses.length; k++) {
+          if (responses[k].getResponseCode() !== 200) { failed++; continue; }
+          try {
+            var loc = JSON.parse(responses[k].getContentText());
+            var curated = curate_(loc, CURATED_FIELDS_LOCATION);
+            if (curated.LocationID != null) {
+              existingMap[String(curated.LocationID)] = curated;
+              fetched++;
+            }
+          } catch (e) { failed++; }
+        }
+      } catch (e) {
+        Logger.log('    Batch ' + i + ' failed: ' + e.message);
+        failed += slice.length;
+      }
+      if (i + BATCH < codes.length) Utilities.sleep(200);
+    }
+    Logger.log('  Fetched ' + fetched + ' new locations (' + failed + ' failed)');
+
+    // Write merged cache
+    var allLocs = [];
+    Object.keys(existingMap).forEach(function(k) { allLocs.push(existingMap[k]); });
+    allLocs.sort(function(a, b) { return Number(a.LocationID) - Number(b.LocationID); });
+    var cache = {
+      updated: new Date().toISOString(),
+      recordCount: allLocs.length,
+      locations: allLocs
+    };
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('  cache-locations.json: ' + jsonStr.length + ' chars (' + Math.round(jsonStr.length / 1024) + ' KB, ' + allLocs.length + ' records)');
+    var ok = pushToGitHub_(jsonStr, GH_PATH_LOCATIONS, 'MTD location backfill ' + new Date().toISOString());
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('✅ Backfill complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Backfill error: ' + err.message + '\n' + err.stack);
   }
 }
 
@@ -2513,6 +2652,72 @@ function probeLocationSetupsEndpoint() {
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   Logger.log('Pick the pattern that returns an ARRAY of setups. Then build bootstrapAllSetups()');
   Logger.log('against that pattern.');
+}
+
+// ──────────────────────────────────────────────────────────────
+// Employees cache refresh — pulls /lookups/employees once a day and writes
+// cache-employees.json. The dashboard joins this onto every Tech1/Tech2/Tech
+// code at render time to show full names instead of 3-letter codes.
+//
+// /lookups/employees returns the union of Users + Technicians. We keep every
+// record (so even office staff entered on invoices as EnteredBy get resolved
+// if we ever need it) and let the front end filter by IsTechnician.
+//
+// Designed to be safe to run daily even on small quotas: one GET per refresh.
+// ──────────────────────────────────────────────────────────────
+function refreshEmployeesCache() {
+  var t0 = new Date();
+  Logger.log('👥 Employees cache refresh — ' + t0.toISOString());
+  try {
+    var token = ppToken_();
+    var r = ppGet_(token, '/lookups/employees');
+    if (r.code !== 200) {
+      Logger.log('  ❌ /lookups/employees HTTP ' + r.code + ': ' + r.text.substring(0, 300));
+      return;
+    }
+    var raw = JSON.parse(r.text);
+    // PestPac lookup endpoints sometimes return an array, sometimes { Items: [...] }
+    var list = Array.isArray(raw) ? raw : (raw.Items || raw.items || raw.results || raw.Results || []);
+    Logger.log('  Returned ' + list.length + ' records');
+    if (list.length === 0) {
+      Logger.log('  Body sample: ' + r.text.substring(0, 500));
+      return;
+    }
+    // Log the first record's full shape so we can refine the whitelist
+    Logger.log('  First record keys (' + Object.keys(list[0]).length + '): ' + Object.keys(list[0]).sort().join(', '));
+    Logger.log('  First record JSON: ' + JSON.stringify(list[0]).substring(0, 600));
+
+    var curated = list.map(function(emp) { return curate_(emp, CURATED_FIELDS_EMPLOYEE); });
+    // Sort by Code for deterministic file ordering
+    curated.sort(function(a, b) { return String(a.Code || '').localeCompare(String(b.Code || '')); });
+
+    var cache = {
+      updated: new Date().toISOString(),
+      recordCount: curated.length,
+      employees: curated
+    };
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('  cache-employees.json: ' + jsonStr.length + ' chars (' + Math.round(jsonStr.length / 1024) + ' KB, ' + curated.length + ' records)');
+
+    var ok = pushToGitHub_(jsonStr, GH_PATH_EMPLOYEES, 'Employees cache refresh ' + new Date().toISOString());
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('✅ Employees refresh complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Employees refresh error: ' + err.message + '\n' + err.stack);
+  }
+}
+
+function readEmployeesCache_() {
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache-employees.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (resp.getResponseCode() !== 200) return { employees: [] };
+    return JSON.parse(resp.getContentText());
+  } catch (e) {
+    return { employees: [] };
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
