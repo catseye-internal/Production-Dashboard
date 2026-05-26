@@ -844,6 +844,11 @@
     display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 10px; margin-bottom: 18px;
   }
+  /* 6-card variant — used when both Today's + Tomorrow's capacity cards are
+     present. Joe directive 2026-05-26. */
+  .hero-ctx-row-6 {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
   .hero-ctx-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -893,9 +898,13 @@
   .hero-pill.bad  { background: rgba(251,191,36,0.22); color: #FBBF24; }
   .hero-pill.warn { background: rgba(251,191,36,0.22);  color: #FBBF24; }
 
+  @media (max-width: 1200px) {
+    .hero-ctx-row-6 { grid-template-columns: repeat(3, 1fr); }
+  }
   @media (max-width: 1000px) {
     .hero-v2-value { font-size: 48px; }
     .hero-ctx-row { grid-template-columns: repeat(3, 1fr); }
+    .hero-ctx-row-6 { grid-template-columns: repeat(3, 1fr); }
   }
   @media (max-width: 700px) {
     .hero-v2-row { grid-template-columns: 1fr; gap: 10px; margin-bottom: 8px; }
@@ -905,6 +914,7 @@
     .hero-v2-meta { font-size: 12px; }
     .hero-v2-hint { font-size: 11px; }
     .hero-ctx-row { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .hero-ctx-row-6 { grid-template-columns: 1fr 1fr; }
     .hero-ctx-card { padding: 10px 12px; min-height: 72px; }
     .hero-ctx-value { font-size: 20px; }
   }
@@ -912,6 +922,7 @@
     .hero-v2-value { font-size: 36px; }
     .hero-v2-card { padding: 12px 14px 14px; min-height: 108px; }
     .hero-ctx-row { grid-template-columns: 1fr 1fr; }
+    .hero-ctx-row-6 { grid-template-columns: 1fr 1fr; }
     .hero-ctx-value { font-size: 18px; }
   }
 
@@ -4102,11 +4113,18 @@ function renderTechView_() {
   var WORK_DAY_MIN = 510;
   var LUNCH_MIN = 45;
   var NET_DAY_MIN = WORK_DAY_MIN - LUNCH_MIN;  // 465
+  // Today's capacity totals
   var capacityOpenMin = 0;
   var capacityUsedMin = 0;
   var capacityTotalMin = 0;
   var capacityTechCount = 0;
   var capacityTechsFree = 0;     // techs with at least 30 min open
+  // Tomorrow's capacity totals (Joe directive 2026-05-26: show both days)
+  var capacityOpenMinTmrw = 0;
+  var capacityUsedMinTmrw = 0;
+  var capacityTotalMinTmrw = 0;
+  var capacityTechCountTmrw = 0;
+  var capacityTechsFreeTmrw = 0;
   try {
     Object.keys(byBranch).forEach(function(branch) {
       (byBranch[branch] || []).forEach(function(t) {
@@ -4115,6 +4133,7 @@ function renderTechView_() {
         var isM = (typeof isManagerCode === 'function' && isManagerCode(t.tech)) ||
                   (typeof dynamicMgrSet !== 'undefined' && dynamicMgrSet.has && dynamicMgrSet.has(String(t.tech).toUpperCase()));
         if (isM) return;
+        // Today
         capacityTechCount++;
         var todayDur = Number(t.data.todayMin) || 0;
         var todayPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dToday; });
@@ -4125,6 +4144,17 @@ function renderTechView_() {
         capacityOpenMin += openMin;
         capacityTotalMin += NET_DAY_MIN;
         if (openMin >= 30) capacityTechsFree++;
+        // Tomorrow — same model, different day key
+        capacityTechCountTmrw++;
+        var tmrwDur = Number(t.data.tmrwMin) || 0;
+        var tmrwPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dTmrw; });
+        var driveMinT = (computeDriveMiles_(tmrwPts) / 30) * 60;
+        var usedMinT = tmrwDur + driveMinT;
+        var openMinT = Math.max(0, NET_DAY_MIN - usedMinT);
+        capacityUsedMinTmrw += usedMinT;
+        capacityOpenMinTmrw += openMinT;
+        capacityTotalMinTmrw += NET_DAY_MIN;
+        if (openMinT >= 30) capacityTechsFreeTmrw++;
       });
     });
   } catch (e) { /* leave at 0 — capacity card will show 'no data' */ }
@@ -4153,6 +4183,11 @@ function renderTechView_() {
     capacityTotalMin:  capacityTotalMin,
     capacityTechCount: capacityTechCount,
     capacityTechsFree: capacityTechsFree,
+    capacityOpenMinTmrw:   capacityOpenMinTmrw,
+    capacityUsedMinTmrw:   capacityUsedMinTmrw,
+    capacityTotalMinTmrw:  capacityTotalMinTmrw,
+    capacityTechCountTmrw: capacityTechCountTmrw,
+    capacityTechsFreeTmrw: capacityTechsFreeTmrw,
     setupsWeekCount:   heroSetupsCount,
     cancelsWeekCount:  heroCancelsCount,
     callbacksToday:    heroCallbacksToday
@@ -4362,22 +4397,26 @@ function renderTechView_() {
         timeCell(d.driveTimeMtd) +
         // Today block
         forecastCell(d.today, d.todayCount, d.today, isPest, false) +
+        countCell(d.todayCount) +
         countCell(d.todayCallbacks) +
         distCell(d.driveDistToday) +
         timeCell(d.driveTimeToday) +
         openMinCell_(d.openMinToday) +
         // Tomorrow block
         forecastCell(d.tmrw, d.tmrwCount, d.tmrw, isPest, false) +
+        countCell(d.tmrwCount) +
         countCell(d.tmrwCallbacks) +
         distCell(d.driveDistTmrw) +
         timeCell(d.driveTimeTmrw) +
         // +2 block
         forecastCell(d.d2, d.d2Count, d.d2, isPest, false) +
+        countCell(d.d2Count) +
         countCell(d.d2Callbacks) +
         distCell(d.driveDistD2) +
         timeCell(d.driveTimeD2) +
         // +3 block
         forecastCell(d.d3, d.d3Count, d.d3, isPest, false) +
+        countCell(d.d3Count) +
         countCell(d.d3Callbacks) +
         distCell(d.driveDistD3) +
         timeCell(d.driveTimeD3) +
@@ -4446,19 +4485,23 @@ function renderTechView_() {
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         forecastCell(office.today, office.todayCount, office.today, false, false) +
+        countCell(office.todayCount) +
         countCell(office.todayCallbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' + // Open (n/a for Office row)
         forecastCell(office.tmrw, office.tmrwCount, office.tmrw, false, false) +
+        countCell(office.tmrwCount) +
         countCell(office.tmrwCallbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         forecastCell(office.d2, office.d2Count, office.d2, false, false) +
+        countCell(office.d2Count) +
         countCell(office.d2Callbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         forecastCell(office.d3, office.d3Count, office.d3, false, false) +
+        countCell(office.d3Count) +
         countCell(office.d3Callbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
@@ -4476,19 +4519,23 @@ function renderTechView_() {
       distCell(totals.driveDistMtd) +
       timeCell(totals.driveTimeMtd) +
       forecastCell(totals.today, totals.todayCount, totals.today, true, true) +
+      countCell(totals.todayCount) +
       countCell(totals.todayCallbacks) +
       distCell(totals.driveDistToday) +
       timeCell(totals.driveTimeToday) +
       openMinCell_(totals.openMinToday) +
       forecastCell(totals.tmrw, totals.tmrwCount, totals.tmrw, true, true) +
+      countCell(totals.tmrwCount) +
       countCell(totals.tmrwCallbacks) +
       distCell(totals.driveDistTmrw) +
       timeCell(totals.driveTimeTmrw) +
       forecastCell(totals.d2, totals.d2Count, totals.d2, true, true) +
+      countCell(totals.d2Count) +
       countCell(totals.d2Callbacks) +
       distCell(totals.driveDistD2) +
       timeCell(totals.driveTimeD2) +
       forecastCell(totals.d3, totals.d3Count, totals.d3, true, true) +
+      countCell(totals.d3Count) +
       countCell(totals.d3Callbacks) +
       distCell(totals.driveDistD3) +
       timeCell(totals.driveTimeD3) +
@@ -4507,28 +4554,32 @@ function renderTechView_() {
         // ── MTD ──
         sortableTh_('completed',          'Completed', '<br><span style="font-weight:400;color:var(--text-dim)">$ MTD</span>',                  sortState, true) +
         sortableTh_('avgDayMtd',          '$/Day',     '<br><span style="font-weight:400;color:var(--text-dim)">MTD avg</span>',                sortState, true) +
-        sortableTh_('completedCount',     'Orders',    '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
+        sortableTh_('completedCount',     'Stops',     '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
         sortableTh_('completedCallbacks', 'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
         sortableTh_('driveDistMtd',       'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
         sortableTh_('driveTimeMtd',       'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">MTD</span>',                    sortState, true) +
         // ── Today ──
         sortableTh_('today',              'Today',     '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
+        sortableTh_('todayCount',         'Stops',     '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
         sortableTh_('todayCallbacks',     'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
         sortableTh_('driveDistToday',     'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
         sortableTh_('driveTimeToday',     'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
         sortableTh_('openMinToday',       'Open',      '<br><span style="font-weight:400;color:var(--text-dim)">capacity</span>',                sortState, true) +
         // ── Tomorrow ──
         sortableTh_('tmrw',               'Tomorrow',  '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
+        sortableTh_('tmrwCount',          'Stops',     '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
         sortableTh_('tmrwCallbacks',      'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
         sortableTh_('driveDistTmrw',      'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
         sortableTh_('driveTimeTmrw',      'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
         // ── +2 ──
         sortableTh_('d2',                 '+2',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
+        sortableTh_('d2Count',            'Stops',     '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
         sortableTh_('d2Callbacks',        'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
         sortableTh_('driveDistD2',        'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
         sortableTh_('driveTimeD2',        'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(2) + '</span>',   sortState, true) +
         // ── +3 ──
         sortableTh_('d3',                 '+3',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
+        sortableTh_('d3Count',            'Stops',     '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('d3Callbacks',        'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('driveDistD3',        'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
         sortableTh_('driveTimeD3',        'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(3) + '</span>',   sortState, true) +
@@ -5113,24 +5164,28 @@ var SORT_COLUMN_LABELS = {
   branch:             'Branch',
   role:               'Class',
   completed:          'Completed MTD',
-  completedCount:     'Orders MTD',
+  completedCount:     'Stops MTD',
   completedCallbacks: 'CB MTD',
   driveDistMtd:       'Dist MTD',
   driveTimeMtd:       'Time MTD',
   today:              'Today',
+  todayCount:         'Stops Today',
   todayCallbacks:     'CB Today',
   driveDistToday:     'Dist Today',
   driveTimeToday:     'Time Today',
   openMinToday:       'Open Today',
   tmrw:               'Tomorrow',
+  tmrwCount:          'Stops Tmrw',
   tmrwCallbacks:      'CB Tmrw',
   driveDistTmrw:      'Dist Tmrw',
   driveTimeTmrw:      'Time Tmrw',
   d2:                 '+2',
+  d2Count:            'Stops +2',
   d2Callbacks:        'CB +2',
   driveDistD2:        'Dist +2',
   driveTimeD2:        'Time +2',
   d3:                 '+3',
+  d3Count:            'Stops +3',
   d3Callbacks:        'CB +3',
   driveDistD3:        'Dist +3',
   driveTimeD3:        'Time +3'
@@ -6550,8 +6605,32 @@ function renderHeroStrip_(ctx) {
     capStatus
   );
 
+  // ── TOMORROW'S CAPACITY card (Joe directive 2026-05-26) ──
+  var capStatusT = 'neutral';
+  var capValueT, capSubT;
+  if ((ctx.capacityTechCountTmrw || 0) === 0) {
+    capValueT = '—';
+    capSubT = 'no pest techs scheduled';
+  } else {
+    capValueT = fmtHrMin_(ctx.capacityOpenMinTmrw || 0);
+    var freeTechsT = ctx.capacityTechsFreeTmrw || 0;
+    var totalT = ctx.capacityTechCountTmrw || 0;
+    capSubT = freeTechsT + ' of ' + totalT + ' techs free · ' +
+              fmtHrMin_((ctx.capacityTotalMinTmrw || 0) - (ctx.capacityOpenMinTmrw || 0)) + ' booked';
+    var totalOpenT = ctx.capacityOpenMinTmrw || 0;
+    if (totalOpenT >= 120) capStatusT = 'good';
+    else if (totalOpenT >= 30) capStatusT = 'warn';
+    else capStatusT = 'neutral';
+  }
+  var capacityCardTmrw = buildCtxCard_(
+    'TOMORROW’S CAPACITY',
+    capSubT,
+    capValueT,
+    capStatusT
+  );
+
   return '<div class="hero-v2-row">' + todayCard + tmrwCard + '</div>' +
-         '<div class="hero-ctx-row">' + d2Card + d3Card + mtdCard + needCard + capacityCard + '</div>';
+         '<div class="hero-ctx-row hero-ctx-row-6">' + d2Card + d3Card + mtdCard + needCard + capacityCard + capacityCardTmrw + '</div>';
 }
 
 // ══════════════════════════════════════════════════════════════
