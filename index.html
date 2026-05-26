@@ -4221,15 +4221,21 @@ function renderTechView_() {
         // (CG/NWL has a fundamentally different unit-of-work cadence — one
         // install ≠ one stop — so we keep them in their own counter, not in
         // the headline minutes pool). Joe directive 2026-05-26.
+        // INTERIM HEURISTIC (Joe 2026-05-26): until PestPac fixes /TimeBlocks
+        // (currently returns []), we infer "out" when openMin ≥ 6 hr (360 min).
+        // A typical pest day leaves 3-5 hr open; >6 hr is usually PTO/half-day.
+        // Today-only — Tmrw/+2/+3 are forecast days, normally near-empty.
+        var LIKELY_OFF_MIN = 360;  // 6 hours
+        var likelyOffToday = (openMin >= LIKELY_OFF_MIN) && (blockTodayMin < OUT_BLOCK_THRESHOLD_MIN);
         if (isPest) {
           capacityTechCount++;
           capacityUsedMin += usedMin;
           capacityOpenMin += openMin;
           capacityTotalMin += NET_DAY_MIN;
-          if (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOut++;
+          if (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN || likelyOffToday) capacityTechsOut++;
           else if (openMin >= 30) capacityTechsFree++;
         } else {
-          if (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOut++;
+          if (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN || likelyOffToday) capacityTechsOut++;
           else if (openMin >= 30) capacityCgFree++;
         }
         // Tomorrow — same model
