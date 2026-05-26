@@ -790,6 +790,10 @@
     font-variant-numeric: tabular-nums;
   }
   .hero-v2-target { color: var(--text-muted); }
+  .hero-v2-stops {
+    color: var(--text-muted); font-weight: 600;
+    font-size: 12px; letter-spacing: 0.3px;
+  }
   .hero-v2-delta { font-weight: 700; margin-left: 6px; }
   .hero-v2-delta-good { color: #34D399; }
   .hero-v2-delta-warn { color: #FBBF24; }
@@ -3471,12 +3475,15 @@ function renderTechView_() {
       techRows[tech] = {
         branchVotes: {}, roleVotes: { pest: 0, cgnwl: 0 },
         completed: 0,      completedCount: 0,      completedCallbacks: 0,
-        today: 0,          todayCount: 0,          todayCallbacks: 0,
-        tmrw: 0,           tmrwCount: 0,           tmrwCallbacks: 0,
-        d2: 0,             d2Count: 0,             d2Callbacks: 0,
-        d3: 0,             d3Count: 0,             d3Callbacks: 0,
+        today: 0,          todayCount: 0,          todayCallbacks: 0,    todayMin: 0,
+        tmrw: 0,           tmrwCount: 0,           tmrwCallbacks: 0,     tmrwMin: 0,
+        d2: 0,             d2Count: 0,             d2Callbacks: 0,       d2Min: 0,
+        d3: 0,             d3Count: 0,             d3Callbacks: 0,       d3Min: 0,
         forecastPoints: [], // {lat, lng, ts, day} per scheduled stop in next 4 days
         mtdPoints: []       // {lat, lng, ts, day} per MTD invoice stop (for MTD drive dist)
+        // *Min fields track sum of Order.Duration (in minutes) per bucket.
+        // Powers per-tech and aggregate pest capacity calculations on Dashboard
+        // + Tech view's Open column. Joe directive 2026-05-26.
       };
     }
     return techRows[tech];
@@ -3659,6 +3666,16 @@ function renderTechView_() {
       var t1 = o.Tech1, t2 = o.Tech2;
       // Suppress Tech2 if it's a non-tech code (don't credit them as a callback contributor)
       if (t2 && isNonTechCode(t2)) t2 = null;
+      // ── Duration accumulation for capacity calc (Joe directive 2026-05-26) ──
+      // Each tech assigned to a job is committed for that job's full duration —
+      // duration is NOT split between Tech1 and Tech2 (unlike revenue which IS).
+      // A 60-min job with two techs = 60 min booked on EACH tech's schedule.
+      var minKey = bucket + 'Min';
+      var dur = Number(o.Duration) || 0;
+      if (dur > 0) {
+        if (t1) { row(t1)[minKey] = (row(t1)[minKey] || 0) + dur; }
+        if (t2 && t2 !== t1) { row(t2)[minKey] = (row(t2)[minKey] || 0) + dur; }
+      }
       // Per-period callback count
       if ((o.OrderType || '') === 'CallBack') {
         var cbKey = bucket + 'Callbacks';
@@ -3798,6 +3815,17 @@ function renderTechView_() {
     var label = (h === 0) ? (m + 'm') : (m === 0 ? (h + 'h') : (h + 'h ' + m + 'm'));
     return '<td class="num">' + label + '</td>';
   }
+  // Open-capacity cell (today) — pest techs only; CG/NWL get an em-dash.
+  // Color tiers: green ≥120 min free, yellow ≥30 min, dim if booked solid.
+  function openMinCell_(min) {
+    if (min == null) return '<td class="num"><span style="color:var(--text-dim)">—</span></td>';
+    if (min <= 0)    return '<td class="num"><span style="color:var(--text-dim)">booked</span></td>';
+    var h = Math.floor(min / 60);
+    var m = Math.round(min - h * 60);
+    var label = (h === 0) ? (m + 'm') : (m === 0 ? (h + 'h') : (h + 'h ' + m + 'm'));
+    var cls = (min >= 120) ? 'ptlb-perday-good' : (min >= 30 ? 'ptlb-perday-mid' : '');
+    return '<td class="num"><span class="' + cls + '">' + label + '</span></td>';
+  }
   function dateLabel(n) {
     var d = new Date(todayD); d.setDate(d.getDate() + n);
     var wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
@@ -3834,12 +3862,25 @@ function renderTechView_() {
   }
 
   // Aggregate forecast totals (across ALL techs) and callback counts per branch
-  // for the two top-of-view charts.
-  var fcTotals = { today: 0, tmrw: 0, d2: 0, d3: 0 };
+  // for the two top-of-view charts. Track $, counts, and minutes per bucket
+  // (Joe directive 2026-05-26 for the capacity feature).
+  var fcTotals = {
+    today: 0, tmrw: 0, d2: 0, d3: 0,
+    todayCount: 0, tmrwCount: 0, d2Count: 0, d3Count: 0,
+    todayMin: 0,   tmrwMin: 0,   d2Min: 0,   d3Min: 0
+  };
   Object.keys(techRows).forEach(function(t) {
     var r = techRows[t];
     fcTotals.today += r.today; fcTotals.tmrw += r.tmrw;
     fcTotals.d2    += r.d2;    fcTotals.d3   += r.d3;
+    fcTotals.todayCount += (r.todayCount || 0);
+    fcTotals.tmrwCount  += (r.tmrwCount  || 0);
+    fcTotals.d2Count    += (r.d2Count    || 0);
+    fcTotals.d3Count    += (r.d3Count    || 0);
+    fcTotals.todayMin   += (r.todayMin   || 0);
+    fcTotals.tmrwMin    += (r.tmrwMin    || 0);
+    fcTotals.d2Min      += (r.d2Min      || 0);
+    fcTotals.d3Min      += (r.d3Min      || 0);
   });
   // Single pass capturing both total orders per branch AND callbacks per branch
   // (next 4 days). Estimates are excluded from the denominator.
@@ -4009,11 +4050,50 @@ function renderTechView_() {
     }
   } catch (e) { /* leave at 0 */ }
 
+  // ── Pest capacity calculation (Joe directive 2026-05-26) ──
+  // 8.5 hr day (510 min) − 45 min lunch = 465 productive min per tech.
+  // Per-tech today usage = sum of Order.Duration today + drive minutes today.
+  // Drive minutes = miles / 30 mph × 60 (using existing computeDriveMiles_ +
+  // pointsForDay filter same as Tech view's master cards).
+  var WORK_DAY_MIN = 510;
+  var LUNCH_MIN = 45;
+  var NET_DAY_MIN = WORK_DAY_MIN - LUNCH_MIN;  // 465
+  var capacityOpenMin = 0;
+  var capacityUsedMin = 0;
+  var capacityTotalMin = 0;
+  var capacityTechCount = 0;
+  var capacityTechsFree = 0;     // techs with at least 30 min open
+  try {
+    Object.keys(byBranch).forEach(function(branch) {
+      (byBranch[branch] || []).forEach(function(t) {
+        if (t.role !== 'pest') return;
+        // Exclude managers from capacity headcount (they don't carry routes)
+        var isM = (typeof isManagerCode === 'function' && isManagerCode(t.tech)) ||
+                  (typeof dynamicMgrSet !== 'undefined' && dynamicMgrSet.has && dynamicMgrSet.has(String(t.tech).toUpperCase()));
+        if (isM) return;
+        capacityTechCount++;
+        var todayDur = Number(t.data.todayMin) || 0;
+        var todayPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dToday; });
+        var driveMin = (computeDriveMiles_(todayPts) / 30) * 60;
+        var usedMin = todayDur + driveMin;
+        var openMin = Math.max(0, NET_DAY_MIN - usedMin);
+        capacityUsedMin += usedMin;
+        capacityOpenMin += openMin;
+        capacityTotalMin += NET_DAY_MIN;
+        if (openMin >= 30) capacityTechsFree++;
+      });
+    });
+  } catch (e) { /* leave at 0 — capacity card will show 'no data' */ }
+
   var heroStripHtml = renderHeroStrip_({
     fcToday:           fcTotals.today,
     fcTmrw:            fcTotals.tmrw,
     fcD2:              fcTotals.d2,
     fcD3:              fcTotals.d3,
+    fcTodayCount:      fcTotals.todayCount,
+    fcTmrwCount:       fcTotals.tmrwCount,
+    fcD2Count:         fcTotals.d2Count,
+    fcD3Count:         fcTotals.d3Count,
     fcDateLabel:       dateLabel,        // function(offset) → "TUE 5/26" etc.
     fcNeededPerDay:    fcNeededPerDay,   // FLOORED need per day (use vs Today/Tmrw)
     fcStandardTarget:  fcStandardTarget, // unfloored standard daily target
@@ -4024,6 +4104,11 @@ function renderTechView_() {
     workingElapsed:    workingElapsedMtd,
     workingTotal:      heroWorkingTotal,
     workingRemaining:  heroWorkingRemaining,
+    capacityOpenMin:   capacityOpenMin,
+    capacityUsedMin:   capacityUsedMin,
+    capacityTotalMin:  capacityTotalMin,
+    capacityTechCount: capacityTechCount,
+    capacityTechsFree: capacityTechsFree,
     setupsWeekCount:   heroSetupsCount,
     cancelsWeekCount:  heroCancelsCount,
     callbacksToday:    heroCallbacksToday
@@ -4150,6 +4235,17 @@ function renderTechView_() {
       d.driveTimeTmrw  = d.driveDistTmrw  > 0 ? d.driveDistTmrw  / 30 : 0;
       d.driveTimeD2    = d.driveDistD2    > 0 ? d.driveDistD2    / 30 : 0;
       d.driveTimeD3    = d.driveDistD3    > 0 ? d.driveDistD3    / 30 : 0;
+      // Open capacity TODAY (Joe directive 2026-05-26) — minute-based, pest only.
+      // 465 productive min = 8.5 hr day − 45 min lunch.
+      // Used = Σ(Order.Duration today) + drive time today (hr × 60).
+      // CG/NWL techs get null (capacity doesn't apply the same way).
+      if (item.role === 'pest') {
+        var driveMinToday = (d.driveTimeToday || 0) * 60;
+        var usedToday = (d.todayMin || 0) + driveMinToday;
+        d.openMinToday = Math.max(0, 465 - usedToday);
+      } else {
+        d.openMinToday = null;
+      }
     }
     techs.forEach(computeDriveOn_);
 
@@ -4168,7 +4264,8 @@ function renderTechView_() {
       driveDistToday: 0, driveTimeToday: 0,
       driveDistTmrw: 0,  driveTimeTmrw: 0,
       driveDistD2: 0,    driveTimeD2: 0,
-      driveDistD3: 0,    driveTimeD3: 0
+      driveDistD3: 0,    driveTimeD3: 0,
+      openMinToday: 0   // sums only pest techs' open capacity (Joe 2026-05-26)
     };
     var bodyRows = techs.map(function(item) {
       var d = item.data;
@@ -4192,6 +4289,7 @@ function renderTechView_() {
       totals.driveTimeMtd       += (d.driveTimeMtd   || 0);
       totals.driveDistToday     += (d.driveDistToday || 0);
       totals.driveTimeToday     += (d.driveTimeToday || 0);
+      if (d.openMinToday != null) totals.openMinToday += d.openMinToday;
       totals.driveDistTmrw      += (d.driveDistTmrw  || 0);
       totals.driveTimeTmrw      += (d.driveTimeTmrw  || 0);
       totals.driveDistD2        += (d.driveDistD2    || 0);
@@ -4223,6 +4321,7 @@ function renderTechView_() {
         countCell(d.todayCallbacks) +
         distCell(d.driveDistToday) +
         timeCell(d.driveTimeToday) +
+        openMinCell_(d.openMinToday) +
         // Tomorrow block
         forecastCell(d.tmrw, d.tmrwCount, d.tmrw, isPest, false) +
         countCell(d.tmrwCallbacks) +
@@ -4306,6 +4405,7 @@ function renderTechView_() {
         countCell(office.todayCallbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
+        '<td class="num"><span style="color:var(--text-dim)">—</span></td>' + // Open (n/a for Office row)
         forecastCell(office.tmrw, office.tmrwCount, office.tmrw, false, false) +
         countCell(office.tmrwCallbacks) +
         '<td class="num"><span style="color:var(--text-dim)">—</span></td>' +
@@ -4335,6 +4435,7 @@ function renderTechView_() {
       countCell(totals.todayCallbacks) +
       distCell(totals.driveDistToday) +
       timeCell(totals.driveTimeToday) +
+      openMinCell_(totals.openMinToday) +
       forecastCell(totals.tmrw, totals.tmrwCount, totals.tmrw, true, true) +
       countCell(totals.tmrwCallbacks) +
       distCell(totals.driveDistTmrw) +
@@ -4371,6 +4472,7 @@ function renderTechView_() {
         sortableTh_('todayCallbacks',     'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
         sortableTh_('driveDistToday',     'Dist',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
         sortableTh_('driveTimeToday',     'Time',      '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(0) + '</span>',   sortState, true) +
+        sortableTh_('openMinToday',       'Open',      '<br><span style="font-weight:400;color:var(--text-dim)">capacity</span>',                sortState, true) +
         // ── Tomorrow ──
         sortableTh_('tmrw',               'Tomorrow',  '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
         sortableTh_('tmrwCallbacks',      'CB',        '<br><span style="font-weight:400;color:var(--text-dim)">' + dateLabel(1) + '</span>',   sortState, true) +
@@ -4975,6 +5077,7 @@ var SORT_COLUMN_LABELS = {
   todayCallbacks:     'CB Today',
   driveDistToday:     'Dist Today',
   driveTimeToday:     'Time Today',
+  openMinToday:       'Open Today',
   tmrw:               'Tomorrow',
   tmrwCallbacks:      'CB Tmrw',
   driveDistTmrw:      'Dist Tmrw',
@@ -6249,10 +6352,11 @@ function renderHeroStrip_(ctx) {
     return '$' + n.toLocaleString();
   }
 
-  // Action hint based on tier
+  // Action hint based on tier (Joe 2026-05-26: added "great schedule" top tier)
   function actionHint_(value, target) {
     if (!target || target <= 0) return '';
     var ratio = value / target;
+    if (ratio >= 1.20) return 'great schedule · ahead by ' + Math.round((ratio - 1) * 100) + '%';
     if (ratio >= 1.10) return 'ahead by ' + Math.round((ratio - 1) * 100) + '%';
     if (ratio >= 1.00) return 'on pace';
     if (ratio >= 0.85) return 'push to close gap';
@@ -6260,12 +6364,13 @@ function renderHeroStrip_(ctx) {
   }
 
   function buildHeroCard_(opts) {
-    // opts = { label, value, target, isLever, accent }
+    // opts = { label, value, target, isLever, accent, stops }
     // Pace tier is still computed — it drives the delta + hint text colors so
     // the user sees green/yellow signal in the small text. But the CARD's
     // border + big-number color uses `opts.accent` when provided (Joe
     // directive 2026-05-26: Today = green, Tomorrow = blue as fixed brand
     // accents). Falls back to tier color when no accent is passed.
+    // `opts.stops` adds a "· N stops" sub-line for scheduled volume.
     var tier = 'neutral';
     if (opts.value > 0 && opts.target > 0) {
       var r = opts.value / opts.target;
@@ -6278,14 +6383,18 @@ function renderHeroStrip_(ctx) {
     var deltaSign = delta >= 0 ? '+' : '−';
     var deltaAbs  = '$' + Math.round(Math.abs(delta)).toLocaleString();
     var hint = actionHint_(opts.value, opts.target);
+    var stopsLine = (opts.stops != null && opts.stops > 0)
+      ? ' · <span class="hero-v2-stops">' + opts.stops.toLocaleString() + ' stops</span>'
+      : '';
     return '<div class="hero-v2-card ' + cardClass + '">' +
              '<div class="hero-v2-label">' + escapeHtml(opts.label) + '</div>' +
              '<div class="hero-v2-value">$' + Math.round(opts.value || 0).toLocaleString() + '</div>' +
              '<div class="hero-v2-meta">' +
                (opts.target > 0
                  ? '<span class="hero-v2-target">vs target $' + Math.round(opts.target).toLocaleString() + '</span>' +
-                   ' <span class="hero-v2-delta hero-v2-delta-' + tier + '">' + deltaSign + deltaAbs + '</span>'
-                 : '<span class="hero-v2-target">no target set</span>') +
+                   ' <span class="hero-v2-delta hero-v2-delta-' + tier + '">' + deltaSign + deltaAbs + '</span>' +
+                   stopsLine
+                 : '<span class="hero-v2-target">no target set</span>' + stopsLine) +
              '</div>' +
              (hint ? '<div class="hero-v2-hint hero-v2-hint-' + tier + '">' + escapeHtml(hint) + '</div>' : '') +
            '</div>';
@@ -6297,8 +6406,8 @@ function renderHeroStrip_(ctx) {
 
   // Fixed brand accents — Today=green, Tomorrow=blue (Joe directive 2026-05-26).
   // Tier signal still shows in the delta + hint text colors below the value.
-  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday, target: ctx.fcNeededPerDay, accent: 'good' });
-  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,  target: ctx.fcNeededPerDay, accent: 'info' });
+  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday, target: ctx.fcNeededPerDay, accent: 'good', stops: ctx.fcTodayCount });
+  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,  target: ctx.fcNeededPerDay, accent: 'info', stops: ctx.fcTmrwCount  });
 
   // ── Context strip (5 small cards) ──
   // +2 day
@@ -6313,10 +6422,12 @@ function renderHeroStrip_(ctx) {
            '</div>';
   }
 
-  // +2 / +3 outlook cards — fixed purple accent (Joe directive 2026-05-26).
-  // These are pure outlook reference points, not action-driving like Today/Tomorrow.
-  var d2Card = buildCtxCard_('+2 · ' + d2Label, '', '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), 'purple');
-  var d3Card = buildCtxCard_('+3 · ' + d3Label, '', '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), 'purple');
+  // +2 / +3 outlook cards — fixed purple accent (Joe 2026-05-26). Stops count
+  // shown under each dollar amount so volume is visible alongside revenue.
+  var d2Sub = (ctx.fcD2Count > 0) ? (ctx.fcD2Count + ' stops scheduled') : '';
+  var d3Sub = (ctx.fcD3Count > 0) ? (ctx.fcD3Count + ' stops scheduled') : '';
+  var d2Card = buildCtxCard_('+2 · ' + d2Label, d2Sub, '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), 'purple');
+  var d3Card = buildCtxCard_('+3 · ' + d3Label, d3Sub, '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), 'purple');
 
   // MTD% — uses full budget (with CGW)
   var mtdPct = (ctx.mtdBudget > 0) ? Math.round(ctx.mtdActual / ctx.mtdBudget * 100) : 0;
@@ -6359,25 +6470,44 @@ function renderHeroStrip_(ctx) {
     needCard = buildCtxCard_('NEED/DAY', 'no target set', '—', 'neutral');
   }
 
-  // Hot Queue — same as before but in the smaller card format
-  var setupsWeekCount  = ctx.setupsWeekCount || 0;
-  var cancelsWeekCount = ctx.cancelsWeekCount || 0;
-  var callbacksToday   = ctx.callbacksToday || 0;
-  var queueStatus = 'neutral';
-  if (cancelsWeekCount > 0 && setupsWeekCount > 0 && cancelsWeekCount >= setupsWeekCount * 0.5) queueStatus = 'warn';
-  var queuePills =
-    '<span class="hero-pill good">+' + setupsWeekCount + '</span>' +
-    '<span class="hero-pill bad">−' + cancelsWeekCount + '</span>' +
-    '<span class="hero-pill warn">' + callbacksToday + ' CB</span>';
-  var queueCard = buildCtxCard_(
-    'HOT QUEUE · 7d',
-    'setups · cancels · callbacks today',
-    queuePills,
-    queueStatus
+  // ── TODAY'S CAPACITY card — replaces HOT QUEUE (Joe directive 2026-05-26) ──
+  // Minute-based pest capacity: 8.5 hr day (510 min) − 45 min lunch = 465
+  // productive minutes per tech. Used = sum(Order.Duration) + drive time
+  // (miles/30mph × 60). Open = capacity − used, clamped to ≥0 per tech.
+  // Aggregate across all pest-role techs (excludes managers + CG/NWL).
+  function fmtHrMin_(min) {
+    if (min < 60) return Math.round(min) + ' min';
+    var hr = Math.floor(min / 60);
+    var rem = Math.round(min - hr * 60);
+    if (rem === 0) return hr + ' hr';
+    return hr + 'h ' + rem + 'm';
+  }
+  var capStatus = 'neutral';
+  var capValue, capSub;
+  if ((ctx.capacityTechCount || 0) === 0) {
+    capValue = '—';
+    capSub = 'no pest techs scheduled';
+  } else {
+    capValue = fmtHrMin_(ctx.capacityOpenMin || 0);
+    var freeTechs = ctx.capacityTechsFree || 0;
+    var total = ctx.capacityTechCount || 0;
+    capSub = freeTechs + ' of ' + total + ' techs free · ' +
+             fmtHrMin_(ctx.capacityTotalMin - ctx.capacityOpenMin) + ' booked';
+    // Tier: green if >2 hr free, yellow if 30 min–2 hr, neutral if fully booked
+    var totalOpen = ctx.capacityOpenMin || 0;
+    if (totalOpen >= 120) capStatus = 'good';
+    else if (totalOpen >= 30) capStatus = 'warn';
+    else capStatus = 'neutral';
+  }
+  var capacityCard = buildCtxCard_(
+    'TODAY’S CAPACITY',
+    capSub,
+    capValue,
+    capStatus
   );
 
   return '<div class="hero-v2-row">' + todayCard + tmrwCard + '</div>' +
-         '<div class="hero-ctx-row">' + d2Card + d3Card + mtdCard + needCard + queueCard + '</div>';
+         '<div class="hero-ctx-row">' + d2Card + d3Card + mtdCard + needCard + capacityCard + '</div>';
 }
 
 // ══════════════════════════════════════════════════════════════
