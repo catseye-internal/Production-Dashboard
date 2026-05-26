@@ -153,8 +153,8 @@ def merge(input_path, cache_path):
             continue
         key = str(k)
         if key in by_key:
-            existing = by_key[key]
-            preserved_wd = _merge_workdate(existing, rec)
+            existing_rec = by_key[key]
+            preserved_wd = _merge_workdate(existing_rec, rec)
             by_key[key] = rec
             if preserved_wd != rec.get('WorkDate'):
                 by_key[key]['WorkDate'] = preserved_wd
