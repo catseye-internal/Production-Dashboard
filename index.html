@@ -3537,15 +3537,16 @@ function renderTechView_() {
       renderPestTechLeaderboard_(byBranch, workingElapsedMtd, STATE.employeesMap) +
     '</div>';
 
-  // Cat-Guard Installer Leaderboard — Cat-Guard installers ranked by MTD $.
-  // Mirrors Pest Tech Leaderboard structure. Two-tech CG jobs split 50/50
-  // (both installers worked on it). Filters to Cat-Guard ServiceClass set.
+  // Cat-Guard Installer Leaderboard — CG/NWL installers ranked by MTD $.
+  // Mirrors Pest Tech Leaderboard structure. Filters byBranch to techs whose
+  // PRIMARY role is cgnwl (excludes pest techs who happen to appear on a CG
+  // warranty visit). Two-tech CG jobs split 50/50 in byBranch upstream.
   // Joe directive 2026-05-26.
   var cardCatGuardLeaderboard =
     '<div class="chart-card">' +
       '<h3 class="chart-title">CAT-GUARD INSTALLER LEADERBOARD</h3>' +
-      '<div class="chart-meta">Cat-Guard installers ranked by MTD revenue · two-tech jobs split 50/50 · gold/silver/bronze top 3 · green ≥$3,500/install, yellow ≥$2,000, red <$2,000</div>' +
-      renderCatGuardLeaderboard_(workingElapsedMtd, dSom, dYest, STATE.employeesMap) +
+      '<div class="chart-meta">CG/NWL installers ranked by MTD revenue · two-tech jobs split 50/50 · excludes managers and pest techs · gold/silver/bronze top 3 · green ≥$3,500/install, yellow ≥$2,000, red <$2,000</div>' +
+      renderCatGuardLeaderboard_(byBranch, workingElapsedMtd, STATE.employeesMap) +
     '</div>';
 
   // Stack order: Forecast Totals → Completed vs Budget → Callbacks by Branch
@@ -5988,115 +5989,56 @@ function renderPestTechLeaderboard_(byBranch, workingDays, employeesMap) {
 // ─────────────────────────────────────────────────────────────────────────────
 // renderCatGuardLeaderboard_
 //
-// Cat-Guard installer leaderboard, MTD. Mirrors renderPestTechLeaderboard_ in
-// shape (rank medals, color-tiered score, table layout) but filters to
-// Cat-Guard ServiceClass values and splits two-tech jobs 50/50.
+// Cat-Guard / NWL installer leaderboard, MTD. Mirrors renderPestTechLeaderboard_
+// exactly — reads from the same `byBranch` aggregation that already handles the
+// Tech1+Tech2 50/50 revenue split for CG/NWL invoices. The ONLY difference is
+// the role filter: `t.role === 'cgnwl'` instead of `t.role === 'pest'`.
 //
-// Scoring (color tiers on $/Install): CG installs are bigger-ticket than
-// recurring pest stops — typical jobs run $1.5K–$8K depending on scope. Tiers
-// calibrated accordingly.
+// This approach (vs. iterating raw invoices and filtering by ServiceClass)
+// correctly excludes pest techs who occasionally appear on a CG warranty visit
+// — only techs whose PRIMARY role is CG/NWL (majority of their jobs) show up.
+// Manager exclusion is identical to Pest Tech Leaderboard.
+//
+// Scoring tiers on $/Install — CG installs run $1.5K–$8K depending on scope:
 //   green  ≥ $3,500/install
 //   yellow ≥ $2,000/install
 //   red    <  $2,000/install
-//
-// Filtering rules:
-//   • InvoiceDate must fall in [dSom, dYest] (1st of month → yesterday)
-//   • ServiceClass must be in the Cat-Guard set (see CG_INSTALLER_CLASSES)
-//   • Tech1 must be present and not a manager / non-tech code
-//   • Tech2 dropped if non-tech code or duplicate of Tech1
-//   • Two-tech invoices split SubTotal 50/50 between Tech1 and Tech2,
-//     each gets +1 install
 // ─────────────────────────────────────────────────────────────────────────────
-var CG_INSTALLER_CLASSES = (function() {
-  // Case-normalized set of ServiceClass values that count as Cat-Guard install
-  // work. Drawn from observed data + the CG_CLASSES + CG_PATTERN_CLASSES sets
-  // in config.js. Joe 2026-05-26 — verify when first run and tune if needed.
-  var raw = [
-    'CATGUARD', 'CAT-GUARD', 'CG WARRANT',
-    'PG CG', 'PG CG PRE', 'PG CG INIT'
-  ];
-  var s = {};
-  raw.forEach(function(x) { s[x.toUpperCase()] = true; });
-  return s;
-})();
-
-function renderCatGuardLeaderboard_(workingDays, dSom, dYest, employeesMap) {
-  // Pull the invoice array via the same lens the Tech view uses.
-  // productionInvoices_() returns the PRODUCTION lens (IN+PR+CM+CB only),
-  // excluding PI auto-bills — same baseline as Pest Tech Leaderboard.
-  var invoices = (typeof productionInvoices_ === 'function')
-    ? productionInvoices_()
-    : (STATE.invoices || []);
-
-  // Reuse manager + non-tech filters from the Pest Tech path. dynamicMgrSet is
-  // built upstream in renderTechView_; if absent (defensive), fall back to a
-  // permissive check.
+function renderCatGuardLeaderboard_(byBranch, workingDays, employeesMap) {
+  // Reuse the same manager-exclusion logic as Pest Tech Leaderboard. Static
+  // managers come from isManagerCode (config.js hardcoded set + employees
+  // cache JobTitle keyword match); dynamic ones come from STATE.dynamicMgrSet.
+  var dynamicMgrSet = (typeof STATE !== 'undefined' && STATE.dynamicMgrSet) ? STATE.dynamicMgrSet : new Set();
   function isMgr_(code) {
     if (!code) return false;
     var c = String(code).toUpperCase();
     if (typeof isManagerCode === 'function' && isManagerCode(c)) return true;
-    if (typeof dynamicMgrSet !== 'undefined' && dynamicMgrSet.has) return dynamicMgrSet.has(c);
-    return false;
-  }
-  function isNon_(code) {
-    if (!code) return true;
-    return (typeof isNonTechCode === 'function') ? isNonTechCode(code) : false;
+    return dynamicMgrSet.has(c);
   }
 
-  // techCode → { installs, revenue, branchVotes }
-  var techRows = {};
-  function bumpTech_(code, dollars, branch) {
-    if (!techRows[code]) techRows[code] = { installs: 0, revenue: 0, branchVotes: {} };
-    techRows[code].installs += 1;
-    techRows[code].revenue += dollars;
-    if (branch) techRows[code].branchVotes[branch] = (techRows[code].branchVotes[branch] || 0) + 1;
-  }
-
-  invoices.forEach(function(inv) {
-    var sc = String(inv.ServiceClass || '').toUpperCase().trim();
-    if (!CG_INSTALLER_CLASSES[sc]) return;
-    var date = String(inv.InvoiceDate || '').substring(0, 10);
-    if (date < dSom || date > dYest) return;
-
-    var amount = Number(inv.SubTotal) || 0;
-    if (amount <= 0) return;
-
-    var tech1 = inv.Tech ? String(inv.Tech).toUpperCase() : null;
-    var tech2 = inv.Tech2 ? String(inv.Tech2).toUpperCase() : null;
-
-    if (!tech1 || isMgr_(tech1) || isNon_(tech1)) return;
-    if (tech2 && (isNon_(tech2) || tech2 === tech1)) tech2 = null;
-    // Don't suppress tech2 just because they're a manager — installs are
-    // installs. (If you want to exclude managers from CG too, add isMgr_ here.)
-
-    if (tech2) {
-      bumpTech_(tech1, amount / 2, inv.Branch);
-      bumpTech_(tech2, amount / 2, inv.Branch);
-    } else {
-      bumpTech_(tech1, amount, inv.Branch);
-    }
-  });
-
-  // Flatten + derive per-tech metrics
-  var rows = Object.keys(techRows).map(function(code) {
-    var r = techRows[code];
-    var branch = '';
-    var topVotes = 0;
-    Object.keys(r.branchVotes).forEach(function(b) {
-      if (r.branchVotes[b] > topVotes) { branch = b; topVotes = r.branchVotes[b]; }
+  // Flatten: collect all CG/NWL techs across branches, exclude managers
+  var rows = [];
+  Object.keys(byBranch).forEach(function(branch) {
+    (byBranch[branch] || []).forEach(function(t) {
+      if (t.role !== 'cgnwl') return;
+      if (isMgr_(t.tech)) return;
+      var installs = t.data.completedCount || 0;
+      var revenue  = t.data.completed || 0;
+      var perDay   = revenue / workingDays;
+      var perInstall = installs > 0 ? revenue / installs : 0;
+      rows.push({
+        code: t.tech,
+        branch: branch,
+        installs: installs,
+        revenue: revenue,
+        perDay: perDay,
+        perInstall: perInstall
+      });
     });
-    return {
-      code: code,
-      branch: branch,
-      installs: r.installs,
-      revenue: r.revenue,
-      perInstall: r.installs > 0 ? r.revenue / r.installs : 0,
-      perDay: workingDays > 0 ? r.revenue / workingDays : 0
-    };
   });
 
   if (rows.length === 0) {
-    return '<div class="nb-empty">No Cat-Guard installer activity MTD</div>';
+    return '<div class="nb-empty">No Cat-Guard / NWL installer MTD data yet</div>';
   }
 
   rows.sort(function(a, b) { return b.revenue - a.revenue; });
