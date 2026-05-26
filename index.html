@@ -4183,6 +4183,11 @@ function renderTechView_() {
   // Completed vs Budget card methodology: same 5 categories, excludes
   // plat_nonbillable). Joe directive 2026-05-25.
   // Two flavors: full (with CGW) for the MTD% chip, and no-CGW for NEED/DAY.
+  //
+  // Joe directive 2026-05-26: Office-credited revenue (auto-renewals, credit
+  // memos, non-tech-credited service) is now INCLUDED in heroMtdActual and
+  // heroMtdActualNoCgw. The hero strip + Completed vs Budget should show
+  // ALL production — not just field-credited — to match Daily Recap.
   var heroMtdActual = 0;        // full MTD revenue (with CGW)
   var heroMtdActualNoCgw = 0;   // MTD revenue excluding CGW (for NEED/DAY)
   try {
@@ -4193,6 +4198,13 @@ function renderTechView_() {
       HERO_CATS_FULL.forEach(function(c) { heroMtdActual += Number(bcats[c] || 0); });
       HERO_CATS_NOCGW.forEach(function(c) { heroMtdActualNoCgw += Number(bcats[c] || 0); });
     });
+    // Add office-credited MTD revenue (auto-renewals, credit memos, non-tech
+    // codes). Office buckets aren't split CGW vs non-CGW, so the total
+    // contribution lands in both flavors. Joe 2026-05-26.
+    var heroOfficeMtd = (officeByCompany.catseye.completed || 0) +
+                        (officeByCompany.usx.completed || 0);
+    heroMtdActual      += heroOfficeMtd;
+    heroMtdActualNoCgw += heroOfficeMtd;
   } catch (e) { /* leave at 0 */ }
 
   // Compute NEED/DAY with floor rule
@@ -4382,7 +4394,7 @@ function renderTechView_() {
       '<h3 class="chart-title">CALLBACKS BY BRANCH</h3>' +
       renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBranch) +
     '</div>';
-  var mtdRender = renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory);
+  var mtdRender = renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory, officeByCompany);
   var cardMtdProduction =
     '<div class="chart-card">' +
       '<div class="chart-card-titlerow">' +
@@ -5694,8 +5706,12 @@ function renderTechChartsRow_(fcTotals, byBranch, todayD, dateLabel) {
 // Each branch row is clickable to expand a per-category Budget-vs-Actual
 // drill-down for the 4 production categories. A combined CATSEYE + USX
 // company total + a COMBINED TOTAL row are appended below.
-function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
+function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory, officeByCompany) {
   if (!byBranch || !todayD) return '<div class="cb-empty">Loading…</div>';
+  // Default to empty office buckets if caller didn't pass one
+  if (!officeByCompany) {
+    officeByCompany = { catseye: { completed: 0 }, usx: { completed: 0 } };
+  }
 
   // ── Date range — defaults to SOM through yesterday (MTD) unless the user
   // picked a custom From/To via the inline date inputs at the top of the card.
@@ -5734,16 +5750,26 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   if (isCustom && STATE.invoiceCache) {
     var localByBranch = {};
     var localByBranchCat = {};
+    var localOfficeByCompany = {
+      catseye: { completed: 0 },
+      usx:     { completed: 0 }
+    };
     BRANCH_ALL.forEach(function(b) { localByBranch[b] = []; localByBranchCat[b] = {}; });
     productionInvoices_().forEach(function(inv) {
       var date = String(inv.InvoiceDate || '').substring(0, 10);
       if (date < startYmd || date > endYmd) return;
-      // Office-event filter mirrors the upstream attribution rule
-      if (isOfficeEvent(inv)) return;
-      if (isNonTechCode(inv.Tech)) return;
+      var amt = Number(inv.SubTotal) || 0;
+      // Office-event filter mirrors the upstream attribution rule — but
+      // instead of dropping the dollars, route them to the per-company
+      // office bucket so they roll up into the company-level aggregates.
+      // Joe directive 2026-05-26.
+      if (isOfficeEvent(inv) || isNonTechCode(inv.Tech)) {
+        var coKey = isUsxBranch(inv.Branch) ? 'usx' : 'catseye';
+        localOfficeByCompany[coKey].completed += amt;
+        return;
+      }
       var br = inv.Branch || '';
       if (!localByBranch[br]) return;
-      var amt = Number(inv.SubTotal) || 0;
       var cat = classifyProductionCategory(inv);
       // Tally the category breakdown (used for drill-down). plat_nonbillable
       // lands in its own bucket and is excluded from the card's totals below.
@@ -5758,6 +5784,7 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
     });
     byBranch = localByBranch;
     mtdByBranchCategory = localByBranchCat;
+    officeByCompany = localOfficeByCompany;
   }
 
   // The 4 production categories that the drill-down breaks out (CGW lives in
@@ -5877,6 +5904,27 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
   combinedAgg.usx = false;
   combinedAgg.isCombined = true;
 
+  // ── Inject office-credited revenue into company-level aggregates ──
+  // Joe directive 2026-05-26: Completed vs Budget must show ALL production
+  // (auto-renewals, credit memos, non-tech-credited revenue) not just
+  // field-credited. Office buckets are stored per-company (not per-branch),
+  // so we apply at the company-aggregate level — individual branch rows
+  // continue to show field-only since office revenue isn't branch-attributed.
+  var officeCatseye = Number(officeByCompany.catseye && officeByCompany.catseye.completed) || 0;
+  var officeUsx     = Number(officeByCompany.usx     && officeByCompany.usx.completed)     || 0;
+  catseyeAgg.mtdAll  += officeCatseye;
+  catseyeAgg.mtdProd += officeCatseye;
+  usxAgg.mtdAll      += officeUsx;
+  usxAgg.mtdProd     += officeUsx;
+  combinedAgg.mtdAll  += officeCatseye + officeUsx;
+  combinedAgg.mtdProd += officeCatseye + officeUsx;
+  // Recompute on-pace projections using the new mtdProd (so the pace bars
+  // and pacingPct % vs budget reflect the all-in number).
+  [catseyeAgg, usxAgg, combinedAgg].forEach(function(agg) {
+    agg.onPaceProd    = (agg.mtdProd / elapsedForPace) * workingTotal;
+    agg.onPaceWithCgw = agg.onPaceProd + (agg.enhancedCgw || 0);
+  });
+
   // ── Format helpers ──
   function fmt$(n) { return '$' + Math.round(n).toLocaleString(); }
   function fmtK(n) {
@@ -5929,8 +5977,14 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory) {
       '</div>';
     }
 
+    // Tooltip varies by mode: company/combined rows now include office-credited
+    // revenue (auto-renewals, credit memos, non-tech-credited) per Joe 2026-05-26.
+    // Branch rows remain field-only since office isn't branch-attributed.
+    var actualTip = (mode === 'company' || mode === 'combined')
+      ? 'Billable MTD revenue: 5 dashboard categories minus PR courtesy-platinum visits, INCLUDING office-credited revenue (auto-renewals, credit memos, non-tech codes).'
+      : 'Billable MTD revenue: 5 dashboard categories minus PR courtesy-platinum visits (PG CG / PG CG PRE). Office-credited revenue is rolled into the parent company total, not branch rows.';
     var rows = '';
-    rows += '<div class="mtd-prod-metric" title="Billable MTD revenue: 5 dashboard categories minus PR courtesy-platinum visits (PG CG / PG CG PRE)">' +
+    rows += '<div class="mtd-prod-metric" title="' + escapeHtml(actualTip) + '">' +
       '<span class="mtd-prod-metric-label">Actual</span>' +
       '<span class="mtd-prod-metric-value">' + fmtK(item.mtdAll) + '</span>' +
       '<div class="mtd-prod-metric-bar">' +
