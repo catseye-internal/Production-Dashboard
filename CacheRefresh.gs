@@ -1575,22 +1575,102 @@ function backfillInvoicesByList_(invoiceNumbers) {
 }
 
 // Wrapper for today's 45 invoices from the 05/26/26 PestPac PDF.
-// Run from the function dropdown. Will populate cache-invoices.json with
-// the actual list of invoices Joe posted on 5/26.
-function backfillTodaysInvoices_2026_05_26_() {
-  return backfillInvoicesByList_([
-    // IN type
+// Run from the function dropdown (no trailing underscore — Apps Script hides
+// _-suffixed functions from the dropdown as a private convention).
+// DIAGNOSTIC — what fields does /Invoices?invoiceNumber=X actually return?
+// We need to find which field carries the IN/CM/CB/PR type code so the
+// production-lens filter on the dashboard can include backfilled invoices.
+// Joe 2026-05-26.
+function probeInvoiceShape() {
+  var token = ppToken_();
+  // Sample one of each type from today's PDF
+  var samples = [
+    { num: '1333637', expectedType: 'IN', note: 'plain IN' },
+    { num: '1340478', expectedType: 'CM', note: 'credit memo' },
+    { num: 'A1340024', expectedType: 'CB', note: 'callback (A-prefix)' },
+    { num: 'A1332478', expectedType: 'PR', note: 'production (A-prefix)' }
+  ];
+  samples.forEach(function(s) {
+    Logger.log('━━━ ' + s.num + ' (expected ' + s.expectedType + ' · ' + s.note + ') ━━━');
+    var r = ppGet_(token, '/Invoices?invoiceNumber=' + encodeURIComponent(s.num));
+    if (r.code !== 200) {
+      Logger.log('  HTTP ' + r.code + ' — ' + r.text.substring(0, 200));
+      return;
+    }
+    var parsed = JSON.parse(r.text);
+    var inv = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (!inv) { Logger.log('  Empty body'); return; }
+    Logger.log('  All ' + Object.keys(inv).length + ' keys: ' + Object.keys(inv).sort().join(', '));
+    // Log all fields that could plausibly hold a type code
+    ['InvoiceType','Type','InvoiceTypeCode','InvoiceTypeID','InvoiceTypeName',
+     'OrderType','TransactionType','InvType','Code','Status'].forEach(function(f) {
+      if (f in inv) Logger.log('  → ' + f + ': "' + inv[f] + '" (type: ' + typeof inv[f] + ')');
+    });
+    Logger.log('  InvoiceNumber: "' + inv.InvoiceNumber + '"');
+    Logger.log('  Total: ' + inv.Total + '  SubTotal: ' + inv.SubTotal);
+  });
+  Logger.log('━━━ PROBE COMPLETE ━━━');
+}
+
+// PATCH function — sets InvoiceType to the correct IN/CM/CB/PR code on the
+// 45 records we just backfilled. The /Invoices?invoiceNumber=X endpoint
+// returns InvoiceType="Invoice" literal, which makes records invisible to
+// the dashboard's PRODUCTION lens filter. Joe 2026-05-26.
+function patchTodaysInvoiceTypes() {
+  var t0 = new Date();
+  var TYPES = {
+    '1241396': 'IN','1316461': 'IN','1333637': 'IN','1333714': 'IN','1333871': 'IN',
+    '1333887': 'IN','1333909': 'IN','1334218': 'IN','1334972': 'IN','1335399': 'IN',
+    '1335789': 'IN','1337443': 'IN','1337455': 'IN','1338855': 'IN','1338883': 'IN',
+    '1338964': 'IN','1339268': 'IN','1339520': 'IN','1340185': 'IN','1340439': 'IN',
+    '1340478': 'CM','1340481': 'CM','1340488': 'CM','1340496': 'CM','1340500': 'CM',
+    '1340510': 'CM','1340516': 'CM','1340524': 'CM',
+    'A1316960': 'CB','A1340024': 'CB','A1340073': 'CB','A1340151': 'CB','A1340249': 'CB',
+    'A1332478': 'PR','A1332974': 'PR','A1333105': 'PR','A1333157': 'PR','A1339345': 'PR',
+    'A1339393': 'PR','A1339745': 'PR','A1339841': 'PR','A1340009': 'PR','A1340119': 'PR',
+    'A1340209': 'PR','A1340403': 'PR'
+  };
+  Logger.log('🛠️ Patching InvoiceType on ' + Object.keys(TYPES).length + ' records');
+  var cache = readInvoicesCacheDirect_();
+  var invs = cache.invoices || [];
+  var patched = 0;
+  invs.forEach(function(inv) {
+    var k = String(inv.InvoiceNumber || '');
+    if (TYPES[k]) {
+      var prev = inv.InvoiceType;
+      inv.InvoiceType = TYPES[k];
+      patched++;
+      if (patched <= 3) Logger.log('  ' + k + ': "' + prev + '" → "' + TYPES[k] + '"');
+    }
+  });
+  Logger.log('  Patched ' + patched + ' / ' + Object.keys(TYPES).length);
+  if (patched === 0) { Logger.log('  Nothing to patch — run backfillTodaysInvoices first'); return; }
+  cache.invoices = invs;
+  cache.updated = new Date().toISOString();
+  cache.lastTypePatch = new Date().toISOString();
+  var ok = pushToGitHub_(
+    JSON.stringify(cache),
+    GH_PATH_INVOICES_FOR_BACKFILL,
+    'Patch InvoiceType on ' + patched + ' backfilled records ' + new Date().toISOString()
+  );
+  Logger.log('✅ Done in ' + ((new Date() - t0)/1000).toFixed(1) + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+}
+
+function backfillTodaysInvoices() {
+  // Atomic: backfill + type-patch in one call. Safe to re-run.
+  // The /Invoices?invoiceNumber=X endpoint returns InvoiceType="Invoice" literal
+  // instead of the IN/CM/CB/PR code, so we explicitly override here. Joe 2026-05-26.
+  backfillInvoicesByList_([
     '1241396','1316461','1333637','1333714','1333871','1333887','1333909',
     '1334218','1334972','1335399','1335789','1337443','1337455','1338855',
     '1338883','1338964','1339268','1339520','1340185','1340439',
-    // CM type (credit memos)
     '1340478','1340481','1340488','1340496','1340500','1340510','1340516','1340524',
-    // CB type (callbacks — "A" prefix)
     'A1316960','A1340024','A1340073','A1340151','A1340249',
-    // PR type (production — "A" prefix)
     'A1332478','A1332974','A1333105','A1333157','A1339345','A1339393',
     'A1339745','A1339841','A1340009','A1340119','A1340209','A1340403'
   ]);
+  // Apply type map regardless of whether fetch succeeded
+  patchTodaysInvoiceTypes();
 }
 
 // Read cache-invoices.json directly from GitHub Pages (raw mirror is the same)

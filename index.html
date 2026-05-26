@@ -2233,9 +2233,17 @@ function applyViewVisibility_() {
   if (cancelsView)    cancelsView.style.display    = (view === 'cancels') ? '' : 'none';
 }
 
-function loadInvoiceCache() {
-  if (STATE.invoiceLoadPromise) return STATE.invoiceLoadPromise;
-  STATE.invoiceLoadPromise = fetch('./cache-invoices.json', { cache: 'no-store' })
+// `force=true` re-fetches even if already loaded. Called by the auto-refresh
+// timer so the invoice cache stays current between full page loads.
+// Joe directive 2026-05-26 — previously the promise was permanently cached,
+// so invoice numbers froze at first-load values and never refreshed.
+function loadInvoiceCache(force) {
+  if (STATE.invoiceLoadPromise && !force) return STATE.invoiceLoadPromise;
+  // Cache-buster — GitHub Pages CDN ignores fetch `cache: 'no-store'` and
+  // can serve a stale invoice cache for ~10 min after a commit. The query
+  // string defeats the CDN cache.
+  var bust = '?v=' + Date.now();
+  STATE.invoiceLoadPromise = fetch('./cache-invoices.json' + bust, { cache: 'no-store' })
     .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data) {
       STATE.invoiceCache = data;
@@ -2252,9 +2260,9 @@ function loadInvoiceCache() {
 
 // Loads cache-locations.json and builds a LocationID → location Map for fast lookup.
 // Joined onto service-order records at render time via joinLocationData().
-function loadLocationsCache() {
-  if (STATE.locationsLoadPromise) return STATE.locationsLoadPromise;
-  STATE.locationsLoadPromise = fetch('./cache-locations.json', { cache: 'no-store' })
+function loadLocationsCache(force) {
+  if (STATE.locationsLoadPromise && !force) return STATE.locationsLoadPromise;
+  STATE.locationsLoadPromise = fetch('./cache-locations.json?v=' + Date.now(), { cache: 'no-store' })
     .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data) {
       STATE.locationsCache = data;
@@ -2281,9 +2289,9 @@ function loadLocationsCache() {
 //   STATE.setupsMap          — SetupID → setup (Service Orders join by this)
 //   STATE.setupsByLocService — LocationID:ServiceCode → setup (Invoices fallback for Frequency)
 // Joined onto records at render time via joinLocationData().
-function loadSetupsCache() {
-  if (STATE.setupsLoadPromise) return STATE.setupsLoadPromise;
-  STATE.setupsLoadPromise = fetch('./cache-setups.json', { cache: 'no-store' })
+function loadSetupsCache(force) {
+  if (STATE.setupsLoadPromise && !force) return STATE.setupsLoadPromise;
+  STATE.setupsLoadPromise = fetch('./cache-setups.json?v=' + Date.now(), { cache: 'no-store' })
     .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data) {
       STATE.setupsCache = data;
@@ -2374,9 +2382,9 @@ function getDynamicManagerSet_() {
 // Load cache-employees.json and build STATE.employeesMap (Username uppercase → record).
 // PestPac's `Username` field is the 3-letter code (GRA, BAG2, ADMN) that matches
 // ServiceOrders.Tech1, ServiceOrders.Tech2, and Invoice.Tech.
-function loadEmployeesCache() {
-  if (STATE.employeesLoadPromise) return STATE.employeesLoadPromise;
-  STATE.employeesLoadPromise = fetch('./cache-employees.json', { cache: 'no-store' })
+function loadEmployeesCache(force) {
+  if (STATE.employeesLoadPromise && !force) return STATE.employeesLoadPromise;
+  STATE.employeesLoadPromise = fetch('./cache-employees.json?v=' + Date.now(), { cache: 'no-store' })
     .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data) {
       STATE.employeesCache = data;
@@ -2399,9 +2407,9 @@ function loadEmployeesCache() {
 // by the pest capacity calculation to exclude PTO/off-day blocks. Without this,
 // Cody on PTO appears as 7h 45m of open capacity — wrong.
 // ──────────────────────────────────────────────────────────────
-function loadTimeBlocksCache() {
-  if (STATE.timeBlocksLoadPromise) return STATE.timeBlocksLoadPromise;
-  STATE.timeBlocksLoadPromise = fetch('./cache-timeblocks.json', { cache: 'no-store' })
+function loadTimeBlocksCache(force) {
+  if (STATE.timeBlocksLoadPromise && !force) return STATE.timeBlocksLoadPromise;
+  STATE.timeBlocksLoadPromise = fetch('./cache-timeblocks.json?v=' + Date.now(), { cache: 'no-store' })
     .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data) {
       STATE.timeBlocksCache = data;
@@ -2463,7 +2471,7 @@ function timeBlockMinFor_(username, ymdKey) {
 // Powers the MTD Production card on the Tech view. Format documented in budgets.json.
 function loadBudgets() {
   if (STATE.budgetsLoadPromise) return STATE.budgetsLoadPromise;
-  STATE.budgetsLoadPromise = fetch('./budgets.json', { cache: 'no-store' })
+  STATE.budgetsLoadPromise = fetch('./budgets.json?v=' + Date.now(), { cache: 'no-store' })
     .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data) {
       STATE.budgets = data || {};
@@ -2769,7 +2777,7 @@ function toggleCustomDateRange() {
 function loadCache() {
   if (isRefreshing) return Promise.resolve();
   isRefreshing = true;
-  return fetch(CACHE_JSON_URL, { cache: 'no-store' })
+  return fetch(CACHE_JSON_URL + '?v=' + Date.now(), { cache: 'no-store' })
     .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data) {
       STATE.rawCache = data;
@@ -2790,7 +2798,17 @@ function loadCache() {
 function scheduleRefresh() {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(function() {
-    try { loadCache(); }
+    try {
+      // Refresh ALL caches the dashboard depends on, not just service orders.
+      // Previously only loadCache() was called, so invoice/setup/employee/
+      // timeblocks data froze at first load. Joe directive 2026-05-26.
+      loadCache();
+      loadInvoiceCache(true);   // force re-fetch (bypass promise cache)
+      loadSetupsCache(true);
+      loadLocationsCache(true);
+      loadEmployeesCache(true);
+      loadTimeBlocksCache(true);
+    }
     catch (e) { console.error('refresh error:', e); }
   }, CACHE_REFRESH_MS);
 }
