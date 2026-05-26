@@ -3491,18 +3491,20 @@ function renderTechView_() {
     '</div>';
 
   // Hero Strip sits ABOVE the chartsGrid as its own banner row.
-  // Stack order: Forecast Totals → Completed vs Budget → New Business → Rev/Tech
-  //              → Pest Efficiency → Pest Tech Leaderboard → Callbacks by Branch.
+  // Stack order: Forecast Totals → Completed vs Budget → Callbacks by Branch
+  //              → New Business → Rev/Tech → Pest Efficiency → Pest Tech Leaderboard.
+  // Joe 2026-05-25: Callbacks moved above New Business so the "quality"
+  // signal sits right next to "production" before "growth" further down.
   var chartsGrid =
     heroStripHtml +
     '<div class="tech-charts-stack">' +
       cardForecastTotals +
       cardMtdProduction +
+      cardCallbacksByBranch +
       cardNewBusinessRow +
       cardRevPerTech +
       cardPestEfficiency +
       cardPestTechLeaderboard +
-      cardCallbacksByBranch +
     '</div>';
 
   // Master cards — one per company (Catseye + USX Pest), full-width
