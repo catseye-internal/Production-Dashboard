@@ -561,6 +561,77 @@
     font-size: 14px; letter-spacing: 1.1px; margin-bottom: 14px;
   }
 
+  /* ══════════════════════════════════════════════════════════════
+     CANCELS VIEW — breakdown cards
+     ══════════════════════════════════════════════════════════════ */
+  .cancels-hero-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-bottom: 24px;
+  }
+  @media (max-width: 700px) {
+    .cancels-hero-row { grid-template-columns: 1fr; }
+  }
+  /* By Company side-by-side */
+  .cancels-co-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  }
+  .cancels-co-card {
+    background: var(--bg-table-row);
+    border: 1px solid var(--border);
+    border-left: 4px solid rgba(255,255,255,0.10);
+    border-radius: 10px; padding: 16px 20px;
+  }
+  .cancels-co-catseye { border-left-color: #F47B20; }
+  .cancels-co-usx     { border-left-color: #60A5FA; }
+  .cancels-co-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.0px;
+    text-transform: uppercase; color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  .cancels-co-catseye .cancels-co-label { color: #F47B20; }
+  .cancels-co-usx     .cancels-co-label { color: #60A5FA; }
+  .cancels-co-stats {
+    display: flex; gap: 28px;
+  }
+  .cancels-co-stat-val {
+    font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums;
+    line-height: 1.0; letter-spacing: -0.5px; color: var(--text);
+  }
+  .cancels-co-stat-lbl {
+    font-size: 10px; color: var(--text-dim); margin-top: 4px;
+    text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600;
+  }
+  /* By Branch row — 5 cards */
+  .cancels-br-row {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+  }
+  @media (max-width: 1000px) {
+    .cancels-br-row { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 700px) {
+    .cancels-br-row { grid-template-columns: 1fr 1fr; }
+  }
+  .cancels-br-card {
+    background: var(--bg-table-row);
+    border: 1px solid var(--border);
+    border-left: 3px solid rgba(255,255,255,0.10);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .cancels-br-catseye { border-left-color: #F47B20; }
+  .cancels-br-usx     { border-left-color: #60A5FA; }
+  .cancels-br-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;
+  }
+  .cancels-br-count {
+    font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums;
+    color: var(--text); line-height: 1.0;
+  }
+  .cancels-br-arr {
+    font-size: 11px; color: var(--text-dim); margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
   /* T2: Leaderboard "Show all" expand toggle */
   .lb-expand-btn {
     display: block; margin: 12px auto 0;
@@ -1571,6 +1642,7 @@
     <button class="tab" data-view="orders">Forecast</button>
     <button class="tab" data-view="invoices">Production</button>
     <button class="tab" data-view="setups">Setups</button>
+    <button class="tab" data-view="cancels">Cancels</button>
     <button class="tab" data-view="summary">Summary</button>
   </nav>
   <div class="header-right">
@@ -1710,6 +1782,11 @@
   <!-- ─────────── SUMMARY VIEW ─────────── -->
   <div class="grouped-view" id="summaryView" style="display:none"></div>
 
+  <!-- ─────────── CANCELS VIEW ─────────── -->
+  <!-- Breakdown cards (hero, by company, by branch, by service class, by reason).
+       The actual list table re-uses tableCard below. Joe directive 2026-05-26. -->
+  <div class="grouped-view" id="cancelsView" style="display:none"></div>
+
   <!-- ─────────── TECH VIEW ─────────── -->
   <div class="grouped-view" id="techView" style="display:none"></div>
   <!-- Tech detail view — per-tech master cards (Catseye + USX). Split from
@@ -1743,9 +1820,11 @@ var STATE = {
   ordersPeriod: 'tomorrow', // 'today' | 'tomorrow' | 'next3' | 'next7' | 'custom'
   invoicesPeriod: 'mtd',   // 'today' | 'yesterday' | 'wk' | 'mtd' | 'ytd' | 'custom'
   summaryPeriod: 'mtd',    // mirrors invoices period set
+  cancelsPeriod: 'mtd',    // Cancels view — defaults to MTD per Joe 2026-05-26
   ordersCustom:   { start: '', end: '' },
   invoicesCustom: { start: '', end: '' },
   summaryCustom:  { start: '', end: '' },
+  cancelsCustom:  { start: '', end: '' },
   // Common filters
   company: '',             // '' | 'catseye' | 'usx'
   division: '',            // '' | 'pest-resi' | 'pest-commerc' | 'cgnwl'
@@ -1833,6 +1912,10 @@ var VIEW_DEFS = {
   // StartDate. No period filter by default (shows all setups); user can apply
   // one via the filter bar. Joe directive 2026-05-26.
   setups:   { source: 'setups',   dateKey: 'StartDate' },
+  // Cancels view — cancelled ServiceSetups (CancelDate populated). Defaults
+  // to MTD period. Renders breakdown cards (by branch, company, class, reason)
+  // above the list table. Joe directive 2026-05-26.
+  cancels:  { source: 'cancels',  dateKey: 'CancelDate' },
   // Tech view source depends on STATE.techMode (forecast = orders, completed = invoices).
   // dateKey resolved at render time.
   // 'tech'       = Dashboard tab (chartsGrid: hero strip + cards)
@@ -1886,6 +1969,8 @@ function wireTabs() {
         STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
       } else if (STATE.view === 'setups') {
         STATE.sort = { key: 'StartDate', dir: 'desc' };
+      } else if (STATE.view === 'cancels') {
+        STATE.sort = { key: 'CancelDate', dir: 'desc' };
       }
       // Tech + Dashboard views always need invoices (MTD completed column on master cards
       // + chartsGrid); Invoices and Summary need them too. 'techdetail' = Tech tab.
@@ -1931,10 +2016,12 @@ function applyViewVisibility_() {
   var summaryView = document.getElementById('summaryView');
   var techView = document.getElementById('techView');
   var techDetailView = document.getElementById('techDetailView');
-  if (tableCard)      tableCard.style.display      = (view === 'orders' || view === 'invoices' || view === 'setups') ? '' : 'none';
+  var cancelsView = document.getElementById('cancelsView');
+  if (tableCard)      tableCard.style.display      = (view === 'orders' || view === 'invoices' || view === 'setups' || view === 'cancels') ? '' : 'none';
   if (summaryView)    summaryView.style.display    = (view === 'summary') ? '' : 'none';
   if (techView)       techView.style.display       = (view === 'tech') ? '' : 'none';
   if (techDetailView) techDetailView.style.display = (view === 'techdetail') ? '' : 'none';
+  if (cancelsView)    cancelsView.style.display    = (view === 'cancels') ? '' : 'none';
 }
 
 function loadInvoiceCache() {
@@ -2344,6 +2431,7 @@ function periodStateKeys(view) {
   if (view === 'orders')   return { period: 'ordersPeriod',   custom: 'ordersCustom'   };
   if (view === 'invoices') return { period: 'invoicesPeriod', custom: 'invoicesCustom' };
   if (view === 'summary')  return { period: 'summaryPeriod',  custom: 'summaryCustom'  };
+  if (view === 'cancels')  return { period: 'cancelsPeriod',  custom: 'cancelsCustom'  };
   return { period: 'ordersPeriod', custom: 'ordersCustom' };
 }
 function getViewPeriod(view) {
@@ -2486,6 +2574,39 @@ function getRecordsForView() {
       // For the Active column: surface a string instead of a raw bool
       // (the text renderer handles strings; booleans render as 'true'/'false').
       if (typeof out.Active === 'boolean') out.Active = out.Active ? 'Yes' : 'No';
+      return out;
+    });
+  }
+  if (def.source === 'cancels') {
+    // Cancels list view — ServiceSetup records where CancelDate is populated.
+    // Filtering by CancelDate within the master period happens via the standard
+    // applyFilters() pipeline (dateKey is 'CancelDate' from VIEW_DEFS.cancels).
+    // Enriched same as Setups view (customer name + Loc # link).
+    // Joe directive 2026-05-26.
+    if (!STATE.setupsCache) return [];
+    var setupsCancels = STATE.setupsCache.setups || [];
+    var locMapC = STATE.locationsMap || {};
+    var codeClassMap = STATE.codeToClassMap || {};
+    return setupsCancels.filter(function(s) {
+      return s.CancelDate != null && String(s.CancelDate).length > 0;
+    }).map(function(s) {
+      var loc = (s.LocationID != null) ? locMapC[String(s.LocationID)] : null;
+      var out = {};
+      Object.keys(s).forEach(function(k) { out[k] = s[k]; });
+      if (loc) {
+        var name = (loc.Company && loc.Company.trim())
+          ? loc.Company.trim()
+          : ((loc.FirstName || '') + ' ' + (loc.LastName || '')).trim();
+        out._LocCustomer = name || '';
+        out._LocCodeLink = loc.LocationCode
+          ? { text: loc.LocationCode, href: 'https://app.pestpac.com/location/edit.asp?Mode=Detail&LocationID=' + loc.LocationID }
+          : null;
+      } else {
+        out._LocCustomer = '';
+        out._LocCodeLink = null;
+      }
+      // Derive ServiceClass from ServiceCode → invoice-cache code/class map
+      out._ServiceClass = (s.ServiceCode && codeClassMap[String(s.ServiceCode).toUpperCase()]) || '';
       return out;
     });
   }
@@ -2729,12 +2850,14 @@ function render() {
   // populates BOTH #techView (chartsGrid) and #techDetailView (master cards).
   // Visibility is handled by applyViewVisibility_() above. Joe 2026-05-25.
   if (STATE.view === 'summary')    return renderSummaryView_();
+  if (STATE.view === 'cancels')    { renderCancelsCards_(); /* fall through to render the list table below */ }
   if (STATE.view === 'tech')       return renderTechView_();
   if (STATE.view === 'techdetail') return renderTechView_();
 
   var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.all;
   var columns = (def.source === 'invoices') ? INVOICES_COLUMNS
               : (def.source === 'setups')   ? SETUPS_COLUMNS
+              : (def.source === 'cancels')  ? CANCELS_COLUMNS
               : SERVICE_ORDERS_COLUMNS;
   var defaultCols = columns.filter(function(c) { return c.default; });
 
@@ -2988,6 +3111,193 @@ function renderSummaryView_() {
   document.getElementById('kpiExtra').textContent = recurringPct.toFixed(0) + '%';
   document.getElementById('kpiExtraLabel').textContent = 'Recurring %';
   document.getElementById('footerCount').textContent = filtered.length.toLocaleString();
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * CANCELS VIEW — breakdown cards above the list table.
+ *
+ * Joe directive 2026-05-26. Renders into #cancelsView container:
+ *   1. Hero strip — total count + ARR Lost + by-company comparison
+ *   2. By Branch — 5 cards (Catseye-left: E.MASS, CT, RI; USX-right: W.MASS, UPST.NY)
+ *   3. By Service Class — sortable table (count + ARR per class)
+ *   4. By Reason — sortable table (count + ARR per reason)
+ *
+ * All cards filter by STATE.cancelsPeriod (default MTD). The list table below
+ * uses the standard tableCard pipeline with CANCELS_COLUMNS (defined in
+ * config.js) — it filters by CancelDate via VIEW_DEFS.cancels.dateKey.
+ * ─────────────────────────────────────────────────────────────────────────── */
+function renderCancelsCards_() {
+  var container = document.getElementById('cancelsView');
+  if (!container) return;
+
+  // Pull cancelled setups (already enriched with _LocCustomer/_LocCodeLink/_ServiceClass)
+  var records = getRecordsForView();
+
+  // Apply current period filter on CancelDate
+  var range = resolvePeriod(STATE.cancelsPeriod, STATE.cancelsCustom);
+  var periodLabel = (typeof PERIOD_LABELS !== 'undefined' && PERIOD_LABELS[STATE.cancelsPeriod])
+                    || String(STATE.cancelsPeriod).toUpperCase();
+  var filtered = records.filter(function(r) {
+    return dateInPeriod(r.CancelDate, range);
+  });
+
+  // ── Aggregations ──
+  var totalCount = filtered.length;
+  var totalArr   = filtered.reduce(function(s, r) { return s + (Number(r.AnnualValue) || 0); }, 0);
+
+  // By Company
+  var company = {
+    catseye: { count: 0, arr: 0 },
+    usx:     { count: 0, arr: 0 }
+  };
+  // By Branch
+  var byBranch = {};
+  // By Service Class
+  var byClass = {};
+  // By Reason
+  var byReason = {};
+
+  filtered.forEach(function(r) {
+    var branch = r.Branch || '(no branch)';
+    var co = isUsxBranch(branch) ? 'usx' : 'catseye';
+    var arr = Number(r.AnnualValue) || 0;
+    company[co].count++;
+    company[co].arr += arr;
+
+    if (!byBranch[branch]) byBranch[branch] = { count: 0, arr: 0 };
+    byBranch[branch].count++;
+    byBranch[branch].arr += arr;
+
+    var cls = (r._ServiceClass || '(unknown)').toUpperCase();
+    if (!byClass[cls]) byClass[cls] = { count: 0, arr: 0 };
+    byClass[cls].count++;
+    byClass[cls].arr += arr;
+
+    var reason = (r.CancelReason || '(no reason)').toUpperCase().trim() || '(no reason)';
+    if (!byReason[reason]) byReason[reason] = { count: 0, arr: 0 };
+    byReason[reason].count++;
+    byReason[reason].arr += arr;
+  });
+
+  // ── Helpers ──
+  function fmtMoney(n) {
+    n = Math.round(n || 0);
+    if (n >= 1000000) return '$' + (n / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+    if (n >= 1000)    return '$' + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return '$' + n.toLocaleString();
+  }
+  function escHtml(s) { return (typeof escapeHtml === 'function') ? escapeHtml(String(s || '')) : String(s || ''); }
+
+  // ── Hero strip — 3 cards (TOTAL CANCELS, ARR LOST, AVG PER CANCEL) ──
+  var avgArr = totalCount > 0 ? totalArr / totalCount : 0;
+  var heroHtml =
+    '<div class="cancels-hero-row">' +
+      '<div class="hero-v2-card hero-bad">' +
+        '<div class="hero-v2-label">TOTAL CANCELS · ' + escHtml(periodLabel) + '</div>' +
+        '<div class="hero-v2-value">' + totalCount.toLocaleString() + '</div>' +
+        '<div class="hero-v2-meta"><span class="hero-v2-target">cancelled setups in window</span></div>' +
+      '</div>' +
+      '<div class="hero-v2-card hero-bad">' +
+        '<div class="hero-v2-label">ARR LOST</div>' +
+        '<div class="hero-v2-value">' + fmtMoney(totalArr) + '</div>' +
+        '<div class="hero-v2-meta"><span class="hero-v2-target">avg ' + fmtMoney(avgArr) + ' / cancel</span></div>' +
+      '</div>' +
+    '</div>';
+
+  // ── By Company row — Catseye + USX side-by-side ──
+  function companyCardHtml(label, data, brandCls) {
+    return '<div class="cancels-co-card cancels-co-' + brandCls + '">' +
+             '<div class="cancels-co-label">' + escHtml(label) + '</div>' +
+             '<div class="cancels-co-stats">' +
+               '<div class="cancels-co-stat">' +
+                 '<div class="cancels-co-stat-val">' + data.count.toLocaleString() + '</div>' +
+                 '<div class="cancels-co-stat-lbl">cancels</div>' +
+               '</div>' +
+               '<div class="cancels-co-stat">' +
+                 '<div class="cancels-co-stat-val">' + fmtMoney(data.arr) + '</div>' +
+                 '<div class="cancels-co-stat-lbl">ARR lost</div>' +
+               '</div>' +
+             '</div>' +
+           '</div>';
+  }
+  var byCompanyHtml =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">BY COMPANY</h3>' +
+      '<div class="cancels-co-row">' +
+        companyCardHtml('CATSEYE', company.catseye, 'catseye') +
+        companyCardHtml('USX PEST', company.usx, 'usx') +
+      '</div>' +
+    '</div>';
+
+  // ── By Branch row — one card per branch (existing BRANCH_ALL order) ──
+  // Sort branches by count descending so highest-cancel branch is first.
+  var branchOrder = (typeof BRANCH_ALL !== 'undefined') ? BRANCH_ALL.slice() : Object.keys(byBranch);
+  // Include any branches we have data for that aren't in BRANCH_ALL
+  Object.keys(byBranch).forEach(function(b) {
+    if (branchOrder.indexOf(b) === -1) branchOrder.push(b);
+  });
+  var byBranchCards = branchOrder.map(function(b) {
+    var d = byBranch[b] || { count: 0, arr: 0 };
+    var brandCls = isUsxBranch(b) ? 'cancels-br-usx' : 'cancels-br-catseye';
+    return '<div class="cancels-br-card ' + brandCls + '">' +
+             '<div class="cancels-br-label">' + escHtml(b) + '</div>' +
+             '<div class="cancels-br-count">' + d.count.toLocaleString() + '</div>' +
+             '<div class="cancels-br-arr">' + fmtMoney(d.arr) + ' ARR lost</div>' +
+           '</div>';
+  }).join('');
+  var byBranchHtml =
+    '<div class="chart-card">' +
+      '<h3 class="chart-title">BY BRANCH</h3>' +
+      '<div class="cancels-br-row">' + byBranchCards + '</div>' +
+    '</div>';
+
+  // ── By Service Class table ──
+  function buildTable_(title, agg, labelCol) {
+    var rows = Object.keys(agg).map(function(k) {
+      return { key: k, count: agg[k].count, arr: agg[k].arr };
+    }).sort(function(a, b) { return b.count - a.count; });
+    if (rows.length === 0) {
+      return '<div class="chart-card">' +
+               '<h3 class="chart-title">' + escHtml(title) + '</h3>' +
+               '<div class="nb-empty">No cancellations in window</div>' +
+             '</div>';
+    }
+    var totalC = rows.reduce(function(s, r) { return s + r.count; }, 0);
+    var bodyRows = rows.map(function(r) {
+      var pct = totalC > 0 ? (r.count / totalC * 100).toFixed(1) : '0.0';
+      return '<tr>' +
+               '<td>' + escHtml(r.key) + '</td>' +
+               '<td class="num">' + r.count.toLocaleString() + '</td>' +
+               '<td class="num"><span style="color:var(--text-dim);font-size:11px">' + pct + '%</span></td>' +
+               '<td class="num">' + fmtMoney(r.arr) + '</td>' +
+             '</tr>';
+    }).join('');
+    return '<div class="chart-card">' +
+             '<h3 class="chart-title">' + escHtml(title) + '</h3>' +
+             '<table class="nb-table">' +
+               '<thead><tr>' +
+                 '<th>' + escHtml(labelCol) + '</th>' +
+                 '<th class="num">Count</th>' +
+                 '<th class="num">% of total</th>' +
+                 '<th class="num">ARR Lost</th>' +
+               '</tr></thead>' +
+               '<tbody>' + bodyRows + '</tbody>' +
+             '</table>' +
+           '</div>';
+  }
+
+  var byClassHtml  = buildTable_('BY SERVICE CLASS', byClass, 'Class');
+  var byReasonHtml = buildTable_('BY REASON',        byReason, 'Reason');
+
+  // Stitch everything together
+  container.innerHTML =
+    heroHtml +
+    '<div class="tech-charts-stack">' +
+      byCompanyHtml +
+      byBranchHtml +
+      byClassHtml +
+      byReasonHtml +
+    '</div>';
 }
 
 /* ─────────── TECH VIEW (fixed periods — no filters) ───────────
@@ -6562,6 +6872,7 @@ function populateFilterOptions() {
 function exportCsv() {
   var columns = (STATE.view === 'orders') ? SERVICE_ORDERS_COLUMNS
               : (STATE.view === 'setups') ? SETUPS_COLUMNS
+              : (STATE.view === 'cancels') ? CANCELS_COLUMNS
               : INVOICES_COLUMNS;
   var defaultCols = columns.filter(function(c) { return c.default; });
   var rows = applySort(applyFilters(getRecordsForView(), defaultCols));

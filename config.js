@@ -210,6 +210,35 @@ const SETUPS_COLUMNS = [
   { key: 'LocationID',             label: 'Loc ID (raw)',   type: 'number',         sortable: true, default: false },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CANCELS_COLUMNS — drives the Cancels list view (Joe 2026-05-26).
+//
+// Data source: cache-setups.json filtered to records with CancelDate populated.
+// Customer name + Loc # + ServiceClass are derived at render time (see
+// getRecordsForView()'s cancels handler). Date key for the period filter is
+// CancelDate (set in VIEW_DEFS.cancels).
+// ─────────────────────────────────────────────────────────────────────────────
+const CANCELS_COLUMNS = [
+  { key: 'CancelDate',          label: 'Cancel Date',   type: 'date',          sortable: true, default: true, width: 95 },
+  { key: 'Branch',              label: 'Branch',        type: 'branch',        sortable: true, default: true, width: 75 },
+  { key: '_LocCodeLink',        label: 'Loc #',         type: 'pp-loc-link',   sortable: true, default: true, width: 70 },
+  { key: '_LocCustomer',        label: 'Customer',      type: 'text-truncate', sortable: true, default: true, width: 150 },
+  { key: 'ServiceCode',         label: 'Service',       type: 'text',          sortable: true, default: true, width: 110 },
+  { key: '_ServiceClass',       label: 'Class',         type: 'text',          sortable: true, default: true, width: 105 },
+  { key: 'CancelReason',        label: 'Reason',        type: 'text-truncate', sortable: true, default: true, width: 160 },
+  { key: 'AnnualValue',         label: 'ARR Lost',      type: 'money',         sortable: true, default: true, width: 90 },
+  { key: 'Total',               label: 'Initial $',     type: 'money',         sortable: true, default: true, width: 85 },
+  { key: 'StartDate',           label: 'Started',       type: 'date',          sortable: true, default: true, width: 90 },
+  { key: 'SalesBy',             label: 'Sales By',      type: 'text',          sortable: true, default: true, width: 75 },
+  { key: 'FrequencyDescription', label: 'Frequency',    type: 'text',          sortable: true, default: true, width: 100 },
+  // Non-default
+  { key: 'SetupID',             label: 'Setup ID',      type: 'number',        sortable: true, default: false },
+  { key: 'BillingAmount',       label: 'Billing $',     type: 'money',         sortable: true, default: false },
+  { key: 'EnteredBy',           label: 'Entered By',    type: 'text',          sortable: true, default: false },
+  { key: 'Source',              label: 'Source',        type: 'text',          sortable: true, default: false },
+  { key: 'LocationID',          label: 'Loc ID (raw)',  type: 'number',        sortable: true, default: false },
+];
+
 // ── Division classification (Pest vs CG vs NWL, Resi vs Commercial) ──
 // Per Joe 2026-05-20.
 //
