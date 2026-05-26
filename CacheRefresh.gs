@@ -145,11 +145,21 @@ const CURATED_FIELDS_SETUP = [
   // Billing variants (sometimes diverge from service Schedule/Frequency)
   'BillingFrequencyCode', 'BillingFrequencyDescription', 'BillingSchedule', 'BillingAmount',
   // Status & lifecycle
-  'Active', 'Locked', 'StartDate', 'CancelDate', 'ExpirationDate', 'RenewalDate',
+  'Active', 'Locked', 'StartDate', 'CancelDate', 'CancelReason', 'ExpirationDate', 'RenewalDate',
+  // Creation moment — AddDate is the timestamp the setup was created; EnteredBy
+  // is the CSR who created it (extracted from Technicians[3] in fetchSetups_ below).
+  // These two power the "new business written" + "per-CSR attribution" cards
+  // on the Pest view. Joe directive 2026-05-25.
+  'AddDate',
+  // Lead source ("INTERNET", "REFERRAL", etc.) — for source attribution analysis
+  'Source',
+  // Initial-service flags — useful for distinguishing brand-new accounts from
+  // historical setups that just got a new schedule
+  'HasInitialService', 'InitialServiceComplete',
   // Branch & route
   'Branch', 'BranchID', 'Route',
   // Money
-  'SubTotal', 'Total', 'AnnualValue',
+  'SubTotal', 'Total', 'AnnualValue', 'FirstYearValue',
   // Billing
   'AutoBill', 'AutoBillThroughDate', 'CardOnFile'
 ];
@@ -799,7 +809,30 @@ function fetchSetups_(token, setupIds) {
             Logger.log('    Sample JSON: ' + JSON.stringify(setup).substring(0, 800));
             loggedShape = true;
           }
-          out.push(curate_(setup, CURATED_FIELDS_SETUP));
+          var curatedSetup = curate_(setup, CURATED_FIELDS_SETUP);
+          // Extract the CSR who created this setup. PestPac's 4-position
+          // Technicians convention (same as orders + invoices):
+          //   Position 1 (index 0) = Tech 1 (primary field tech, varies per visit)
+          //   Position 2 (index 1) = Tech 2 (secondary field tech)
+          //   Position 3 (index 2) = Sales
+          //   Position 4 (index 3) = Entered (the CSR who created the setup)
+          // For setup attribution we only care about Position 4. AddDate is when
+          // they created it; EnteredBy is who. Together they give us reliable
+          // "new business written" tracking per CSR. Joe directive 2026-05-25.
+          if (Array.isArray(setup.Technicians) && setup.Technicians.length >= 4) {
+            var enteredSlot = setup.Technicians[3];
+            if (enteredSlot && enteredSlot.Code) {
+              curatedSetup.EnteredBy = enteredSlot.Code;
+              if (enteredSlot.TechID != null) curatedSetup.EnteredByID = enteredSlot.TechID;
+            }
+            // Also capture Sales (Position 3) — useful for sales attribution
+            // where it differs from the CSR who entered the order
+            var salesSlot = setup.Technicians[2];
+            if (salesSlot && salesSlot.Code) {
+              curatedSetup.SalesBy = salesSlot.Code;
+            }
+          }
+          out.push(curatedSetup);
         } catch (e) { /* skip parse error */ }
       }
     } catch (e) {
