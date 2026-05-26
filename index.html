@@ -5363,9 +5363,10 @@ function renderCallbacksByBranchDonuts_(callbacksByBranchService, mtdOrdersByBra
     var total = branchTotals[b] || 0;
     var totalOrders = ordersByBranch[b] || 0;
     var ratePct = totalOrders > 0 ? (total / totalOrders) * 100 : 0;
-    // Rate color buckets — green ≤2%, yellow 2-4%, red >4% (callback rate;
-    // lower is better).
-    var rateCls = ratePct <= 2 ? 'rate-low' : (ratePct <= 4 ? 'rate-med' : 'rate-high');
+    // Rate color buckets — green ≤3% (pest industry top quartile), yellow 3-5%
+    // (industry average), red >5% (below average). Softened from ≤2/4 on
+    // 2026-05-26 to align with top-quartile benchmarks. Joe directive.
+    var rateCls = ratePct <= 3 ? 'rate-low' : (ratePct <= 5 ? 'rate-med' : 'rate-high');
     var rateLine = totalOrders > 0
       ? '<div class="mini-donut-rate">' +
           '<div class="mini-donut-rate-pct ' + rateCls + '">' + ratePct.toFixed(1) + '%</div>' +
