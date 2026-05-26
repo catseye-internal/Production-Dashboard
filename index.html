@@ -3582,7 +3582,16 @@ function renderTechView_() {
     var d = new Date(todayD); d.setDate(d.getDate() + n);
     return fmtDate(d);
   }
-  var dYday  = offsetYmd(-1);  // Yesterday — Joe directive 2026-05-26
+  // Yesterday — skip Sundays. If yesterday was Sunday (today=Monday), look
+  // back to Saturday instead. Catseye dispatches Mon-Sat so Sundays produce
+  // no invoices and would always show $0. Joe directive 2026-05-26.
+  function lastWorkdayOffset_() {
+    var dow = todayD.getDay();   // 0=Sun, 1=Mon, ..., 6=Sat
+    if (dow === 1) return -2;    // Today=Mon → yesterday=Sun → skip to Sat
+    if (dow === 0) return -1;    // Today=Sun → yesterday=Sat → show Sat
+    return -1;                   // Any other day → show real yesterday
+  }
+  var dYday  = offsetYmd(lastWorkdayOffset_());  // Yesterday (workday-aware)
   var dToday = offsetYmd(0);
   var dTmrw  = offsetYmd(1);
   var dPlus2 = offsetYmd(2);
@@ -4290,6 +4299,7 @@ function renderTechView_() {
   var heroStripHtml = renderHeroStrip_({
     fcYesterday:       fcYesterday,
     fcYesterdayCount:  fcYesterdayCount,
+    fcYesterdayOffset: lastWorkdayOffset_(),   // -1 most days, -2 on Monday
     fcToday:           fcTotals.today,
     fcTmrw:            fcTotals.tmrw,
     fcD2:              fcTotals.d2,
@@ -6678,7 +6688,9 @@ function renderHeroStrip_(ctx) {
   }
 
   // Label resolution — use fcDateLabel function if provided
-  var ydayLbl  = (typeof ctx.fcDateLabel === 'function') ? ('YESTERDAY · ' + ctx.fcDateLabel(-1)) : 'YESTERDAY';
+  // Yesterday's offset is workday-aware: -2 on Mondays (skip Sunday) else -1
+  var ydayOffset = (typeof ctx.fcYesterdayOffset === 'number') ? ctx.fcYesterdayOffset : -1;
+  var ydayLbl  = (typeof ctx.fcDateLabel === 'function') ? ('YESTERDAY · ' + ctx.fcDateLabel(ydayOffset)) : 'YESTERDAY';
   var todayLbl = (typeof ctx.fcDateLabel === 'function') ? ('TODAY · ' + ctx.fcDateLabel(0)) : 'TODAY';
   var tmrwLbl  = (typeof ctx.fcDateLabel === 'function') ? ('TOMORROW · ' + ctx.fcDateLabel(1)) : 'TOMORROW';
 
