@@ -568,13 +568,19 @@
      Each scope card shows class + reason mini-tables side-by-side.
      ══════════════════════════════════════════════════════════════ */
   .cx-hero-row {
+    /* Parent .grouped-view is a 2-col CSS grid — span the full width */
+    grid-column: 1 / -1;
     display: grid; grid-template-columns: repeat(3, 1fr);
     gap: 16px; margin-bottom: 24px;
   }
   @media (max-width: 900px) {
     .cx-hero-row { grid-template-columns: 1fr; }
   }
-  .cx-section { margin-bottom: 24px; }
+  .cx-section {
+    /* Parent .grouped-view is a 2-col CSS grid — span the full width */
+    grid-column: 1 / -1;
+    margin-bottom: 24px;
+  }
 
   /* Scope card — the main dashboard-style unit */
   .cx-scope-card {
@@ -2091,6 +2097,22 @@ function applyViewVisibility_() {
   var isDashboardOrTech = (view === 'tech' || view === 'techdetail');
   var filterBar = document.querySelector('.filter-bar');
   if (filterBar) filterBar.style.display = isDashboardOrTech ? 'none' : '';
+
+  // Cancels view: show ONLY the period filter (Joe directive 2026-05-26).
+  // All other filter groups (Company, Division, Branch, Recurrence, Callbacks,
+  // Tech, Search) are hidden because they're pest-service-centric and don't
+  // semantically apply to cancellation aggregation.
+  if (filterBar) {
+    filterBar.querySelectorAll('.filter-group').forEach(function(fg) {
+      if (view === 'cancels') {
+        fg.style.display = (fg.id === 'periodFilterGroup') ? '' : 'none';
+      } else {
+        // Restore default visibility for other views (locked-filter handled below)
+        fg.style.display = '';
+      }
+    });
+  }
+
   // KPI strip (Records / Total $ / Confirmed / Techs Active) hidden on
   // Dashboard, Tech, and Cancels — Cancels has its own hero cards. Joe 2026-05-26.
   var kpiStrip = document.getElementById('kpiStrip');
