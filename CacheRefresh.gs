@@ -1507,6 +1507,196 @@ function _reenrichImpl_(resume, limit, dryRun) {
   Logger.log('✅ Re-enrich complete in ' + totalElapsed + 's');
 }
 
+// Repair function — re-fetch every Active=false (or CancelDate-populated) setup
+// via /ServiceSetups/{id} to pull CancelDate + CancelReason. These fields are
+// often missing from the bootstrap-cached records because the list endpoint
+// /Locations/{id}/serviceSetups returns slim data on cancelled setups.
+//
+// Joe directive 2026-05-25 — CancelReason is required in PestPac but our cache
+// shows 0 setups with it populated. And there's an Active=False vs CancelDate
+// gap (618 vs 380) suggesting some cancelled setups don't have CancelDate either.
+//
+// Resume-friendly via Script Property cursor. Safe to re-run.
+//
+// USAGE
+//   reenrichCancelledSetups()           — full run, fresh start
+//   reenrichCancelledSetupsResume()     — pick up from last checkpoint
+//   reenrichCancelledSetupsTest(50)     — dry run, first 50, no write
+
+var REC_BATCH_SIZE = 25;
+var REC_BATCH_PAUSE_MS = 200;
+var REC_CHECKPOINT_EVERY = 200;
+var REC_CURSOR_KEY = 'reenrichCancelledCursor';
+
+function reenrichCancelledSetups() {
+  PropertiesService.getScriptProperties().deleteProperty(REC_CURSOR_KEY);
+  return _reenrichCancelledImpl_(false, null, false);
+}
+
+function reenrichCancelledSetupsResume() {
+  return _reenrichCancelledImpl_(true, null, false);
+}
+
+function reenrichCancelledSetupsTest(limit) {
+  PropertiesService.getScriptProperties().deleteProperty(REC_CURSOR_KEY);
+  return _reenrichCancelledImpl_(false, limit || 50, true);
+}
+
+function _reenrichCancelledImpl_(resume, limit, dryRun) {
+  var t0 = new Date();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log((dryRun ? '🧪 DRY RUN — Re-enrich cancelled setups' : '🔧 Re-enrich cancelled setups') +
+             (resume ? ' (RESUMING)' : '') + ' — ' + t0.toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  Logger.log('1. Loading cache-setups.json...');
+  var existing = readSetupsCache_();
+  var setupsArr = existing.setups || [];
+  Logger.log('   ' + setupsArr.length.toLocaleString() + ' setups in cache');
+
+  // Candidates: any setup that's Active=false OR has CancelDate populated.
+  // We want to fully refresh these because the bootstrap might have skipped
+  // their CancelDate / CancelReason fields.
+  var candidates = setupsArr.filter(function(s) {
+    return s.Active === false || s.CancelDate;
+  });
+  Logger.log('   ' + candidates.length.toLocaleString() + ' candidates (Active=false OR CancelDate populated)');
+
+  var props = PropertiesService.getScriptProperties();
+  var startIdx = 0;
+  if (resume) {
+    var cursor = Number(props.getProperty(REC_CURSOR_KEY) || 0);
+    if (cursor > 0 && cursor < candidates.length) {
+      startIdx = cursor;
+      Logger.log('   Resuming from index ' + startIdx.toLocaleString());
+    }
+  }
+  if (limit && candidates.length - startIdx > limit) {
+    candidates = candidates.slice(startIdx, startIdx + limit);
+  } else if (startIdx > 0) {
+    candidates = candidates.slice(startIdx);
+  }
+
+  if (candidates.length === 0) {
+    Logger.log('✅ Nothing to re-enrich.');
+    return;
+  }
+
+  // Build a SetupID → index map for fast patching
+  var setupIdx = {};
+  setupsArr.forEach(function(s, i) {
+    if (s.SetupID != null) setupIdx[String(s.SetupID)] = i;
+  });
+
+  Logger.log('2. Fetching PestPac token...');
+  var token = ppToken_();
+  var apiHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+
+  Logger.log('3. Re-fetching ' + candidates.length.toLocaleString() + ' cancelled setups in batches of ' + REC_BATCH_SIZE + '...');
+  var refreshed = 0;
+  var withCancelDate = 0;
+  var withCancelReason = 0;
+  var failed = 0;
+
+  for (var i = 0; i < candidates.length; i += REC_BATCH_SIZE) {
+    var slice = candidates.slice(i, i + REC_BATCH_SIZE);
+    var requests = slice.map(function(s) {
+      return {
+        url: PP_API_BASE + '/ServiceSetups/' + s.SetupID,
+        method: 'get',
+        headers: apiHeaders,
+        muteHttpExceptions: true
+      };
+    });
+
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      failed += slice.length;
+      continue;
+    }
+
+    for (var k = 0; k < responses.length; k++) {
+      var resp = responses[k];
+      if (resp.getResponseCode() !== 200) { failed++; continue; }
+      try {
+        var fullSetup = JSON.parse(resp.getContentText());
+        var sid = String(slice[k].SetupID);
+        var idx = setupIdx[sid];
+        if (idx == null) continue;
+        // Full re-curate so all whitelist fields get refreshed from the detail
+        // endpoint (which DOES return CancelReason, full Technicians array, etc.)
+        var refreshedCurated = curate_(fullSetup, CURATED_FIELDS_SETUP);
+        enrichSetupCreator_(refreshedCurated, fullSetup);
+        // Preserve any existing EnteredBy if somehow not on the new record
+        if (!refreshedCurated.EnteredBy && setupsArr[idx].EnteredBy) {
+          refreshedCurated.EnteredBy = setupsArr[idx].EnteredBy;
+          if (setupsArr[idx].EnteredByID != null) refreshedCurated.EnteredByID = setupsArr[idx].EnteredByID;
+        }
+        setupsArr[idx] = refreshedCurated;
+        refreshed++;
+        if (refreshedCurated.CancelDate) withCancelDate++;
+        if (refreshedCurated.CancelReason && String(refreshedCurated.CancelReason).trim()) withCancelReason++;
+      } catch (e) { failed++; }
+    }
+
+    var done = i + slice.length;
+    if (done % 100 === 0 || done === candidates.length) {
+      var elapsed = ((new Date() - t0) / 1000);
+      var rate = done / elapsed;
+      var remaining = candidates.length - done;
+      var etaMin = (remaining / rate / 60).toFixed(1);
+      Logger.log('   [' + done.toLocaleString() + ' / ' + candidates.length.toLocaleString() + ']  ' +
+                 'refreshed: ' + refreshed.toLocaleString() + ' · ' +
+                 'with CancelDate: ' + withCancelDate.toLocaleString() + ' · ' +
+                 'with CancelReason: ' + withCancelReason.toLocaleString() + ' · ' +
+                 'failed: ' + failed + ' · ' +
+                 rate.toFixed(0) + '/s · eta ' + etaMin + 'm');
+    }
+
+    if (!dryRun && (done % REC_CHECKPOINT_EVERY === 0)) {
+      props.setProperty(REC_CURSOR_KEY, String(startIdx + done));
+    }
+
+    if (i + REC_BATCH_SIZE < candidates.length) Utilities.sleep(REC_BATCH_PAUSE_MS);
+  }
+
+  Logger.log('');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('SUMMARY');
+  Logger.log('   Refreshed:           ' + refreshed.toLocaleString());
+  Logger.log('   With CancelDate:     ' + withCancelDate.toLocaleString());
+  Logger.log('   With CancelReason:   ' + withCancelReason.toLocaleString());
+  Logger.log('   Failed calls:        ' + failed);
+
+  if (dryRun) {
+    Logger.log('🧪 DRY RUN — cache NOT written');
+    return;
+  }
+
+  var cache = {
+    updated: new Date().toISOString(),
+    recordCount: setupsArr.length,
+    lastCancelReenrichAt: new Date().toISOString(),
+    setups: setupsArr
+  };
+  var jsonStr = JSON.stringify(cache);
+  Logger.log('');
+  Logger.log('4. Writing cache-setups.json: ' + Math.round(jsonStr.length / 1024) + ' KB');
+  var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS, 'Re-enrich cancelled setups ' + new Date().toISOString());
+  Logger.log('   push: ' + (ok ? 'OK' : 'FAIL'));
+  if (ok) props.deleteProperty(REC_CURSOR_KEY);
+
+  var totalElapsed = ((new Date() - t0) / 1000).toFixed(1);
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('✅ Re-enrich cancelled complete in ' + totalElapsed + 's');
+}
+
 function probeLocationSetupsEndpoint() {
   var token = ppToken_();
   // Grab a known LocationID from cache-locations.json

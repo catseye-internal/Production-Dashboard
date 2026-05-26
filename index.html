@@ -621,8 +621,12 @@
     gap: 10px; margin-bottom: 14px;
   }
   .hero-card {
-    background: rgba(255,255,255,0.03);
+    /* Neutral dark card — match the rest of the Dashboard's chart-card pattern.
+       Status color shows up only in the left accent border + the value text.
+       Tinted backgrounds were washing out the colors (Joe directive 2026-05-25). */
+    background: rgba(0,0,0,0.25);
     border: 1px solid rgba(255,255,255,0.08);
+    border-left: 3px solid rgba(255,255,255,0.10);
     border-radius: 10px;
     padding: 12px 16px 14px;
     display: flex; flex-direction: column; gap: 4px;
@@ -633,27 +637,19 @@
     letter-spacing: 0.8px; text-transform: uppercase;
   }
   .hero-card-value {
-    font-size: 22px; font-weight: 700; line-height: 1.15;
+    font-size: 24px; font-weight: 800; line-height: 1.15;
     font-variant-numeric: tabular-nums; color: var(--text);
   }
   .hero-card-sub {
     font-size: 11px; color: var(--text-dim); line-height: 1.35;
     margin-top: auto;
   }
-  .hero-good {
-    background: rgba(34,197,94,0.14);
-    border-color: rgba(34,197,94,0.50);
-  }
+  /* Status accent — bold left border + bright text. No background tint. */
+  .hero-good { border-left-color: #22C55E; }
   .hero-good .hero-card-value { color: #22C55E; }
-  .hero-bad {
-    background: rgba(239,68,68,0.14);
-    border-color: rgba(239,68,68,0.50);
-  }
-  .hero-bad .hero-card-value { color: #EF4444; }
-  .hero-warn {
-    background: rgba(245,158,11,0.14);
-    border-color: rgba(245,158,11,0.40);
-  }
+  .hero-bad  { border-left-color: #EF4444; }
+  .hero-bad  .hero-card-value { color: #EF4444; }
+  .hero-warn { border-left-color: #F59E0B; }
   .hero-warn .hero-card-value { color: #F59E0B; }
   /* Pill spans inside hero-card-sub for inline split metrics */
   .hero-pill {
