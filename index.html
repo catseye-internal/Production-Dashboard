@@ -1640,11 +1640,12 @@
     <button class="tab active" data-view="tech">Dashboard</button>
     <button class="tab" data-view="techdetail">Tech</button>
     <!-- "List" is a parent tab — clicking it activates whichever sub-list mode
-         was last used (defaults to Production/invoices). The list-mode sub-tab
+         was last used (defaults to Future Work/orders). The list-mode sub-tab
          bar (below the main tab row) lets the user pick between Future Work
          (orders), Completed Work (invoices), and Setups. Joe directive
-         2026-05-26: consolidate 3 list tabs into 1 to reduce tab clutter. -->
-    <button class="tab" id="listParentTab" data-view="invoices">List</button>
+         2026-05-26: consolidate 3 list tabs into 1; default sub-mode = Future
+         Work (the lever) per Joe 2026-05-26. -->
+    <button class="tab" id="listParentTab" data-view="orders">List</button>
     <button class="tab" data-view="cancels">Cancels</button>
     <button class="tab" data-view="summary">Summary</button>
   </nav>
@@ -1664,8 +1665,8 @@
 <div class="sub-tabs" id="listModeBar" style="display:none">
   <span class="sub-tabs-label">List mode:</span>
   <div class="sub-tab-group" id="listModeGroup">
-    <button class="sub-tab" data-view="orders">Future Work <span class="sub-tab-hint">service orders</span></button>
-    <button class="sub-tab active" data-view="invoices">Completed Work <span class="sub-tab-hint">invoices</span></button>
+    <button class="sub-tab active" data-view="orders">Future Work <span class="sub-tab-hint">service orders</span></button>
+    <button class="sub-tab" data-view="invoices">Completed Work <span class="sub-tab-hint">invoices</span></button>
     <button class="sub-tab" data-view="setups">Setups <span class="sub-tab-hint">service setups</span></button>
   </div>
 </div>
@@ -1833,13 +1834,15 @@ var STATE = {
   view: 'tech',            // 'tech' | 'orders' | 'invoices' | 'summary'
   invoiceMode: 'production',  // 'all' | 'production' | 'revenue'  — default to Completed (Joe 2026-05-23)
   // Per-view date state — switching tabs preserves each tab's selection
-  ordersPeriod: 'tomorrow', // 'today' | 'tomorrow' | 'next3' | 'next7' | 'custom'
+  ordersPeriod: 'next7',   // Future Work — defaults to 7-day per Joe 2026-05-26
   invoicesPeriod: 'mtd',   // 'today' | 'yesterday' | 'wk' | 'mtd' | 'ytd' | 'custom'
   summaryPeriod: 'mtd',    // mirrors invoices period set
+  setupsPeriod:  'mtd',    // Setups list — defaults to MTD per Joe 2026-05-26
   cancelsPeriod: 'mtd',    // Cancels view — defaults to MTD per Joe 2026-05-26
   ordersCustom:   { start: '', end: '' },
   invoicesCustom: { start: '', end: '' },
   summaryCustom:  { start: '', end: '' },
+  setupsCustom:   { start: '', end: '' },
   cancelsCustom:  { start: '', end: '' },
   // Common filters
   company: '',             // '' | 'catseye' | 'usx'
@@ -2498,6 +2501,7 @@ function periodStateKeys(view) {
   if (view === 'orders')   return { period: 'ordersPeriod',   custom: 'ordersCustom'   };
   if (view === 'invoices') return { period: 'invoicesPeriod', custom: 'invoicesCustom' };
   if (view === 'summary')  return { period: 'summaryPeriod',  custom: 'summaryCustom'  };
+  if (view === 'setups')   return { period: 'setupsPeriod',   custom: 'setupsCustom'   };
   if (view === 'cancels')  return { period: 'cancelsPeriod',  custom: 'cancelsCustom'  };
   return { period: 'ordersPeriod', custom: 'ordersCustom' };
 }
@@ -2514,6 +2518,10 @@ function periodButtonsForView(view) {
   if (view === 'orders')   return PERIOD_BUTTONS.orders;
   if (view === 'invoices') return PERIOD_BUTTONS.invoices;
   if (view === 'summary')  return PERIOD_BUTTONS.summary;
+  // Setups + Cancels both use the historical (yesterday/wk/mtd/ytd) button set
+  // since their date keys (StartDate / CancelDate) are backward-looking.
+  if (view === 'setups')   return PERIOD_BUTTONS.invoices;
+  if (view === 'cancels')  return PERIOD_BUTTONS.invoices;
   return PERIOD_BUTTONS.orders;
 }
 
