@@ -837,6 +837,10 @@
   .hero-bad  .hero-v2-value, .hero-bad  .hero-ctx-value { color: #FBBF24; }
   .hero-warn { border-left-color: #FBBF24; }
   .hero-warn .hero-v2-value, .hero-warn .hero-ctx-value { color: #FBBF24; }
+  /* Informational accent — neutral blue. Used on Cancels hero cards where the
+     metric is descriptive rather than pace-tiered. Joe 2026-05-26. */
+  .hero-info { border-left-color: #60A5FA; }
+  .hero-info .hero-v2-value, .hero-info .hero-ctx-value { color: #60A5FA; }
 
   /* Pill spans for inline split metrics (HOT QUEUE) */
   .hero-pill {
@@ -3365,7 +3369,10 @@ function renderCancelsCards_() {
   var totalArr   = filtered.reduce(function(s, r) { return s + (Number(r.AnnualValue) || 0); }, 0);
   var avgArr     = totalCount > 0 ? totalArr / totalCount : 0;
 
-  // ── Hero strip — 3 big cards ──
+  // ── Hero strip — 3 big cards, each a different accent (Joe 2026-05-26) ──
+  // Left   = yellow (count signal)
+  // Center = blue   (informational — money figure)
+  // Right  = green  (rate/average)
   var heroHtml =
     '<div class="cx-hero-row">' +
       '<div class="hero-v2-card hero-bad">' +
@@ -3373,12 +3380,12 @@ function renderCancelsCards_() {
         '<div class="hero-v2-value">' + totalCount.toLocaleString() + '</div>' +
         '<div class="hero-v2-meta"><span class="hero-v2-target">cancelled setups in window</span></div>' +
       '</div>' +
-      '<div class="hero-v2-card hero-bad">' +
+      '<div class="hero-v2-card hero-info">' +
         '<div class="hero-v2-label">ARR LOST</div>' +
         '<div class="hero-v2-value">' + fmtMoney(totalArr) + '</div>' +
         '<div class="hero-v2-meta"><span class="hero-v2-target">total annual value lost</span></div>' +
       '</div>' +
-      '<div class="hero-v2-card hero-bad">' +
+      '<div class="hero-v2-card hero-good">' +
         '<div class="hero-v2-label">AVG PER CANCEL</div>' +
         '<div class="hero-v2-value">' + fmtMoney(avgArr) + '</div>' +
         '<div class="hero-v2-meta"><span class="hero-v2-target">mean ARR per cancellation</span></div>' +
