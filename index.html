@@ -549,10 +549,10 @@
   }
   .tech-charts-stack > .chart-card { width: 100%; }
 
-  /* Master tech cards (Catseye Techs, USX Pest Techs) should also span full
-     width of the outer .grouped-view grid now that the Dashboard view is a
-     single-column stack. Joe 2026-05-23. */
-  #techView .group-block { grid-column: 1 / -1; }
+  /* Master tech cards (Catseye Techs, USX Pest Techs) live in the dedicated
+     Tech tab (#techDetailView) as of 2026-05-25. They span the full width of
+     the outer .grouped-view grid. Joe 2026-05-23 / 2026-05-25. */
+  #techDetailView .group-block { grid-column: 1 / -1; }
 
   /* Legacy two-column layout — kept in case future views use it. */
   .tech-charts-grid {
@@ -1479,6 +1479,7 @@
   </div>
   <nav class="tabs" id="tabs">
     <button class="tab active" data-view="tech">Dashboard</button>
+    <button class="tab" data-view="techdetail">Tech</button>
     <button class="tab" data-view="orders">Forecast</button>
     <button class="tab" data-view="invoices">Production</button>
     <button class="tab" data-view="summary">Summary</button>
@@ -1622,6 +1623,10 @@
 
   <!-- ─────────── TECH VIEW ─────────── -->
   <div class="grouped-view" id="techView" style="display:none"></div>
+  <!-- Tech detail view — per-tech master cards (Catseye + USX). Split from
+       Dashboard 2026-05-25 so Dashboard stays scannable and Tech tab is the
+       deep-investigation surface. -->
+  <div class="grouped-view" id="techDetailView" style="display:none"></div>
 </main>
 
 <footer class="footer-status">
@@ -1737,7 +1742,11 @@ var VIEW_DEFS = {
   summary:  { source: 'invoices', dateKey: 'InvoiceDate', layout: 'summary' },
   // Tech view source depends on STATE.techMode (forecast = orders, completed = invoices).
   // dateKey resolved at render time.
-  tech:     { source: 'tech',     layout: 'tech' },
+  // 'tech'       = Dashboard tab (chartsGrid: hero strip + cards)
+  // 'techdetail' = Tech tab (per-tech master cards)
+  // Both share renderTechView_() and write to their respective containers.
+  tech:        { source: 'tech', layout: 'tech' },
+  techdetail:  { source: 'tech', layout: 'tech' },
 };
 
 var isRefreshing = false;
@@ -1783,8 +1792,10 @@ function wireTabs() {
       } else if (STATE.view === 'invoices' || STATE.view === 'summary') {
         STATE.sort = { key: 'InvoiceDate', dir: 'desc' };
       }
-      // Tech view always needs invoices (for MTD completed column); Invoices and Summary need them too
-      var needsInvoices = (STATE.view === 'invoices' || STATE.view === 'summary' || STATE.view === 'tech');
+      // Tech + Dashboard views always need invoices (MTD completed column on master cards
+      // + chartsGrid); Invoices and Summary need them too. 'techdetail' = Tech tab.
+      var needsInvoices = (STATE.view === 'invoices' || STATE.view === 'summary' ||
+                           STATE.view === 'tech' || STATE.view === 'techdetail');
       if (needsInvoices && !STATE.invoiceCache) {
         loadInvoiceCache().finally(render);
       } else {
@@ -1807,25 +1818,28 @@ function wireTabs() {
 // Show/hide filter groups, sub-tab bars, and content containers for the active view
 function applyViewVisibility_() {
   var view = STATE.view;
-  // Tech view has its own fixed periods (MTD + today + next 3 days) and no
-  // user-configurable filters. Hide the entire filter bar + KPI strip on Tech.
+  // Dashboard + Tech views have fixed periods and no user-configurable filters.
+  // Hide the filter bar + KPI strip on both.
+  var isDashboardOrTech = (view === 'tech' || view === 'techdetail');
   var filterBar = document.querySelector('.filter-bar');
-  if (filterBar) filterBar.style.display = (view === 'tech') ? 'none' : '';
+  if (filterBar) filterBar.style.display = isDashboardOrTech ? 'none' : '';
   var kpiStrip = document.getElementById('kpiStrip');
-  if (kpiStrip) kpiStrip.style.display = (view === 'tech') ? 'none' : '';
+  if (kpiStrip) kpiStrip.style.display = isDashboardOrTech ? 'none' : '';
   // Locked filter (Service Orders only)
   var lockedGroup = document.getElementById('lockedFilterGroup');
   if (lockedGroup) lockedGroup.style.display = (view === 'orders') ? '' : 'none';
   // Invoice lens bar — shown for Invoices and Summary only
   var invBar = document.getElementById('invoiceModeBar');
   if (invBar) invBar.style.display = (view === 'invoices' || view === 'summary') ? '' : 'none';
-  // Main containers — table for orders/invoices, grouped containers for summary/tech
+  // Main containers
   var tableCard = document.getElementById('tableCard');
   var summaryView = document.getElementById('summaryView');
   var techView = document.getElementById('techView');
-  if (tableCard)   tableCard.style.display   = (view === 'orders' || view === 'invoices') ? '' : 'none';
-  if (summaryView) summaryView.style.display = (view === 'summary') ? '' : 'none';
-  if (techView)    techView.style.display    = (view === 'tech') ? '' : 'none';
+  var techDetailView = document.getElementById('techDetailView');
+  if (tableCard)      tableCard.style.display      = (view === 'orders' || view === 'invoices') ? '' : 'none';
+  if (summaryView)    summaryView.style.display    = (view === 'summary') ? '' : 'none';
+  if (techView)       techView.style.display       = (view === 'tech') ? '' : 'none';
+  if (techDetailView) techDetailView.style.display = (view === 'techdetail') ? '' : 'none';
 }
 
 function loadInvoiceCache() {
@@ -2583,9 +2597,13 @@ function render() {
   updateTabCounts();
   applyViewVisibility_();  // make sure the right containers are visible after any state change
 
-  // Dispatch to the grouped-layout renderers when applicable
-  if (STATE.view === 'summary') return renderSummaryView_();
-  if (STATE.view === 'tech')    return renderTechView_();
+  // Dispatch to the grouped-layout renderers when applicable.
+  // 'tech' (Dashboard) and 'techdetail' (Tech) share renderTechView_(), which
+  // populates BOTH #techView (chartsGrid) and #techDetailView (master cards).
+  // Visibility is handled by applyViewVisibility_() above. Joe 2026-05-25.
+  if (STATE.view === 'summary')    return renderSummaryView_();
+  if (STATE.view === 'tech')       return renderTechView_();
+  if (STATE.view === 'techdetail') return renderTechView_();
 
   var def = VIEW_DEFS[STATE.view] || VIEW_DEFS.all;
   var columns = (def.source === 'invoices') ? INVOICES_COLUMNS : SERVICE_ORDERS_COLUMNS;
@@ -3756,9 +3774,12 @@ function renderTechView_() {
 
   var catseyeCard = renderMasterCard('catseye', 'CATSEYE TECHS', 'brand-catseye');
   var usxCard     = renderMasterCard('usx',     'USX PEST TECHS', 'brand-usx');
-  var html = chartsGrid + catseyeCard + usxCard;
 
-  document.getElementById('techView').innerHTML = html;
+  // Dashboard view (= "tech" tab): hero strip + chartsGrid only. Scannable.
+  // Tech view (= "techdetail" tab): per-tech master cards. Deep investigation.
+  // Split 2026-05-25 — Dashboard for situational awareness, Tech for accountability.
+  document.getElementById('techView').innerHTML       = chartsGrid;
+  document.getElementById('techDetailView').innerHTML = catseyeCard + usxCard;
   document.getElementById('footerCount').textContent = Object.keys(techRows).length.toLocaleString();
 
   // ── Drill-down: click a tech row to expand all MTD records below it ──
@@ -4165,7 +4186,9 @@ function renderTechView_() {
 
   // Wire up click handler — one delegated handler per master card table.
   // Clicks on TH (sort) and on the total row are ignored.
-  document.querySelectorAll('#techView .tech-table').forEach(function(table) {
+  // Master cards live in #techDetailView (the dedicated Tech tab) — Dashboard
+  // chartsGrid no longer contains them (Joe directive 2026-05-25).
+  document.querySelectorAll('#techDetailView .tech-table').forEach(function(table) {
     table.addEventListener('click', function(ev) {
       // Ignore clicks on sortable headers
       if (ev.target.closest('th')) return;
@@ -4526,7 +4549,11 @@ function wireWindowToggles_() {
 }
 
 function wireTechCardSort_() {
-  var container = document.getElementById('techView');
+  // Master cards (CATSEYE TECHS, USX PEST TECHS) moved to the dedicated Tech
+  // tab (#techDetailView) on 2026-05-25. Column-header sort delegation now
+  // attaches there. The container is created once at boot and never replaced,
+  // so wiring once is safe across all subsequent renders.
+  var container = document.getElementById('techDetailView');
   if (!container || container.__sortWired) return;
   container.__sortWired = true;
   container.addEventListener('click', function(e) {
