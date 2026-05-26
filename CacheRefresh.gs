@@ -49,6 +49,7 @@ const GH_PATH_RAW       = 'cache-raw.json';
 const GH_PATH_LOCATIONS = 'cache-locations.json';
 const GH_PATH_SETUPS    = 'cache-setups.json';
 const GH_PATH_EMPLOYEES = 'cache-employees.json';
+const GH_PATH_TIMEBLOCKS = 'cache-timeblocks.json';
 
 // ── Raw refresh cadence ──
 const RAW_REFRESH_MIN_HOURS = 20;          // ≥ this many hours since last raw write → write again
@@ -2982,6 +2983,139 @@ function readEmployeesCache_() {
     return JSON.parse(resp.getContentText());
   } catch (e) {
     return { employees: [] };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// TIME BLOCKS CACHE — PTO / vacation / off-day blocks
+// ══════════════════════════════════════════════════════════════
+// Joe directive 2026-05-26: dispatch puts an "Appointment time block" on the
+// PestPac schedule when a tech is off (PTO, vacation, training, sick day).
+// These blocks DO NOT show up in /ServiceOrders — they live on /TimeBlocks.
+//
+// Endpoint: GET /TimeBlocks?techId=<EmployeeID>&startDate=<iso>&endDate=<iso>
+// Returns array of: { timeBlockID, technician, startDate, endDate, dayOfWeek,
+//                     duration, reason, description, leadID }
+//
+// Window: today 00:00 ET → today+4 23:59 ET (covers the 4-day Dashboard forecast).
+// Quota: ~33 techs × 1 call = ~33 calls per refresh. Daily trigger is plenty.
+// Throttle: 200 ms pause between per-tech calls to stay friendly to the API.
+//
+// Front-end use (Dashboard view capacity calc): for each pest tech on a given
+// day, subtract the total blocked minutes from NET_DAY_MIN BEFORE subtracting
+// scheduled order/drive minutes. A fully-blocked tech ends up with openMin=0
+// and falls out of capacityTechsFree automatically. See [[pestpac-timeblocks]].
+// ══════════════════════════════════════════════════════════════
+function refreshTimeBlocksCache() {
+  var t0 = new Date();
+  Logger.log('🛑 Time Blocks cache refresh — ' + t0.toISOString());
+  try {
+    var empCache = readEmployeesCache_();
+    var employees = (empCache && empCache.employees) || [];
+    // Only techs are relevant for time blocks (managers etc. aren't on routes).
+    // We keep all IsTech=true regardless of branch — front end decides scope.
+    var techs = employees.filter(function(e) {
+      return e && e.IsTech === true && e.EmployeeID;
+    });
+    Logger.log('  Polling ' + techs.length + ' techs (IsTech=true with EmployeeID)');
+    if (techs.length === 0) {
+      Logger.log('  ⚠️ No techs found in cache-employees.json — refresh employees first?');
+      return;
+    }
+
+    // 4-day window covering today through +3 (the Dashboard forecast horizon).
+    // Inclusive on both ends — startDate = today 00:00 local, endDate = +4d 23:59.
+    // We pad +1 extra day so the request always includes the full +3 day.
+    var now = new Date();
+    var start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    var end   = new Date(start);
+    end.setDate(end.getDate() + 5);          // 5-day buffer
+    end.setHours(23, 59, 59);
+    // ISO with no Z (PestPac treats input as local/tenant timezone — confirmed
+    // via the dispatch board which shows wall-clock times)
+    function iso_(d) {
+      return d.getFullYear() + '-' + pad_(d.getMonth() + 1) + '-' + pad_(d.getDate()) +
+             'T' + pad_(d.getHours()) + ':' + pad_(d.getMinutes()) + ':' + pad_(d.getSeconds());
+    }
+    var startStr = iso_(start);
+    var endStr   = iso_(end);
+
+    var token = ppToken_();
+    var allBlocks = [];
+    var techsWithBlocks = 0;
+    var firstError = null;
+
+    for (var i = 0; i < techs.length; i++) {
+      var t = techs[i];
+      var path = '/TimeBlocks?techId=' + encodeURIComponent(t.EmployeeID) +
+                 '&startDate=' + encodeURIComponent(startStr) +
+                 '&endDate='   + encodeURIComponent(endStr);
+      var r = ppGet_(token, path);
+      if (r.code === 401 && /quota/i.test(r.text)) {
+        Logger.log('  ❌ PestPac tenant quota exhausted at tech #' + (i+1) + ' (' + t.Username + '). Aborting.');
+        firstError = 'QUOTA_EXHAUSTED';
+        break;
+      }
+      if (r.code !== 200) {
+        Logger.log('  ' + t.Username + ' (TechID ' + t.EmployeeID + '): HTTP ' + r.code + ' — ' + r.text.substring(0, 150));
+        continue;
+      }
+      var arr;
+      try { arr = JSON.parse(r.text); } catch (e) { arr = []; }
+      if (!Array.isArray(arr) || arr.length === 0) {
+        // Most techs will have no blocks most days — that's expected.
+        Utilities.sleep(200);
+        continue;
+      }
+      techsWithBlocks++;
+      // Stamp the Username (3-letter join key) on each block — the response
+      // returns a "technician" field but we want a known join key.
+      for (var j = 0; j < arr.length; j++) {
+        arr[j].techUsername  = t.Username;
+        arr[j].techEmployeeID = t.EmployeeID;
+        allBlocks.push(arr[j]);
+      }
+      Utilities.sleep(200);
+    }
+
+    if (firstError === 'QUOTA_EXHAUSTED') {
+      // Bail without writing — partial writes can mask reality on the dashboard
+      Logger.log('  Aborted due to quota. Cache file NOT updated.');
+      return;
+    }
+
+    Logger.log('  Collected ' + allBlocks.length + ' blocks across ' + techsWithBlocks + ' techs');
+
+    var cache = {
+      updated:      new Date().toISOString(),
+      windowStart:  startStr,
+      windowEnd:    endStr,
+      recordCount:  allBlocks.length,
+      techsCovered: techs.length,
+      techsWithBlocks: techsWithBlocks,
+      blocks: allBlocks
+    };
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('  cache-timeblocks.json: ' + jsonStr.length + ' chars (' + Math.round(jsonStr.length / 1024) + ' KB)');
+
+    var ok = pushToGitHub_(jsonStr, GH_PATH_TIMEBLOCKS, 'Time blocks cache refresh ' + new Date().toISOString());
+    var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+    Logger.log('✅ Time blocks refresh complete in ' + elapsed + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Time blocks refresh error: ' + err.message + '\n' + err.stack);
+  }
+}
+
+function readTimeBlocksCache_() {
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache-timeblocks.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (resp.getResponseCode() !== 200) return { blocks: [] };
+    return JSON.parse(resp.getContentText());
+  } catch (e) {
+    return { blocks: [] };
   }
 }
 

@@ -2072,6 +2072,8 @@ document.addEventListener('DOMContentLoaded', function() {
   loadSetupsCache();
   // Load employees cache — powers tech full-name display on the Tech view
   loadEmployeesCache();
+  // Load time blocks cache — powers PTO/off-day exclusion in pest capacity calc
+  loadTimeBlocksCache();
   // Load monthly budgets — powers the MTD Production card on the Tech view
   loadBudgets();
   // Load invoice cache eagerly (non-blocking) so the Class column populates on Service Orders
@@ -2380,6 +2382,67 @@ function loadEmployeesCache() {
       STATE.employeesMap = {};
     });
   return STATE.employeesLoadPromise;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Time Blocks cache (Joe directive 2026-05-26)
+// Loads cache-timeblocks.json and builds a per-day-per-tech minute index used
+// by the pest capacity calculation to exclude PTO/off-day blocks. Without this,
+// Cody on PTO appears as 7h 45m of open capacity — wrong.
+// ──────────────────────────────────────────────────────────────
+function loadTimeBlocksCache() {
+  if (STATE.timeBlocksLoadPromise) return STATE.timeBlocksLoadPromise;
+  STATE.timeBlocksLoadPromise = fetch('./cache-timeblocks.json', { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(data) {
+      STATE.timeBlocksCache = data;
+      // Index: { 'YYYY-MM-DD': { 'USERNAME': totalMin } }
+      // Compute per-day overlap minutes for each block. A block spanning
+      // multiple days is split per day. Minutes are clipped to NET_DAY_MIN
+      // when summing so a 24h block doesn't show as 1440 min open-capacity loss.
+      var idx = {};
+      function ymdLocal(d) {
+        return d.getFullYear() + '-' +
+               String(d.getMonth() + 1).padStart(2, '0') + '-' +
+               String(d.getDate()).padStart(2, '0');
+      }
+      (data.blocks || []).forEach(function(b) {
+        var sd = b.startDate ? new Date(b.startDate) : null;
+        var ed = b.endDate   ? new Date(b.endDate)   : null;
+        if (!sd || !ed || isNaN(sd.getTime()) || isNaN(ed.getTime())) return;
+        var user = String(b.techUsername || b.technician || '').toUpperCase();
+        if (!user) return;
+        // Iterate per-day across the span
+        var dayStart = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate());
+        var dayEnd   = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate());
+        for (var d = new Date(dayStart); d <= dayEnd; d.setDate(d.getDate() + 1)) {
+          var dayLow  = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+          var dayHigh = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
+          var overlapStart = sd > dayLow  ? sd : dayLow;
+          var overlapEnd   = ed < dayHigh ? ed : dayHigh;
+          var overlapMin = Math.max(0, (overlapEnd - overlapStart) / 60000);
+          var key = ymdLocal(d);
+          if (!idx[key]) idx[key] = {};
+          idx[key][user] = (idx[key][user] || 0) + overlapMin;
+        }
+      });
+      STATE.timeBlocksByDayUser = idx;
+      try { render(); } catch (e) {}
+    })
+    .catch(function(err) {
+      console.warn('time blocks cache load failed (OK if cache-timeblocks.json doesn\'t exist yet):', err);
+      STATE.timeBlocksByDayUser = {};
+    });
+  return STATE.timeBlocksLoadPromise;
+}
+
+// Helper: minutes a tech is blocked on a given local-day key ('YYYY-MM-DD').
+// Returns 0 if no blocks. Used by the capacity calc to subtract PTO minutes.
+function timeBlockMinFor_(username, ymdKey) {
+  if (!STATE.timeBlocksByDayUser || !username || !ymdKey) return 0;
+  var day = STATE.timeBlocksByDayUser[ymdKey];
+  if (!day) return 0;
+  return day[String(username).toUpperCase()] || 0;
 }
 
 // Load budgets.json — monthly production budgets per branch.
@@ -4113,18 +4176,23 @@ function renderTechView_() {
   var WORK_DAY_MIN = 510;
   var LUNCH_MIN = 45;
   var NET_DAY_MIN = WORK_DAY_MIN - LUNCH_MIN;  // 465
+  // PTO threshold — when a tech is blocked ≥ this many min, count them as "out"
+  // (not just "fully booked"). Defaults to half the productive day.
+  var OUT_BLOCK_THRESHOLD_MIN = NET_DAY_MIN / 2;  // 232.5 min
   // Today's capacity totals
   var capacityOpenMin = 0;
   var capacityUsedMin = 0;
   var capacityTotalMin = 0;
   var capacityTechCount = 0;
   var capacityTechsFree = 0;     // techs with at least 30 min open
+  var capacityTechsOut  = 0;     // techs blocked ≥ OUT_BLOCK_THRESHOLD_MIN (PTO)
   // Tomorrow's capacity totals (Joe directive 2026-05-26: show both days)
   var capacityOpenMinTmrw = 0;
   var capacityUsedMinTmrw = 0;
   var capacityTotalMinTmrw = 0;
   var capacityTechCountTmrw = 0;
   var capacityTechsFreeTmrw = 0;
+  var capacityTechsOutTmrw  = 0;
   try {
     Object.keys(byBranch).forEach(function(branch) {
       (byBranch[branch] || []).forEach(function(t) {
@@ -4133,28 +4201,34 @@ function renderTechView_() {
         var isM = (typeof isManagerCode === 'function' && isManagerCode(t.tech)) ||
                   (typeof dynamicMgrSet !== 'undefined' && dynamicMgrSet.has && dynamicMgrSet.has(String(t.tech).toUpperCase()));
         if (isM) return;
+        // PTO / time-block minutes for each day, capped at NET_DAY_MIN so a
+        // 24h block doesn't underflow the calc. Joe directive 2026-05-26.
+        var blockTodayMin = Math.min(NET_DAY_MIN, timeBlockMinFor_(t.tech, dToday));
+        var blockTmrwMin  = Math.min(NET_DAY_MIN, timeBlockMinFor_(t.tech, dTmrw));
         // Today
         capacityTechCount++;
         var todayDur = Number(t.data.todayMin) || 0;
         var todayPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dToday; });
         var driveMin = (computeDriveMiles_(todayPts) / 30) * 60;
-        var usedMin = todayDur + driveMin;
+        var usedMin = todayDur + driveMin + blockTodayMin;
         var openMin = Math.max(0, NET_DAY_MIN - usedMin);
         capacityUsedMin += usedMin;
         capacityOpenMin += openMin;
         capacityTotalMin += NET_DAY_MIN;
-        if (openMin >= 30) capacityTechsFree++;
+        if (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOut++;
+        else if (openMin >= 30) capacityTechsFree++;
         // Tomorrow — same model, different day key
         capacityTechCountTmrw++;
         var tmrwDur = Number(t.data.tmrwMin) || 0;
         var tmrwPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dTmrw; });
         var driveMinT = (computeDriveMiles_(tmrwPts) / 30) * 60;
-        var usedMinT = tmrwDur + driveMinT;
+        var usedMinT = tmrwDur + driveMinT + blockTmrwMin;
         var openMinT = Math.max(0, NET_DAY_MIN - usedMinT);
         capacityUsedMinTmrw += usedMinT;
         capacityOpenMinTmrw += openMinT;
         capacityTotalMinTmrw += NET_DAY_MIN;
-        if (openMinT >= 30) capacityTechsFreeTmrw++;
+        if (blockTmrwMin >= OUT_BLOCK_THRESHOLD_MIN) capacityTechsOutTmrw++;
+        else if (openMinT >= 30) capacityTechsFreeTmrw++;
       });
     });
   } catch (e) { /* leave at 0 — capacity card will show 'no data' */ }
@@ -4183,11 +4257,13 @@ function renderTechView_() {
     capacityTotalMin:  capacityTotalMin,
     capacityTechCount: capacityTechCount,
     capacityTechsFree: capacityTechsFree,
+    capacityTechsOut:  capacityTechsOut,
     capacityOpenMinTmrw:   capacityOpenMinTmrw,
     capacityUsedMinTmrw:   capacityUsedMinTmrw,
     capacityTotalMinTmrw:  capacityTotalMinTmrw,
     capacityTechCountTmrw: capacityTechCountTmrw,
     capacityTechsFreeTmrw: capacityTechsFreeTmrw,
+    capacityTechsOutTmrw:  capacityTechsOutTmrw,
     setupsWeekCount:   heroSetupsCount,
     cancelsWeekCount:  heroCancelsCount,
     callbacksToday:    heroCallbacksToday
@@ -6589,9 +6665,11 @@ function renderHeroStrip_(ctx) {
   } else {
     capValue = fmtHrMin_(ctx.capacityOpenMin || 0);
     var freeTechs = ctx.capacityTechsFree || 0;
+    var outTechs  = ctx.capacityTechsOut || 0;
     var total = ctx.capacityTechCount || 0;
     capSub = freeTechs + ' of ' + total + ' techs free · ' +
-             fmtHrMin_(ctx.capacityTotalMin - ctx.capacityOpenMin) + ' booked';
+             fmtHrMin_(ctx.capacityTotalMin - ctx.capacityOpenMin) + ' booked' +
+             (outTechs > 0 ? ' · ' + outTechs + ' out' : '');
     // Tier: green if >2 hr free, yellow if 30 min–2 hr, neutral if fully booked
     var totalOpen = ctx.capacityOpenMin || 0;
     if (totalOpen >= 120) capStatus = 'good';
@@ -6614,9 +6692,11 @@ function renderHeroStrip_(ctx) {
   } else {
     capValueT = fmtHrMin_(ctx.capacityOpenMinTmrw || 0);
     var freeTechsT = ctx.capacityTechsFreeTmrw || 0;
+    var outTechsT  = ctx.capacityTechsOutTmrw || 0;
     var totalT = ctx.capacityTechCountTmrw || 0;
     capSubT = freeTechsT + ' of ' + totalT + ' techs free · ' +
-              fmtHrMin_((ctx.capacityTotalMinTmrw || 0) - (ctx.capacityOpenMinTmrw || 0)) + ' booked';
+              fmtHrMin_((ctx.capacityTotalMinTmrw || 0) - (ctx.capacityOpenMinTmrw || 0)) + ' booked' +
+              (outTechsT > 0 ? ' · ' + outTechsT + ' out' : '');
     var totalOpenT = ctx.capacityOpenMinTmrw || 0;
     if (totalOpenT >= 120) capStatusT = 'good';
     else if (totalOpenT >= 30) capStatusT = 'warn';
