@@ -3012,44 +3012,42 @@ function refreshTimeBlocksCache() {
   try {
     var empCache = readEmployeesCache_();
     var employees = (empCache && empCache.employees) || [];
-    // Only techs are relevant for time blocks (managers etc. aren't on routes).
-    // We keep all IsTech=true regardless of branch — front end decides scope.
+    // Only ACTIVE techs are relevant for time blocks. The employees cache
+    // contains every employee ever — including terminated/legacy — so without
+    // an Active filter we'd poll ~845 records. With Active=true it's ~33-50.
+    // EmployeeID must also be present (TechID is the param for the API).
     var techs = employees.filter(function(e) {
-      return e && e.IsTech === true && e.EmployeeID;
+      return e && e.IsTech === true && e.Active === true && e.EmployeeID;
     });
-    Logger.log('  Polling ' + techs.length + ' techs (IsTech=true with EmployeeID)');
+    Logger.log('  Polling ' + techs.length + ' techs (IsTech=true, Active=true, has EmployeeID)');
     if (techs.length === 0) {
       Logger.log('  ⚠️ No techs found in cache-employees.json — refresh employees first?');
       return;
     }
 
-    // 4-day window covering today through +3 (the Dashboard forecast horizon).
-    // Inclusive on both ends — startDate = today 00:00 local, endDate = +4d 23:59.
-    // We pad +1 extra day so the request always includes the full +3 day.
+    // 5-day window covering today through +4 (the Dashboard forecast horizon).
+    // PestPac /TimeBlocks accepts date-only YYYY-MM-DD strings (same as
+    // /ServiceOrders). ISO datetime with URL-encoded colons returned HTTP 500
+    // "1901-01-01T was not recognized as a valid DateTime" (2026-05-26).
     var now = new Date();
-    var start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    var start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     var end   = new Date(start);
-    end.setDate(end.getDate() + 5);          // 5-day buffer
-    end.setHours(23, 59, 59);
-    // ISO with no Z (PestPac treats input as local/tenant timezone — confirmed
-    // via the dispatch board which shows wall-clock times)
-    function iso_(d) {
-      return d.getFullYear() + '-' + pad_(d.getMonth() + 1) + '-' + pad_(d.getDate()) +
-             'T' + pad_(d.getHours()) + ':' + pad_(d.getMinutes()) + ':' + pad_(d.getSeconds());
-    }
-    var startStr = iso_(start);
-    var endStr   = iso_(end);
+    end.setDate(end.getDate() + 5);
+    var startStr = fmt_(start);   // YYYY-MM-DD
+    var endStr   = fmt_(end);     // YYYY-MM-DD
 
     var token = ppToken_();
     var allBlocks = [];
     var techsWithBlocks = 0;
     var firstError = null;
+    var consecutiveErrors = 0;
+    var firstErrorMsg = '';
 
     for (var i = 0; i < techs.length; i++) {
       var t = techs[i];
-      var path = '/TimeBlocks?techId=' + encodeURIComponent(t.EmployeeID) +
-                 '&startDate=' + encodeURIComponent(startStr) +
-                 '&endDate='   + encodeURIComponent(endStr);
+      var path = '/TimeBlocks?techId=' + t.EmployeeID +
+                 '&startDate=' + startStr +
+                 '&endDate='   + endStr;
       var r = ppGet_(token, path);
       if (r.code === 401 && /quota/i.test(r.text)) {
         Logger.log('  ❌ PestPac tenant quota exhausted at tech #' + (i+1) + ' (' + t.Username + '). Aborting.');
@@ -3058,8 +3056,18 @@ function refreshTimeBlocksCache() {
       }
       if (r.code !== 200) {
         Logger.log('  ' + t.Username + ' (TechID ' + t.EmployeeID + '): HTTP ' + r.code + ' — ' + r.text.substring(0, 150));
+        if (consecutiveErrors === 0) firstErrorMsg = 'HTTP ' + r.code + ' — ' + r.text.substring(0, 150);
+        consecutiveErrors++;
+        // Bail fast if the very first calls all error identically — likely a
+        // schema mismatch, not a per-tech issue. Saves chewing through 33+ calls.
+        if (consecutiveErrors >= 5 && techsWithBlocks === 0 && allBlocks.length === 0) {
+          Logger.log('  ❌ 5 consecutive errors with no successes. Bailing. First error: ' + firstErrorMsg);
+          firstError = 'EARLY_BAIL';
+          break;
+        }
         continue;
       }
+      consecutiveErrors = 0;
       var arr;
       try { arr = JSON.parse(r.text); } catch (e) { arr = []; }
       if (!Array.isArray(arr) || arr.length === 0) {
@@ -3081,6 +3089,10 @@ function refreshTimeBlocksCache() {
     if (firstError === 'QUOTA_EXHAUSTED') {
       // Bail without writing — partial writes can mask reality on the dashboard
       Logger.log('  Aborted due to quota. Cache file NOT updated.');
+      return;
+    }
+    if (firstError === 'EARLY_BAIL') {
+      Logger.log('  Aborted due to consecutive API errors. Cache file NOT updated.');
       return;
     }
 
