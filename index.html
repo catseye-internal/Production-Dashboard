@@ -615,6 +615,8 @@
      TODAY · TOMORROW · MTD · HOT QUEUE.
      ══════════════════════════════════════════════════════════════ */
   .hero-strip {
+    /* Parent .grouped-view is a 2-col CSS grid — span the full width */
+    grid-column: 1 / -1;
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px; margin-bottom: 14px;
   }
@@ -639,29 +641,29 @@
     margin-top: auto;
   }
   .hero-good {
-    background: rgba(52,211,153,0.08);
-    border-color: rgba(52,211,153,0.35);
+    background: rgba(34,197,94,0.14);
+    border-color: rgba(34,197,94,0.50);
   }
-  .hero-good .hero-card-value { color: #34D399; }
+  .hero-good .hero-card-value { color: #22C55E; }
   .hero-bad {
-    background: rgba(248,113,113,0.08);
-    border-color: rgba(248,113,113,0.35);
+    background: rgba(239,68,68,0.14);
+    border-color: rgba(239,68,68,0.50);
   }
-  .hero-bad .hero-card-value { color: #F87171; }
+  .hero-bad .hero-card-value { color: #EF4444; }
   .hero-warn {
-    background: rgba(251,191,36,0.08);
-    border-color: rgba(251,191,36,0.30);
+    background: rgba(245,158,11,0.14);
+    border-color: rgba(245,158,11,0.40);
   }
-  .hero-warn .hero-card-value { color: #FBBF24; }
+  .hero-warn .hero-card-value { color: #F59E0B; }
   /* Pill spans inside hero-card-sub for inline split metrics */
   .hero-pill {
-    display: inline-block; padding: 2px 7px; border-radius: 10px;
-    background: rgba(255,255,255,0.06); margin-right: 4px;
-    font-size: 10px; letter-spacing: 0.3px;
+    display: inline-block; padding: 3px 9px; border-radius: 10px;
+    background: rgba(255,255,255,0.06); margin-right: 6px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
   }
-  .hero-pill.good { background: rgba(52,211,153,0.15); color: #34D399; }
-  .hero-pill.bad  { background: rgba(248,113,113,0.15); color: #F87171; }
-  .hero-pill.warn { background: rgba(251,191,36,0.15); color: #FBBF24; }
+  .hero-pill.good { background: rgba(34,197,94,0.22);  color: #22C55E; }
+  .hero-pill.bad  { background: rgba(239,68,68,0.22);  color: #EF4444; }
+  .hero-pill.warn { background: rgba(245,158,11,0.22); color: #F59E0B; }
   @media (max-width: 900px) {
     .hero-strip { grid-template-columns: repeat(2, 1fr); }
     .hero-card-value { font-size: 19px; }
@@ -1672,8 +1674,8 @@ var STATE = {
   budgets: null,              // { Branch: { 'YYYY-MM': dollars } } from budgets.json
   budgetsLoadPromise: null,
   techCardSort: {},           // branch → { key, dir } — per-card sort on Tech view
-  newSetupsWindow: 7,         // 7 or 30 — rolling-day window for New Setups card
-  cancellationsWindow: 7,     // 7 or 30 — rolling-day window for Cancellations card
+  newSetupsWindow: '7d',      // '7d' (rolling 7 days) or 'mtd' (1st of month → yesterday)
+  cancellationsWindow: '7d',  // '7d' (rolling 7 days) or 'mtd' (1st of month → yesterday)
   // Completed vs Budget card — optional custom date range. null = default to
   // SOM-through-yesterday MTD. If set, the card recomputes its actuals from
   // productionInvoices_() filtered to this window and reframes pace/budget
@@ -3441,20 +3443,20 @@ function renderTechView_() {
   // Twin cards in a 2-column row showing weekly setup activity. CSR leaderboard
   // for setups; cancel-reason breakdown for cancellations.
   var setupsArr = (STATE.setupsCache && STATE.setupsCache.setups) || [];
-  // Read user's chosen window from STATE (default 7), one per card
-  var setupsWindow = STATE.newSetupsWindow || 7;
-  var cancelsWindow = STATE.cancellationsWindow || 7;
+  // Read user's chosen window mode from STATE (default '7d'), one per card
+  var setupsMode = STATE.newSetupsWindow || '7d';
+  var cancelsMode = STATE.cancellationsWindow || '7d';
   var cardNewSetups =
     '<div class="chart-card">' +
       '<h3 class="chart-title">NEW BUSINESS WRITTEN</h3>' +
       '<div class="chart-meta">New service setups created · attribution by EnteredBy (CSR who built it) · ARR = first-year value</div>' +
-      renderNewSetupsCard_(setupsArr, setupsWindow, STATE.employeesMap) +
+      renderNewSetupsCard_(setupsArr, setupsMode, STATE.employeesMap, todayD) +
     '</div>';
   var cardCancellations =
     '<div class="chart-card">' +
       '<h3 class="chart-title">CANCELLATIONS</h3>' +
       '<div class="chart-meta">Setups cancelled (CancelDate populated) · ARR lost = annual value of cancelled setups</div>' +
-      renderCancellationsCard_(setupsArr, cancelsWindow) +
+      renderCancellationsCard_(setupsArr, cancelsMode, todayD) +
     '</div>';
   var cardNewBusinessRow =
     '<div class="nb-card-row">' + cardNewSetups + cardCancellations + '</div>';
@@ -4514,7 +4516,7 @@ function wireWindowToggles_() {
     var btn = e.target.closest && e.target.closest('.nb-window-btn');
     if (!btn) return;
     var card = btn.parentElement && btn.parentElement.getAttribute('data-card');
-    var win  = Number(btn.getAttribute('data-window')) || 7;
+    var win  = btn.getAttribute('data-window') || '7d';
     if (!card) return;
     if (card === 'new-setups')      STATE.newSetupsWindow = win;
     else if (card === 'cancellations') STATE.cancellationsWindow = win;
@@ -5674,9 +5676,17 @@ function renderHeroStrip_(ctx) {
 // Toggle: 7-day vs 30-day rolling window. Shows headline count + ARR
 // plus a top-CSR (for setups) or top-reason (for cancellations) table.
 // ══════════════════════════════════════════════════════════════
-function renderNewSetupsCard_(setups, windowDays, employeesMap) {
-  var now = new Date();
-  var cutoff = new Date(now.getTime() - windowDays * 86400000);
+function renderNewSetupsCard_(setups, mode, employeesMap, todayD) {
+  // mode: '7d' = rolling last 7 days, 'mtd' = 1st of current month → yesterday
+  var now = todayD || new Date();
+  var cutoff, windowLabel;
+  if (mode === 'mtd') {
+    cutoff = new Date(now.getFullYear(), now.getMonth(), 1);
+    windowLabel = 'MTD';
+  } else {
+    cutoff = new Date(now.getTime() - 7 * 86400000);
+    windowLabel = 'last 7 days';
+  }
   var matches = (setups || []).filter(function(s) {
     if (!s.AddDate) return false;
     var d = new Date(String(s.AddDate).split('.')[0]);
@@ -5728,19 +5738,27 @@ function renderNewSetupsCard_(setups, windowDays, employeesMap) {
   return '<div class="nb-headline">' +
            '<div>' +
              '<div class="nb-headline-stat pos">+' + count + '</div>' +
-             '<div class="nb-headline-sub">$' + Math.round(arr).toLocaleString() + ' new ARR · last ' + windowDays + ' days</div>' +
+             '<div class="nb-headline-sub">$' + Math.round(arr).toLocaleString() + ' new ARR · ' + windowLabel + '</div>' +
            '</div>' +
            '<div class="nb-window-toggle" data-card="new-setups">' +
-             '<button class="nb-window-btn ' + (windowDays === 7 ? 'active' : '') + '" data-window="7">7D</button>' +
-             '<button class="nb-window-btn ' + (windowDays === 30 ? 'active' : '') + '" data-window="30">30D</button>' +
+             '<button class="nb-window-btn ' + (mode === '7d' ? 'active' : '') + '" data-window="7d">7D</button>' +
+             '<button class="nb-window-btn ' + (mode === 'mtd' ? 'active' : '') + '" data-window="mtd">MTD</button>' +
            '</div>' +
          '</div>' +
          csrTable;
 }
 
-function renderCancellationsCard_(setups, windowDays) {
-  var now = new Date();
-  var cutoff = new Date(now.getTime() - windowDays * 86400000);
+function renderCancellationsCard_(setups, mode, todayD) {
+  // mode: '7d' = rolling last 7 days, 'mtd' = 1st of current month → yesterday
+  var now = todayD || new Date();
+  var cutoff, windowLabel;
+  if (mode === 'mtd') {
+    cutoff = new Date(now.getFullYear(), now.getMonth(), 1);
+    windowLabel = 'MTD';
+  } else {
+    cutoff = new Date(now.getTime() - 7 * 86400000);
+    windowLabel = 'last 7 days';
+  }
   var matches = (setups || []).filter(function(s) {
     if (!s.CancelDate) return false;
     var d = new Date(String(s.CancelDate).split('.')[0]);
@@ -5784,11 +5802,11 @@ function renderCancellationsCard_(setups, windowDays) {
   return '<div class="nb-headline">' +
            '<div>' +
              '<div class="nb-headline-stat neg">–' + count + '</div>' +
-             '<div class="nb-headline-sub">$' + Math.round(arrLost).toLocaleString() + ' ARR lost · last ' + windowDays + ' days</div>' +
+             '<div class="nb-headline-sub">$' + Math.round(arrLost).toLocaleString() + ' ARR lost · ' + windowLabel + '</div>' +
            '</div>' +
            '<div class="nb-window-toggle" data-card="cancellations">' +
-             '<button class="nb-window-btn ' + (windowDays === 7 ? 'active' : '') + '" data-window="7">7D</button>' +
-             '<button class="nb-window-btn ' + (windowDays === 30 ? 'active' : '') + '" data-window="30">30D</button>' +
+             '<button class="nb-window-btn ' + (mode === '7d' ? 'active' : '') + '" data-window="7d">7D</button>' +
+             '<button class="nb-window-btn ' + (mode === 'mtd' ? 'active' : '') + '" data-window="mtd">MTD</button>' +
            '</div>' +
          '</div>' +
          reasonTable;
