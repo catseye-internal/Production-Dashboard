@@ -162,6 +162,103 @@ function doGet(e) {
 // ──────────────────────────────────────────────────────────────
 // PestPac fetchers
 // ──────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────
+// DIAGNOSTIC — manual end-to-end test of the invoice upsert chain.
+// Pulls the highest InvoiceID from /Invoices, then runs:
+//   fetchInvoice_  →  curateInvoice_  →  upsertInvoice_
+// exactly like the webhook would. Logs each step's result.
+// Use when cache-invoices.json appears stale to find the break point.
+// Joe directive 2026-05-26.
+// ──────────────────────────────────────────────────────────────
+function testInvoiceUpsertChain() {
+  Logger.log('🔬 Test invoice upsert chain — ' + new Date().toISOString());
+  var token;
+  try {
+    token = ppToken_();
+    Logger.log('  ✓ ppToken_ succeeded');
+  } catch (e) {
+    Logger.log('  ❌ ppToken_ FAILED: ' + e.message);
+    return;
+  }
+
+  // Step 1 — find a recent InvoiceNumber from cache-invoices.json, then
+  // resolve it to InvoiceID via /Invoices?invoiceNumber=X. The seed loader
+  // populates InvoiceNumber but not InvoiceID, so we need the live lookup.
+  Logger.log('  Step 1: pick a recent invoice from cache-invoices.json');
+  var resp = UrlFetchApp.fetch(
+    'https://catseye-internal.github.io/Production-Dashboard/cache-invoices.json',
+    { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+  );
+  if (resp.getResponseCode() !== 200) {
+    Logger.log('  ❌ Could not read cache-invoices.json: HTTP ' + resp.getResponseCode());
+    return;
+  }
+  var data = JSON.parse(resp.getContentText());
+  var invs = (data && data.invoices) || [];
+  if (invs.length === 0) { Logger.log('  ❌ No invoices in cache'); return; }
+  // Sort by InvoiceNumber desc (highest = most recent) — InvoiceID may not be set
+  invs.sort(function(a, b) { return (Number(b.InvoiceNumber) || 0) - (Number(a.InvoiceNumber) || 0); });
+  var sampleNum = invs[0].InvoiceNumber;
+  Logger.log('  ✓ Sample InvoiceNumber: ' + sampleNum);
+
+  Logger.log('  Step 1b: resolve InvoiceNumber → InvoiceID via /Invoices?invoiceNumber=' + sampleNum);
+  var lookupR = ppGet_(token, '/Invoices?invoiceNumber=' + encodeURIComponent(sampleNum));
+  if (lookupR.code !== 200) {
+    Logger.log('  ❌ InvoiceNumber lookup HTTP ' + lookupR.code + ': ' + lookupR.text.substring(0, 200));
+    return;
+  }
+  var lookupBody = JSON.parse(lookupR.text);
+  // Response can be a bare object or { Items: [...] } depending on PestPac mood
+  var resolved = Array.isArray(lookupBody) ? lookupBody[0]
+                : (lookupBody.Items ? lookupBody.Items[0] : lookupBody);
+  if (!resolved || !resolved.InvoiceID) {
+    Logger.log('  ❌ Lookup body did not include InvoiceID. Body sample: ' + lookupR.text.substring(0, 400));
+    return;
+  }
+  var sampleId = resolved.InvoiceID;
+  Logger.log('  ✓ Resolved InvoiceID: ' + sampleId + ' (Total=$' + (resolved.Total || 0) + ', InvoiceDate=' + resolved.InvoiceDate + ')');
+
+  // Step 2 — fetch from PestPac
+  Logger.log('  Step 2: fetchInvoice_(' + sampleId + ')');
+  var live;
+  try {
+    live = fetchInvoice_(token, sampleId);
+  } catch (e) {
+    Logger.log('  ❌ fetchInvoice_ THREW: ' + e.message);
+    return;
+  }
+  if (!live) {
+    Logger.log('  ❌ fetchInvoice_ returned null — PestPac rejected the request. Check ppGet_ log above.');
+    return;
+  }
+  Logger.log('  ✓ fetchInvoice_ returned record with ' + Object.keys(live).length + ' keys');
+  Logger.log('  Sample: InvoiceNumber=' + live.InvoiceNumber + ', InvoiceDate=' + live.InvoiceDate + ', Total=' + live.Total);
+
+  // Step 3 — curate
+  Logger.log('  Step 3: curateInvoice_');
+  var curated;
+  try {
+    curated = curateInvoice_(live);
+  } catch (e) {
+    Logger.log('  ❌ curateInvoice_ THREW: ' + e.message + '\n' + e.stack);
+    return;
+  }
+  Logger.log('  ✓ curateInvoice_ returned ' + Object.keys(curated).length + ' fields');
+
+  // Step 4 — upsert (this is the step most likely to fail silently)
+  Logger.log('  Step 4: upsertInvoice_ (writes to GitHub)');
+  var t0 = new Date();
+  try {
+    upsertInvoice_(curated);
+  } catch (e) {
+    Logger.log('  ❌ upsertInvoice_ THREW: ' + e.message + '\n' + e.stack);
+    return;
+  }
+  var elapsed = ((new Date() - t0) / 1000).toFixed(1);
+  Logger.log('  ✓ upsertInvoice_ returned in ' + elapsed + 's');
+  Logger.log('🔬 Test complete — check git log to confirm cache-invoices.json was updated');
+}
+
 function fetchInvoice_(token, invoiceId) {
   var r = ppGet_(token, '/Invoices/' + invoiceId);
   if (r.code !== 200) {
@@ -237,26 +334,44 @@ function upsertInvoice_(curated) {
   }
 }
 
-// Single upsert attempt. Returns true if cache write succeeded, false on 409
-// (caller will retry). Other HTTP failures also return false — those aren't
-// worth retrying on but the bool keeps the contract simple.
+// Single upsert attempt. Returns true if cache write succeeded, false otherwise.
+//
+// IMPORTANT (Joe directive 2026-05-26): the original implementation read AND
+// wrote cache-invoices.json via the GitHub Contents API. That API has a hard
+// **1 MB file size limit** — and cache-invoices.json is ~23 MB. Result: the
+// metadata fetch returned 200 OK but `meta.content` was empty/null, so the
+// base64 decode produced an empty string and JSON.parse threw "Unexpected end
+// of JSON input." The exception was swallowed by the outer try/catch in
+// upsertInvoice_, leaving no log trail. Webhook events have been silently
+// failing this way for the entire history of this file. Discovered by running
+// testInvoiceUpsertChain — the chain broke at step 4.
+//
+// NEW PATTERN (size-unbounded):
+//   1. READ cache from GitHub Pages (no size limit, ~10 min CDN cache lag)
+//   2. MUTATE in memory
+//   3. WRITE via pushToGitHub_ from CacheRefresh.gs (Git Data API — handles
+//      blobs of any size; same path that successfully writes the 36 MB
+//      cache-setups.json)
+// LockService still serializes concurrent webhook deliveries within this
+// script. Risk of clobbering writes from OTHER scripts (weekly auto-merge,
+// manual backfills) is mitigated by them running off-hours.
 function upsertInvoiceOnce_(curated, attempt) {
-  var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
-  if (!token) { Logger.log('  ⚠️ GITHUB_TOKEN missing'); return false; }
-  var apiBase = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
-  var headers = { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' };
-
-  // Step 1: read current cache file via the contents API (smaller than git data API for reads)
-  var getResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_INVOICES + '?ref=' + GH_BRANCH, {
-    headers: headers, muteHttpExceptions: true
-  });
-  if (getResp.getResponseCode() !== 200) {
-    Logger.log('  Cache read HTTP ' + getResp.getResponseCode());
+  // Step 1: read current cache from GitHub Pages
+  var resp = UrlFetchApp.fetch(
+    'https://catseye-internal.github.io/Production-Dashboard/cache-invoices.json',
+    { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+  );
+  if (resp.getResponseCode() !== 200) {
+    Logger.log('  Cache read HTTP ' + resp.getResponseCode());
     return false;
   }
-  var meta = JSON.parse(getResp.getContentText());
-  var jsonStr = Utilities.newBlob(Utilities.base64Decode(meta.content), 'application/json').getDataAsString();
-  var cache = JSON.parse(jsonStr);
+  var cache;
+  try {
+    cache = JSON.parse(resp.getContentText());
+  } catch (e) {
+    Logger.log('  Cache parse failed: ' + e.message);
+    return false;
+  }
 
   // Step 2: upsert by InvoiceNumber
   var invs = cache.invoices || [];
@@ -277,28 +392,19 @@ function upsertInvoiceOnce_(curated, attempt) {
   cache.recordCount = invs.length;
   cache.lastWebhookUpdate = new Date().toISOString();
 
-  // Step 3: write back via contents API (uses the existing sha)
-  var newContent = Utilities.base64Encode(JSON.stringify(cache), Utilities.Charset.UTF_8);
-  var putResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_INVOICES, {
-    method: 'put', headers: headers, contentType: 'application/json',
-    payload: JSON.stringify({
-      message: 'Webhook upsert invoice ' + key + ' ' + new Date().toISOString(),
-      content: newContent,
-      sha: meta.sha,
-      branch: GH_BRANCH
-    }),
-    muteHttpExceptions: true
-  });
-  var code = putResp.getResponseCode();
-  if (code === 200 || code === 201) {
+  // Step 3: write via Git Data API (pushToGitHub_ in CacheRefresh.gs).
+  // pushToGitHub_ fetches the current ref tip when computing the commit, so
+  // it picks up any concurrent writes — no SHA management needed here.
+  var ok = pushToGitHub_(
+    JSON.stringify(cache),
+    GH_PATH_INVOICES,
+    'Webhook upsert invoice ' + key + ' ' + new Date().toISOString()
+  );
+  if (ok) {
     Logger.log('  ✅ Cache updated');
     return true;
   }
-  if (code === 409) {
-    Logger.log('  ⏪ 409 conflict — will retry with fresh SHA');
-    return false;
-  }
-  Logger.log('  Cache write HTTP ' + code + ': ' + putResp.getContentText().substring(0, 300));
+  Logger.log('  Cache write FAILED via pushToGitHub_');
   return false;
 }
 
@@ -317,19 +423,21 @@ function markInvoiceVoided_(invoiceId) {
 }
 
 function _markInvoiceVoidedInner_(invoiceId) {
-  // For void events we don't get InvoiceNumber directly — use InvoiceID lookup.
-  // Read cache, find by InvoiceID, set Voided=true.
-  var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
-  if (!token) return;
-  var apiBase = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
-  var headers = { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' };
-  var getResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_INVOICES + '?ref=' + GH_BRANCH, {
-    headers: headers, muteHttpExceptions: true
-  });
-  if (getResp.getResponseCode() !== 200) return;
-  var meta = JSON.parse(getResp.getContentText());
-  var jsonStr = Utilities.newBlob(Utilities.base64Decode(meta.content), 'application/json').getDataAsString();
-  var cache = JSON.parse(jsonStr);
+  // Same size-unbounded pattern as upsertInvoiceOnce_ — read from GitHub
+  // Pages, mutate in memory, write via pushToGitHub_. Joe 2026-05-26.
+  var resp = UrlFetchApp.fetch(
+    'https://catseye-internal.github.io/Production-Dashboard/cache-invoices.json',
+    { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+  );
+  if (resp.getResponseCode() !== 200) {
+    Logger.log('  Void: cache read HTTP ' + resp.getResponseCode());
+    return;
+  }
+  var cache;
+  try { cache = JSON.parse(resp.getContentText()); } catch (e) {
+    Logger.log('  Void: cache parse failed: ' + e.message);
+    return;
+  }
   var found = false;
   for (var i = 0; i < (cache.invoices || []).length; i++) {
     if (String(cache.invoices[i].InvoiceID) === String(invoiceId)) {
@@ -345,15 +453,11 @@ function _markInvoiceVoidedInner_(invoiceId) {
   }
   cache.updated = new Date().toISOString();
   cache.lastWebhookUpdate = new Date().toISOString();
-  var newContent = Utilities.base64Encode(JSON.stringify(cache), Utilities.Charset.UTF_8);
-  UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_INVOICES, {
-    method: 'put', headers: headers, contentType: 'application/json',
-    payload: JSON.stringify({
-      message: 'Webhook void invoice ID ' + invoiceId,
-      content: newContent, sha: meta.sha, branch: GH_BRANCH
-    }),
-    muteHttpExceptions: true
-  });
+  pushToGitHub_(
+    JSON.stringify(cache),
+    GH_PATH_INVOICES,
+    'Webhook void invoice ID ' + invoiceId
+  );
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -407,25 +511,23 @@ function upsertSetup_(curated) {
   }
 }
 
+// SIZE-UNBOUNDED IMPL (Joe 2026-05-26): same Contents-API-1MB bug as
+// upsertInvoiceOnce_. cache-setups.json is ~36 MB — was silently failing.
+// See upsertInvoiceOnce_ comment for the full backstory + new pattern.
 function upsertSetupOnce_(curated, attempt) {
-  var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
-  if (!token) { Logger.log('  ⚠️ GITHUB_TOKEN missing'); return false; }
-  var apiBase = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
-  var headers = { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' };
-
-  // 1. Read current cache-setups.json
-  var getResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_SETUPS_WEBHOOK + '?ref=' + GH_BRANCH, {
-    headers: headers, muteHttpExceptions: true
-  });
-  if (getResp.getResponseCode() !== 200) {
-    Logger.log('  Setup cache read HTTP ' + getResp.getResponseCode());
+  var resp = UrlFetchApp.fetch(
+    'https://catseye-internal.github.io/Production-Dashboard/cache-setups.json',
+    { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+  );
+  if (resp.getResponseCode() !== 200) {
+    Logger.log('  Setup cache read HTTP ' + resp.getResponseCode());
     return false;
   }
-  var meta = JSON.parse(getResp.getContentText());
-  var jsonStr = Utilities.newBlob(Utilities.base64Decode(meta.content), 'application/json').getDataAsString();
-  var cache = JSON.parse(jsonStr);
-
-  // 2. Upsert by SetupID
+  var cache;
+  try { cache = JSON.parse(resp.getContentText()); } catch (e) {
+    Logger.log('  Setup cache parse failed: ' + e.message);
+    return false;
+  }
   var setups = cache.setups || [];
   var key = String(curated.SetupID);
   var idx = -1;
@@ -444,29 +546,13 @@ function upsertSetupOnce_(curated, attempt) {
   cache.updated = new Date().toISOString();
   cache.recordCount = setups.length;
   cache.lastWebhookUpdate = new Date().toISOString();
-
-  // 3. Write back
-  var newContent = Utilities.base64Encode(JSON.stringify(cache), Utilities.Charset.UTF_8);
-  var putResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_SETUPS_WEBHOOK, {
-    method: 'put', headers: headers, contentType: 'application/json',
-    payload: JSON.stringify({
-      message: 'Webhook upsert setup ' + key + ' ' + new Date().toISOString(),
-      content: newContent,
-      sha: meta.sha,
-      branch: GH_BRANCH
-    }),
-    muteHttpExceptions: true
-  });
-  var code = putResp.getResponseCode();
-  if (code === 200 || code === 201) {
-    Logger.log('  ✅ Setup cache updated');
-    return true;
-  }
-  if (code === 409) {
-    Logger.log('  ⏪ 409 conflict — will retry with fresh SHA');
-    return false;
-  }
-  Logger.log('  Setup cache write HTTP ' + code + ': ' + putResp.getContentText().substring(0, 300));
+  var ok = pushToGitHub_(
+    JSON.stringify(cache),
+    GH_PATH_SETUPS_WEBHOOK,
+    'Webhook upsert setup ' + key + ' ' + new Date().toISOString()
+  );
+  if (ok) { Logger.log('  ✅ Setup cache updated'); return true; }
+  Logger.log('  Setup cache write FAILED via pushToGitHub_');
   return false;
 }
 
@@ -479,17 +565,20 @@ function deleteSetup_(setupId) {
     return;
   }
   try {
-    var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
-    if (!token) return;
-    var apiBase = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO;
-    var headers = { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' };
-    var getResp = UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_SETUPS_WEBHOOK + '?ref=' + GH_BRANCH, {
-      headers: headers, muteHttpExceptions: true
-    });
-    if (getResp.getResponseCode() !== 200) return;
-    var meta = JSON.parse(getResp.getContentText());
-    var jsonStr = Utilities.newBlob(Utilities.base64Decode(meta.content), 'application/json').getDataAsString();
-    var cache = JSON.parse(jsonStr);
+    // Size-unbounded pattern. Joe 2026-05-26.
+    var resp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache-setups.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (resp.getResponseCode() !== 200) {
+      Logger.log('  Delete: setup cache read HTTP ' + resp.getResponseCode());
+      return;
+    }
+    var cache;
+    try { cache = JSON.parse(resp.getContentText()); } catch (e) {
+      Logger.log('  Delete: setup cache parse failed: ' + e.message);
+      return;
+    }
     var filtered = (cache.setups || []).filter(function(s) {
       return String(s.SetupID) !== String(setupId);
     });
@@ -501,15 +590,11 @@ function deleteSetup_(setupId) {
     cache.updated = new Date().toISOString();
     cache.recordCount = filtered.length;
     cache.lastWebhookUpdate = new Date().toISOString();
-    var newContent = Utilities.base64Encode(JSON.stringify(cache), Utilities.Charset.UTF_8);
-    UrlFetchApp.fetch(apiBase + '/contents/' + GH_PATH_SETUPS_WEBHOOK, {
-      method: 'put', headers: headers, contentType: 'application/json',
-      payload: JSON.stringify({
-        message: 'Webhook delete setup ID ' + setupId,
-        content: newContent, sha: meta.sha, branch: GH_BRANCH
-      }),
-      muteHttpExceptions: true
-    });
+    pushToGitHub_(
+      JSON.stringify(cache),
+      GH_PATH_SETUPS_WEBHOOK,
+      'Webhook delete setup ID ' + setupId
+    );
     Logger.log('  ❌ Deleted setup ID ' + setupId + ' from cache');
   } finally {
     lock.releaseLock();
