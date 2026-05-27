@@ -113,8 +113,8 @@ function doPost(e) {
       } else {
         var inv = fetchInvoice_(token, entityId);
         if (inv) {
-          upsertInvoice_(curateInvoice_(inv));
-          outcome = 'invoice_upserted';
+          var res = upsertInvoice_(curateInvoice_(inv));
+          outcome = 'invoice_upsert_' + res; // 'ok' / 'lock_timeout' / 'gave_up_after_retries:push_failed' / etc.
         } else {
           outcome = 'invoice_fetch_returned_null';
         }
@@ -123,16 +123,19 @@ function doPost(e) {
       // Payment.Apply changes balance on the affected invoice(s).
       // Fetch the payment record to identify which invoices were touched.
       var payment = fetchPayment_(token, entityId);
-      var paid = 0;
+      var paidOk = 0, paidFail = 0;
       if (payment && payment.Applications) {
         payment.Applications.forEach(function(app) {
           if (app.ApplyToType === 'Invoice' && app.ApplyToID) {
             var inv = fetchInvoice_(token, app.ApplyToID);
-            if (inv) { upsertInvoice_(curateInvoice_(inv)); paid++; }
+            if (inv) {
+              var r = upsertInvoice_(curateInvoice_(inv));
+              if (r === 'ok') paidOk++; else paidFail++;
+            }
           }
         });
       }
-      outcome = 'payment_propagated_to_' + paid + '_invoices';
+      outcome = 'payment_propagated_ok=' + paidOk + '_fail=' + paidFail;
     } else if (entityType === 'Service Setup' || entityType === 'ServiceSetup') {
       // Service Setup webhook handler. PestPac fires Create / Update / Delete.
       //   Create  → CSR booked a new setup (new business written)
@@ -396,29 +399,36 @@ function curateInvoice_(rec) {
 //   2. Retry on HTTP 409 (3 attempts, exponential backoff). Catches the rare
 //      race against CacheRefresh.gs writes which use a different code path.
 // ──────────────────────────────────────────────────────────────
+// Returns a string describing the final outcome — feeds the webhook recorder
+// so we can tell successful pushes from silent failures. Joe 2026-05-27.
 function upsertInvoice_(curated) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(90000);
   } catch (e) {
     Logger.log('  ⚠️ Lock timeout — could not serialize upsert for ' + curated.InvoiceNumber);
-    return;
+    return 'lock_timeout';
   }
+  var lastReason = 'unknown';
   try {
-    var ok = upsertInvoiceOnce_(curated, 1);
+    var result = upsertInvoiceOnce_(curated, 1);
     var attempt = 2;
-    while (!ok && attempt <= 3) {
+    while (result !== 'ok' && attempt <= 3) {
+      lastReason = result;
       Utilities.sleep(400 * attempt);
-      ok = upsertInvoiceOnce_(curated, attempt);
+      result = upsertInvoiceOnce_(curated, attempt);
       attempt++;
     }
-    if (!ok) Logger.log('  ⚠️ Gave up on invoice ' + curated.InvoiceNumber + ' after ' + (attempt - 1) + ' attempts');
+    if (result === 'ok') return 'ok';
+    Logger.log('  ⚠️ Gave up on invoice ' + curated.InvoiceNumber + ' after ' + (attempt - 1) + ' attempts (last reason: ' + lastReason + ')');
+    return 'gave_up_after_retries:' + lastReason;
   } finally {
     lock.releaseLock();
   }
 }
 
-// Single upsert attempt. Returns true if cache write succeeded, false otherwise.
+// Single upsert attempt. Returns 'ok' on success, or a short string explaining
+// the failure mode (so the webhook recorder can surface it). Joe 2026-05-27.
 //
 // IMPORTANT (Joe directive 2026-05-26): the original implementation read AND
 // wrote cache-invoices.json via the GitHub Contents API. That API has a hard
@@ -447,14 +457,14 @@ function upsertInvoiceOnce_(curated, attempt) {
   );
   if (resp.getResponseCode() !== 200) {
     Logger.log('  Cache read HTTP ' + resp.getResponseCode());
-    return false;
+    return 'read_http_' + resp.getResponseCode();
   }
   var cache;
   try {
     cache = JSON.parse(resp.getContentText());
   } catch (e) {
     Logger.log('  Cache parse failed: ' + e.message);
-    return false;
+    return 'parse_failed';
   }
 
   // Step 2: upsert by InvoiceNumber
@@ -477,8 +487,6 @@ function upsertInvoiceOnce_(curated, attempt) {
   cache.lastWebhookUpdate = new Date().toISOString();
 
   // Step 3: write via Git Data API (pushToGitHub_ in CacheRefresh.gs).
-  // pushToGitHub_ fetches the current ref tip when computing the commit, so
-  // it picks up any concurrent writes — no SHA management needed here.
   var ok = pushToGitHub_(
     JSON.stringify(cache),
     GH_PATH_INVOICES,
@@ -486,10 +494,10 @@ function upsertInvoiceOnce_(curated, attempt) {
   );
   if (ok) {
     Logger.log('  ✅ Cache updated');
-    return true;
+    return 'ok';
   }
   Logger.log('  Cache write FAILED via pushToGitHub_');
-  return false;
+  return 'push_failed';
 }
 
 // Mark an invoice voided in the cache (kept for audit). Same lock as upsert.
