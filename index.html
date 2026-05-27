@@ -4455,24 +4455,31 @@ function renderTechView_() {
   // card aggregates so the three cards are comparable.
   var fcYesterday = 0;
   var fcYesterdayCount = 0;
+  var fcYesterdaySeenOrderIds = {};
   try {
+    // Match invoices by WORK DATE (when the work happened), not InvoiceDate
+    // (when the invoice was posted). Catches yesterday's work even if the
+    // invoice was generated this morning. Joe directive 2026-05-27 — without
+    // this, late-posted invoices show up on Today instead of Yesterday.
     productionInvoices_().forEach(function(inv) {
-      var d = String(inv.InvoiceDate || '').substring(0, 10);
+      var d = String(inv.WorkDate || inv.InvoiceDate || '').substring(0, 10);
       if (d !== dYday) return;
       fcYesterday += Number(inv.SubTotal) || 0;
       fcYesterdayCount += 1;
+      if (inv.OrderID != null) fcYesterdaySeenOrderIds[String(inv.OrderID)] = true;
     });
-    // Also include yesterday-dated SERVICE ORDERS that haven't been posted
-    // to invoices yet. Most SOs take ~24 hours to flip from SO → invoice
-    // (techs close out the next day), so without this the Yesterday card
-    // under-counts until that catch-up cycle finishes. PestPac removes
-    // posted orders from /ServiceOrders, so there's no double-count risk
-    // against the invoice loop above. Joe directive 2026-05-26.
+    // Also include yesterday-dated SERVICE ORDERS that haven't been posted to
+    // invoices yet (PestPac removes posted SOs from /ServiceOrders, then there's
+    // a gap of hours-to-days before the invoice is generated). The merge logic
+    // in refreshProductionCache keeps these recent SOs in cache.json for 2 days,
+    // so once webhook adds the invoice we'd double-count without this OrderID
+    // dedupe. Joe 2026-05-26 / refined 2026-05-27.
     if (STATE.rawCache && STATE.rawCache.orders) {
       STATE.rawCache.orders.forEach(function(o) {
         if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
         var d = String(o.WorkDate || '').substring(0, 10);
         if (d !== dYday) return;
+        if (o.OrderID != null && fcYesterdaySeenOrderIds[String(o.OrderID)]) return;
         fcYesterday += Number(o.SubTotal) || 0;
         fcYesterdayCount += 1;
       });

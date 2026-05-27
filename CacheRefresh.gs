@@ -573,6 +573,51 @@ function refreshProductionCache() {
     // ── Build curated payload (every refresh) ──
     var curatedOrders = rawOrders.map(function(o) { return curate_(o, CURATED_FIELDS_ORDER); });
 
+    // ── MERGE recent SOs from prior cache (Joe directive 2026-05-27) ──
+    // PestPac removes an SO from /ServiceOrders the moment a tech submits the
+    // job (Posted=true) — even though the invoice hasn't been generated yet.
+    // That leaves the record in a limbo state: not in cache.json, not in
+    // cache-invoices.json. The dashboard's Yesterday card (and any other
+    // recent-WorkDate view) bleeds out as more techs close out yesterday's
+    // work. Fix: read the prior cache, KEEP any SO from the last 2 days
+    // that's missing from the new response. They age out automatically
+    // (anything older drops on next refresh).
+    try {
+      var priorResp = UrlFetchApp.fetch(
+        'https://catseye-internal.github.io/Production-Dashboard/cache.json?v=' + Date.now(),
+        { muteHttpExceptions: true }
+      );
+      if (priorResp.getResponseCode() === 200) {
+        var priorCache = JSON.parse(priorResp.getContentText());
+        var priorOrders = priorCache.orders || [];
+        var newOrderIds = {};
+        curatedOrders.forEach(function(o) {
+          if (o.OrderID != null) newOrderIds[String(o.OrderID)] = true;
+        });
+        var keepCutoff = new Date(now);
+        keepCutoff.setDate(keepCutoff.getDate() - 2);
+        keepCutoff.setHours(0, 0, 0, 0);
+        var retained = 0, retainedValue = 0;
+        priorOrders.forEach(function(o) {
+          if (o.OrderID == null) return;
+          if (newOrderIds[String(o.OrderID)]) return; // already in new response
+          var wd = String(o.WorkDate || '').substring(0, 10);
+          if (!wd) return;
+          var wdDate = new Date(wd);
+          if (isNaN(wdDate.getTime())) return;
+          if (wdDate < keepCutoff) return; // too old — let it drop
+          // Retain — this SO dropped from /ServiceOrders but its WorkDate is
+          // recent. Likely Posted=true awaiting invoice generation.
+          curatedOrders.push(o);
+          retained++;
+          retainedValue += Number(o.SubTotal) || 0;
+        });
+        Logger.log('  Merge: retained ' + retained + ' recent SOs from prior cache ($' + Math.round(retainedValue).toLocaleString() + ')');
+      }
+    } catch (mergeErr) {
+      Logger.log('  ⚠️ Merge skipped (prior cache read failed): ' + mergeErr.message);
+    }
+
     var curatedCache = {
       updated: new Date().toISOString(),
       windowStart: startStr, windowEnd: endStr,
