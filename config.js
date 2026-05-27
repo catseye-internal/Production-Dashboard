@@ -604,9 +604,24 @@ function getMonthlyBudgetByCategory(budgets, branch, year, monthIdx) {
   if (!budgets || !branch) return empty;
   var key = String(year) + '-' + String(monthIdx + 1).padStart(2, '0');
   var entry = budgets[branch] && budgets[branch][key];
-  if (!entry || !entry.enhanced) return empty;
+  if (!entry) return empty;
+  // Prefer enhanced (true budget + CGW boost). Fall back to true when
+  // enhanced hasn't been loaded for the month yet — Catseye's cadence loads
+  // enhanced ~2 days pre-month, but this safety net prevents the "No budget
+  // set" dead state if that load is missed. Joe directive 2026-05-26.
+  function hasNonZeroValue(obj) {
+    if (!obj) return false;
+    for (var i = 0; i < BUDGET_CATEGORIES.length; i++) {
+      if (Number(obj[BUDGET_CATEGORIES[i]]) > 0) return true;
+    }
+    return false;
+  }
+  var src = hasNonZeroValue(entry.enhanced) ? entry.enhanced
+          : hasNonZeroValue(entry['true'])  ? entry['true']
+          : null;
+  if (!src) return empty;
   BUDGET_CATEGORIES.forEach(function(c) {
-    empty[c] = Number(entry.enhanced[c]) || 0;
+    empty[c] = Number(src[c]) || 0;
   });
   return empty;
 }
