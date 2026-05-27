@@ -1828,7 +1828,7 @@
   <span class="sub-tabs-label">Invoice lens:</span>
   <div class="sub-tab-group" id="invoiceModeGroup">
     <button class="sub-tab" data-mode="all">All Invoices</button>
-    <button class="sub-tab active" data-mode="production">Completed <span class="sub-tab-hint">IN · PR · CM · excl plat_nonbillable</span></button>
+    <button class="sub-tab active" data-mode="production">Completed <span class="sub-tab-hint">IN · PR · CM · CB · PI</span></button>
     <button class="sub-tab" data-mode="revenue">Revenue <span class="sub-tab-hint">IN · PI · CM</span></button>
   </div>
 </div>
@@ -3123,13 +3123,9 @@ function applyFilters(records, columns) {
     if (!dateInPeriod(r[dateKey], range)) return false;
     // Invoice lens — restrict to the types the current mode includes
     if (isInvoices && invoiceLens && !invoiceLens.has(r.InvoiceType)) return false;
-    // Completed (production) lens: also exclude plat_nonbillable courtesy
-    // visits (PR on PG CG / PG CG PRE) to match the Completed vs Budget
-    // card's revenue methodology. Joe directive 2026-05-23.
-    if (isInvoices && STATE.invoiceMode === 'production') {
-      var _sc = String(r.ServiceClass || '').toUpperCase().trim();
-      if (r.InvoiceType === 'PR' && (_sc === 'PG CG' || _sc === 'PG CG PRE')) return false;
-    }
+    // plat_nonbillable filter REMOVED 2026-05-27 (Joe correction): PR records
+    // on PG CG / PG CG PRE are real revenue events ($960 first-year upfront),
+    // not $0 courtesy visits. Daily Recap reconciliation.
     // Company filter (overrides individual branch filter when active)
     if (STATE.company === 'catseye' && isUsxBranch(r.Branch)) return false;
     if (STATE.company === 'usx'     && !isUsxBranch(r.Branch)) return false;
@@ -4305,9 +4301,10 @@ function renderTechView_() {
   } catch (e) { /* leave fcNeededPerDay = 0 → renderer skips coloring */ }
 
   // Hero Strip data — total MTD actual across branches (matches the
-  // Completed vs Budget card methodology: same 5 categories, excludes
-  // plat_nonbillable). Joe directive 2026-05-25.
+  // Completed vs Budget card methodology: same 5 categories).
   // Two flavors: full (with CGW) for the MTD% chip, and no-CGW for NEED/DAY.
+  // (plat_nonbillable exclusion removed 2026-05-27 — those were real $960
+  // first-year CGW upfront payments, not $0 courtesy visits.)
   //
   // Joe directive 2026-05-26: Office-credited revenue (auto-renewals, credit
   // memos, non-tech-credited service) is now INCLUDED in heroMtdActual and
@@ -5933,16 +5930,13 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory, officeB
       var br = inv.Branch || '';
       if (!localByBranch[br]) return;
       var cat = classifyProductionCategory(inv);
-      // Tally the category breakdown (used for drill-down). plat_nonbillable
-      // lands in its own bucket and is excluded from the card's totals below.
+      // Tally the category breakdown (used for drill-down).
       localByBranchCat[br][cat] = (localByBranchCat[br][cat] || 0) + amt;
-      // For the card's Actual line, exclude plat_nonbillable so the card
-      // matches the Daily Recap's revenue methodology. (Tech-level rows
-      // outside the card still see plat_nonbillable via the upstream
-      // byBranch aggregation.) Joe 2026-05-23.
-      if (cat !== 'plat_nonbillable') {
-        localByBranch[br].push({ data: { completed: amt } });
-      }
+      // Include every classified record in the card's Actual line.
+      // plat_nonbillable exclusion removed 2026-05-27 (Joe correction):
+      // those PR records on PG CG / PG CG PRE were real revenue ($960
+      // first-year upfront), not $0 placeholders. Daily Recap reconciliation.
+      localByBranch[br].push({ data: { completed: amt } });
     });
     byBranch = localByBranch;
     mtdByBranchCategory = localByBranchCat;
@@ -5965,12 +5959,11 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory, officeB
     var techs   = byBranch[b] || [];
     var mtdAllRaw = techs.reduce(function(s, t) { return s + (t.data.completed || 0); }, 0);
     var catActuals = mtdByBranchCategory && mtdByBranchCategory[b] || {};
-    // Plat nonbillable (PR on PG CG / PG CG PRE) — courtesy platinum visits
-    // with no revenue impact. Excluded from the card's Actual line to match
-    // the Daily Recap's MTD Total methodology. Tech-level rows still include
-    // these records so utilization signal is preserved. Joe 2026-05-23.
-    var mtdPlatNonbillable = Number(catActuals.plat_nonbillable) || 0;
-    var mtdAll = mtdAllRaw - mtdPlatNonbillable;
+    // plat_nonbillable subtraction REMOVED 2026-05-27 (Joe correction): PR
+    // records on PG CG / PG CG PRE are real revenue (first-year $960 upfront
+    // payments), not $0 courtesy visits. They now flow normally through
+    // recurring_residential and count toward Actual, reconciling to Daily Recap.
+    var mtdAll = mtdAllRaw;
     // Pre-billed CGW is treated as guaranteed monthly revenue — the "+CGW"
     // line adds the FULL ENHANCED budget value (not the MTD actual). MTD
     // actual CGW is still stripped from `mtdProd` so it's not double-counted

@@ -657,17 +657,16 @@ function classifyProductionCategory(rec) {
   if (!rec) return 'other';
   var code = String(rec.ServiceCode || '').toUpperCase().trim();
   var cls  = String(rec.ServiceClass || '').toUpperCase().trim();
-  var typ  = String(rec.InvoiceType || '').toUpperCase().trim();
 
-  // Plat nonbillable — PR-type invoices on PG CG or PG CG PRE service classes.
-  // These represent courtesy platinum visits: tech work happens but Catseye
-  // doesn't bill the customer (annual plan already covers it). Daily Recap
-  // excludes these from MTD Total; Completed vs Budget card on the dashboard
-  // does the same. Tech-level views still credit the work. Joe directive
-  // 2026-05-23.
-  if (typ === 'PR' && (cls === 'PG CG' || cls === 'PG CG PRE')) {
-    return 'plat_nonbillable';
-  }
+  // plat_nonbillable bucket REMOVED 2026-05-27 (Joe correction): originally
+  // we excluded PR-type invoices on PG CG / PG CG PRE thinking they were $0
+  // courtesy visits paid for by the annual CGW package. They aren't — those
+  // $160-$960 records are real revenue events (first-year upfront payments
+  // under the "960 rule"). Excluding them caused a $10-15K MTD undercount
+  // vs Daily Recap. PG CG / PG CG PRE classes now flow through normal
+  // classification → recurring_residential (since both are in
+  // RECURRING_SERVICE_CLASSES). If any record truly is $0, it contributes
+  // $0 to Actual and does no harm.
 
   // CGW warranty pipeline takes precedence — these are CG-division records but
   // bucket separately from initial CG/NWL installs.
