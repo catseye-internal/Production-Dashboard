@@ -1231,8 +1231,14 @@ function backfillMissingMayCancellations() {
 
   var token = ppToken_();
 
-  // 1. Resolve LocationCodes → LocationIDs via cache-locations.json
-  Logger.log('1. Resolving LocationCodes to LocationIDs...');
+  // 1. Resolve report's "Location" column to LocationIDs.
+  // PestPac's report column "Location" can be EITHER the LocationCode (6-digit
+  // customer-facing) OR the LocationID (internal numeric ID), depending on
+  // report configuration. Try both:
+  //   a) Direct match: input value === LocationID in cache
+  //   b) Code match:   input value === LocationCode in cache
+  //   c) Last resort:  query PestPac /Locations?q=<value> for any leftovers
+  Logger.log('1. Resolving Location values from cache-locations...');
   var locUrl = 'https://catseye-internal.github.io/Production-Dashboard/cache-locations.json?v=' + Date.now();
   var locResp = UrlFetchApp.fetch(locUrl, { muteHttpExceptions: true });
   if (locResp.getResponseCode() !== 200) {
@@ -1240,24 +1246,59 @@ function backfillMissingMayCancellations() {
     return;
   }
   var locCache = JSON.parse(locResp.getContentText());
-  var codeToId = {};
+  var idSet = {};      // LocationID → true
+  var codeToId = {};   // LocationCode → LocationID
   (locCache.locations || []).forEach(function(l) {
+    if (l.LocationID != null) idSet[String(l.LocationID)] = true;
     if (l.LocationCode != null && l.LocationID != null) {
       codeToId[String(l.LocationCode)] = l.LocationID;
     }
   });
   var locationIds = [];
-  var unresolved = [];
-  LOCATION_CODES.forEach(function(code) {
-    var id = codeToId[String(code)];
-    if (id != null) locationIds.push(id);
-    else unresolved.push(code);
+  var unresolvedFromCache = [];
+  LOCATION_CODES.forEach(function(v) {
+    var s = String(v);
+    if (idSet[s]) {
+      locationIds.push(v);
+    } else if (codeToId[s] != null) {
+      locationIds.push(codeToId[s]);
+    } else {
+      unresolvedFromCache.push(v);
+    }
   });
-  Logger.log('   Resolved ' + locationIds.length + ' of ' + LOCATION_CODES.length);
-  if (unresolved.length > 0) Logger.log('   ⚠️ Unresolved (not in cache-locations): ' + unresolved.join(', '));
+  Logger.log('   Resolved via cache: ' + locationIds.length + ' of ' + LOCATION_CODES.length);
 
-  // 2. Pull current cache-setups.json to identify gaps
-  Logger.log('2. Loading cache-setups.json...');
+  // 2. For anything cache couldn't resolve, fall back to PestPac search.
+  //    Try /Locations?q=<value> which matches across LocationCode + LocationID + Name.
+  if (unresolvedFromCache.length > 0) {
+    Logger.log('   Falling back to /Locations?q= for ' + unresolvedFromCache.length + ' values...');
+    var apiResolved = 0;
+    var apiFailed = [];
+    unresolvedFromCache.forEach(function(v) {
+      var r = ppGet_(token, '/Locations?q=' + encodeURIComponent(String(v)));
+      if (r.code !== 200) { apiFailed.push(v); return; }
+      try {
+        var hits = JSON.parse(r.text);
+        if (Array.isArray(hits) && hits.length > 0) {
+          // Prefer exact LocationCode match, else first hit
+          var pick = hits.find(function(h) { return String(h.LocationCode) === String(v); }) || hits[0];
+          if (pick && pick.LocationID != null) {
+            locationIds.push(pick.LocationID);
+            apiResolved++;
+            return;
+          }
+        }
+        apiFailed.push(v);
+      } catch (e) { apiFailed.push(v); }
+      Utilities.sleep(150);
+    });
+    Logger.log('   API search resolved: ' + apiResolved + ' / still failing: ' + apiFailed.length);
+    if (apiFailed.length > 0) Logger.log('   ⚠️ Unresolved: ' + apiFailed.join(', '));
+  }
+  Logger.log('   Total LocationIDs ready: ' + locationIds.length);
+
+  // 3. Pull current cache-setups.json to identify gaps
+  Logger.log('3. Loading cache-setups.json...');
   var existing = readSetupsCache_();
   var existingSetups = existing.setups || [];
   var bySetupId = {};
@@ -1266,9 +1307,9 @@ function backfillMissingMayCancellations() {
   });
   Logger.log('   ' + existingSetups.length + ' setups in cache');
 
-  // 3. For each location, fetch its current setup list and find cancellations
+  // 4. For each location, fetch its current setup list and find cancellations
   //    with CancelDate within the lookback window.
-  Logger.log('3. Fetching /Locations/{id}/serviceSetups for ' + locationIds.length + ' locations...');
+  Logger.log('4. Fetching /Locations/{id}/serviceSetups for ' + locationIds.length + ' locations...');
   var cutoff = new Date(new Date().getTime() - LOOKBACK_DAYS * 86400000);
   var foundCancellations = [];
   var alreadyInCache = 0;
@@ -1316,8 +1357,8 @@ function backfillMissingMayCancellations() {
     return;
   }
 
-  // 4. Curate + merge into cache + single push
-  Logger.log('4. Curating + merging into cache-setups.json...');
+  // 5. Curate + merge into cache + single push
+  Logger.log('5. Curating + merging into cache-setups.json...');
   var curatedNew = foundCancellations.map(function(f) {
     return curate_(f.setup, CURATED_FIELDS_SETUP);
   });
@@ -1349,8 +1390,8 @@ function backfillMissingMayCancellations() {
   });
   Logger.log('   Added fresh: ' + addedFresh + ' / Updated existing (CancelDate populated): ' + updatedExisting);
 
-  // 5. Write back via Git Data API
-  Logger.log('5. Pushing cache-setups.json...');
+  // 6. Write back via Git Data API
+  Logger.log('6. Pushing cache-setups.json...');
   var cache = {
     updated: new Date().toISOString(),
     recordCount: merged.length,
