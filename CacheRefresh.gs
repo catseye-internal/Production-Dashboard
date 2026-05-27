@@ -2034,7 +2034,10 @@ function probeInvoiceOriginField() {
    { label: 'cache-missing-Origin', num: withoutOrigin }].forEach(function(s) {
     if (!s.num) { Logger.log('  (no sample for ' + s.label + ')'); return; }
     Logger.log('━━━ ' + s.label + ': InvoiceNumber=' + s.num + ' ━━━');
-    var r = ppGet_(token, '/Invoices/' + encodeURIComponent(s.num));
+    // Use search endpoint — /Invoices/{id} requires internal InvoiceID which
+    // the cache doesn't have. The ?invoiceNumber= query path looks up by
+    // human-readable InvoiceNumber and returns a single-element array.
+    var r = ppGet_(token, '/Invoices?invoiceNumber=' + encodeURIComponent(s.num));
     Logger.log('  HTTP ' + r.code);
     if (r.code !== 200) {
       Logger.log('  body: ' + r.text.substring(0, 300));
@@ -2150,7 +2153,10 @@ function _bioImpl_(resume) {
     var slice = missingNums.slice(b, b + BIO_BATCH_SIZE);
     var requests = slice.map(function(num) {
       return {
-        url: PP_API_BASE + '/Invoices/' + encodeURIComponent(num),
+        // Search endpoint — /Invoices/{id} expects internal InvoiceID which
+        // the cache doesn't have. ?invoiceNumber= queries by the human-
+        // readable InvoiceNumber and returns a single-element array.
+        url: PP_API_BASE + '/Invoices?invoiceNumber=' + encodeURIComponent(num),
         method: 'get',
         headers: apiHeaders,
         muteHttpExceptions: true
