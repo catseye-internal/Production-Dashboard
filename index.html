@@ -863,6 +863,15 @@
   .hero-ctx-row-6 {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
+  /* 3-card variant — forecast outlook row (+2/+3/+4). Joe directive 2026-05-26. */
+  .hero-ctx-row-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 12px;
+  }
+  /* 4-card variant — ops state row (MTD%, NEED/DAY, capacities). Joe 2026-05-26. */
+  .hero-ctx-row-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
   .hero-ctx-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -914,11 +923,14 @@
 
   @media (max-width: 1200px) {
     .hero-ctx-row-6 { grid-template-columns: repeat(3, 1fr); }
+    .hero-ctx-row-4 { grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 1000px) {
     .hero-v2-value { font-size: 48px; }
     .hero-ctx-row { grid-template-columns: repeat(3, 1fr); }
     .hero-ctx-row-6 { grid-template-columns: repeat(3, 1fr); }
+    .hero-ctx-row-4 { grid-template-columns: repeat(2, 1fr); }
+    .hero-ctx-row-3 { grid-template-columns: repeat(3, 1fr); }
   }
   @media (max-width: 700px) {
     .hero-v2-row { grid-template-columns: 1fr; gap: 10px; margin-bottom: 8px; }
@@ -929,6 +941,8 @@
     .hero-v2-hint { font-size: 11px; }
     .hero-ctx-row { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
     .hero-ctx-row-6 { grid-template-columns: 1fr 1fr; }
+    .hero-ctx-row-4 { grid-template-columns: 1fr 1fr; }
+    .hero-ctx-row-3 { grid-template-columns: 1fr 1fr 1fr; }
     .hero-ctx-card { padding: 10px 12px; min-height: 72px; }
     .hero-ctx-value { font-size: 20px; }
   }
@@ -937,6 +951,8 @@
     .hero-v2-card { padding: 12px 14px 14px; min-height: 108px; }
     .hero-ctx-row { grid-template-columns: 1fr 1fr; }
     .hero-ctx-row-6 { grid-template-columns: 1fr 1fr; }
+    .hero-ctx-row-3 { grid-template-columns: 1fr 1fr; }
+    .hero-ctx-row-4 { grid-template-columns: 1fr 1fr; }
     .hero-ctx-value { font-size: 18px; }
   }
 
@@ -6945,12 +6961,15 @@ function renderHeroStrip_(ctx) {
 
   // ── Context strip (5 small cards) ──
   // +2 day
-  // +2 / +3 outlook cards — use walk-aware offsets (Sun + holidays skipped).
-  // Joe directive 2026-05-26.
+  // +2 / +3 / +4 outlook cards — use walk-aware offsets (Sun + holidays
+  // skipped). Joe directive 2026-05-26. Three-card forecast row sits between
+  // the hero (Prev/Today/Tmrw) and the ops-state row (MTD/Need/Capacities).
   var d2Off_ = (typeof ctx.fcD2Offset === 'number') ? ctx.fcD2Offset : 2;
   var d3Off_ = (typeof ctx.fcD3Offset === 'number') ? ctx.fcD3Offset : 3;
+  var d4Off_ = (typeof ctx.fcD4Offset === 'number') ? ctx.fcD4Offset : 4;
   var d2Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(d2Off_) : '+2';
   var d3Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(d3Off_) : '+3';
+  var d4Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(d4Off_) : '+4';
 
   function buildCtxCard_(label, sub, valueHtml, status) {
     return '<div class="hero-ctx-card hero-' + (status || 'neutral') + '">' +
@@ -6964,8 +6983,10 @@ function renderHeroStrip_(ctx) {
   // shown under each dollar amount so volume is visible alongside revenue.
   var d2Sub = (ctx.fcD2Count > 0) ? (ctx.fcD2Count + ' stops scheduled') : '';
   var d3Sub = (ctx.fcD3Count > 0) ? (ctx.fcD3Count + ' stops scheduled') : '';
+  var d4Sub = (ctx.fcD4Count > 0) ? (ctx.fcD4Count + ' stops scheduled') : '';
   var d2Card = buildCtxCard_('+2 · ' + d2Label, d2Sub, '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), 'purple');
   var d3Card = buildCtxCard_('+3 · ' + d3Label, d3Sub, '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), 'purple');
+  var d4Card = buildCtxCard_('+4 · ' + d4Label, d4Sub, '$' + Math.round(ctx.fcD4 || 0).toLocaleString(), 'purple');
 
   // MTD% — uses full budget (with CGW)
   var mtdPct = (ctx.mtdBudget > 0) ? Math.round(ctx.mtdActual / ctx.mtdBudget * 100) : 0;
@@ -7089,8 +7110,13 @@ function renderHeroStrip_(ctx) {
     capStatusT
   );
 
+  // Three-row hero layout (Joe directive 2026-05-26):
+  // Row 1: Prev Prod / Today / Tomorrow (3 large hero cards — decisional)
+  // Row 2: +2 / +3 / +4 (3 forecast outlook cards — full upcoming production week)
+  // Row 3: MTD% / NEED/DAY / Today's Capacity / Tomorrow's Capacity (4 ops state)
   return '<div class="hero-v2-row hero-v2-row-3">' + ydayCard + todayCard + tmrwCard + '</div>' +
-         '<div class="hero-ctx-row hero-ctx-row-6">' + d2Card + d3Card + mtdCard + needCard + capacityCard + capacityCardTmrw + '</div>';
+         '<div class="hero-ctx-row hero-ctx-row-3">' + d2Card + d3Card + d4Card + '</div>' +
+         '<div class="hero-ctx-row hero-ctx-row-4">' + mtdCard + needCard + capacityCard + capacityCardTmrw + '</div>';
 }
 
 // ══════════════════════════════════════════════════════════════
