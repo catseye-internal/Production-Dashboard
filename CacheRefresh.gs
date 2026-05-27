@@ -1196,6 +1196,173 @@ function fetchSetups_(token, setupIds) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// One-off: backfill cancelled setups missed by the webhook during
+// the Contents-API-1MB silent-failure window (Joe directive 2026-05-27).
+//
+// Compares the PestPac source-of-truth cancellation report (74 cancels
+// for May 1-26) against cache-setups.json (54 cancels). The 20 missing
+// records are from old webhook failures. This function takes a list of
+// LocationCodes (from PestPac's Cancellations report XLSX), walks each
+// location's /Locations/{id}/serviceSetups, and upserts any setup with
+// a CancelDate ≥ LOOKBACK that's missing from cache.
+//
+// Idempotent — safe to re-run. Already-cached setups are no-ops.
+// Quota-safe — 72 locations × 1 call = 72 PestPac API calls.
+// ──────────────────────────────────────────────────────────────
+function backfillMissingMayCancellations() {
+  // 72 LocationCodes from the PestPac Cancellations report 5.1.26-5.26.26
+  var LOCATION_CODES = [
+    178095, 184245, 185424, 185991, 189847, 193409, 194684, 196218, 196602, 196725,
+    197605, 201477, 202036, 202230, 202281, 202709, 202766, 203120, 203732, 208182,
+    208492, 208760, 208763, 208778, 209153, 209218, 209363, 211780, 214160, 214292,
+    216532, 216675, 216744, 217044, 217189, 217315, 217324, 217668, 218052, 218218,
+    219179, 220065, 220556, 220697, 220780, 221083, 221205, 221255, 221366, 221518,
+    221828, 221855, 221954, 222051, 222094, 222315, 222381, 222382, 222517, 222667,
+    222849, 222985, 223307, 223910, 224132, 224335, 224355, 225116, 225746, 226024,
+    226799, 226945
+  ];
+
+  var LOOKBACK_DAYS = 35; // catch all May 2026 cancellations even if run early June
+
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🔁 Backfill missing May cancellations — ' + new Date().toISOString());
+  Logger.log('   Targeting ' + LOCATION_CODES.length + ' LocationCodes from PestPac report');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  var token = ppToken_();
+
+  // 1. Resolve LocationCodes → LocationIDs via cache-locations.json
+  Logger.log('1. Resolving LocationCodes to LocationIDs...');
+  var locUrl = 'https://catseye-internal.github.io/Production-Dashboard/cache-locations.json?v=' + Date.now();
+  var locResp = UrlFetchApp.fetch(locUrl, { muteHttpExceptions: true });
+  if (locResp.getResponseCode() !== 200) {
+    Logger.log('   ❌ Failed to fetch cache-locations.json: HTTP ' + locResp.getResponseCode());
+    return;
+  }
+  var locCache = JSON.parse(locResp.getContentText());
+  var codeToId = {};
+  (locCache.locations || []).forEach(function(l) {
+    if (l.LocationCode != null && l.LocationID != null) {
+      codeToId[String(l.LocationCode)] = l.LocationID;
+    }
+  });
+  var locationIds = [];
+  var unresolved = [];
+  LOCATION_CODES.forEach(function(code) {
+    var id = codeToId[String(code)];
+    if (id != null) locationIds.push(id);
+    else unresolved.push(code);
+  });
+  Logger.log('   Resolved ' + locationIds.length + ' of ' + LOCATION_CODES.length);
+  if (unresolved.length > 0) Logger.log('   ⚠️ Unresolved (not in cache-locations): ' + unresolved.join(', '));
+
+  // 2. Pull current cache-setups.json to identify gaps
+  Logger.log('2. Loading cache-setups.json...');
+  var existing = readSetupsCache_();
+  var existingSetups = existing.setups || [];
+  var bySetupId = {};
+  existingSetups.forEach(function(s) {
+    if (s.SetupID != null) bySetupId[String(s.SetupID)] = s;
+  });
+  Logger.log('   ' + existingSetups.length + ' setups in cache');
+
+  // 3. For each location, fetch its current setup list and find cancellations
+  //    with CancelDate within the lookback window.
+  Logger.log('3. Fetching /Locations/{id}/serviceSetups for ' + locationIds.length + ' locations...');
+  var cutoff = new Date(new Date().getTime() - LOOKBACK_DAYS * 86400000);
+  var foundCancellations = [];
+  var alreadyInCache = 0;
+  var newToCache = 0;
+  var failed = 0;
+  for (var i = 0; i < locationIds.length; i++) {
+    var lid = locationIds[i];
+    var r = ppGet_(token, '/Locations/' + lid + '/serviceSetups');
+    if (r.code !== 200) {
+      failed++;
+      if (failed <= 3) Logger.log('   ⚠️ LocID ' + lid + ' → HTTP ' + r.code);
+      Utilities.sleep(200);
+      continue;
+    }
+    try {
+      var setups = JSON.parse(r.text);
+      if (Array.isArray(setups)) {
+        setups.forEach(function(s) {
+          if (!s.CancelDate) return;
+          var cd = new Date(String(s.CancelDate).split('.')[0]);
+          if (isNaN(cd.getTime()) || cd < cutoff) return;
+          // Cancelled in window — is it already in cache with this CancelDate?
+          var sid = String(s.SetupID);
+          var existed = bySetupId[sid];
+          if (existed && existed.CancelDate && String(existed.CancelDate).substring(0,10) === String(s.CancelDate).substring(0,10)) {
+            alreadyInCache++;
+            return;
+          }
+          foundCancellations.push({ setup: s, locationId: lid });
+          newToCache++;
+        });
+      }
+    } catch (e) {
+      failed++;
+    }
+    Utilities.sleep(200); // throttle — stay well under tenant quota
+  }
+  Logger.log('   Found ' + foundCancellations.length + ' cancellations in window');
+  Logger.log('   Already in cache (no-op): ' + alreadyInCache);
+  Logger.log('   NEW to add: ' + newToCache);
+  Logger.log('   Failed lookups: ' + failed);
+
+  if (foundCancellations.length === 0) {
+    Logger.log('✅ Nothing to backfill.');
+    return;
+  }
+
+  // 4. Curate + merge into cache + single push
+  Logger.log('4. Curating + merging into cache-setups.json...');
+  var curatedNew = foundCancellations.map(function(f) {
+    return curate_(f.setup, CURATED_FIELDS_SETUP);
+  });
+  // Build a fresh keyed cache: existing first (preserving order), then new
+  var merged = [];
+  var seen = {};
+  existingSetups.forEach(function(s) {
+    if (s.SetupID == null) return;
+    var sid = String(s.SetupID);
+    if (seen[sid]) return;
+    seen[sid] = true;
+    merged.push(s);
+  });
+  var addedFresh = 0, updatedExisting = 0;
+  curatedNew.forEach(function(s) {
+    if (s.SetupID == null) return;
+    var sid = String(s.SetupID);
+    if (seen[sid]) {
+      // Replace existing (CancelDate was missing or stale)
+      for (var i = 0; i < merged.length; i++) {
+        if (String(merged[i].SetupID) === sid) { merged[i] = s; break; }
+      }
+      updatedExisting++;
+    } else {
+      merged.push(s);
+      seen[sid] = true;
+      addedFresh++;
+    }
+  });
+  Logger.log('   Added fresh: ' + addedFresh + ' / Updated existing (CancelDate populated): ' + updatedExisting);
+
+  // 5. Write back via Git Data API
+  Logger.log('5. Pushing cache-setups.json...');
+  var cache = {
+    updated: new Date().toISOString(),
+    recordCount: merged.length,
+    setups: merged
+  };
+  var ok = pushToGitHub_(JSON.stringify(cache), GH_PATH_SETUPS_WEBHOOK,
+    'Backfill missing May cancellations: +' + addedFresh + ' new, ' + updatedExisting + ' updated ' + new Date().toISOString());
+  Logger.log(ok ? '✅ Push OK' : '❌ Push FAILED');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+}
+
+// ──────────────────────────────────────────────────────────────
 // Invoice backfill — fix gaps left by webhook race-condition drops.
 //
 // Strategy: for every Service Order in the date window that's marked Posted
