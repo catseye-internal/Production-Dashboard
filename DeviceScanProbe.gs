@@ -53,27 +53,13 @@ function probeDeviceScan() {
       return;
     }
     if (!invoiceNum) invoiceNum = picked.InvoiceNumber;
-    if (!locationId) {
-      // Need to look up LocationID from cache-locations using LocationCode
-      var locCode = picked.LocationCode;
-      var locUrl = 'https://raw.githubusercontent.com/catseye-internal/Production-Dashboard/main/cache-locations.json?v=' + Date.now();
-      var locResp = UrlFetchApp.fetch(locUrl, { muteHttpExceptions: true });
-      var locCache = JSON.parse(locResp.getContentText());
-      var locArr = locCache.locations || [];
-      for (var j = 0; j < locArr.length; j++) {
-        if (String(locArr[j].LocationCode) === String(locCode)) {
-          locationId = locArr[j].LocationID;
-          break;
-        }
-      }
-    }
-    Logger.log('   Picked invoice ' + invoiceNum + ' / LocationID ' + locationId +
+    Logger.log('   Picked invoice ' + invoiceNum +
                ' / ServiceClass ' + picked.ServiceClass + ' / Tech ' + picked.Tech +
                ' / WorkDate ' + picked.WorkDate);
   }
 
-  if (!invoiceNum || !locationId) {
-    Logger.log('   ✗ Could not resolve invoice + location — aborting');
+  if (!invoiceNum) {
+    Logger.log('   ✗ Could not resolve invoice — aborting');
     return;
   }
 
@@ -84,11 +70,12 @@ function probeDeviceScan() {
     'tenant-id': PP_TENANT_ID
   };
 
-  // ── 2. Endpoints to probe ──
-  // First need InvoiceID (the numeric internal ID) — the invoice number is
-  // human-facing; many sub-endpoints want the internal ID. Try the search
-  // variant first.
-  Logger.log('\n2. Resolving InvoiceID for InvoiceNumber=' + invoiceNum + '...');
+  // ── 2. Resolve InvoiceID + LocationID via /Invoices?invoiceNumber= ──
+  // The API response on this endpoint carries BOTH the internal InvoiceID
+  // we need for sub-endpoints AND the LocationID — no need to go through
+  // cache-locations. Also dump the full invoice payload so we can see if
+  // PestPac is hiding scan fields on the top-level invoice record.
+  Logger.log('\n2. Resolving InvoiceID + LocationID via /Invoices?invoiceNumber=' + invoiceNum + '...');
   var searchResp = UrlFetchApp.fetch(PP_API_BASE + '/Invoices?invoiceNumber=' + invoiceNum, {
     headers: headers, muteHttpExceptions: true
   });
@@ -97,9 +84,33 @@ function probeDeviceScan() {
   if (searchResp.getResponseCode() === 200) {
     try {
       var data = JSON.parse(searchResp.getContentText());
-      invoiceId = data.InvoiceID || data.invoiceId || (data[0] && data[0].InvoiceID);
-      Logger.log('   Resolved InvoiceID = ' + invoiceId);
+      var rec = Array.isArray(data) ? data[0] : data;
+      invoiceId  = rec.InvoiceID || rec.invoiceId;
+      if (!locationId) locationId = rec.LocationID || rec.locationId;
+      Logger.log('   Resolved InvoiceID=' + invoiceId + ' / LocationID=' + locationId);
+      // Also dump every field on the invoice record so we can eyeball
+      // whether any device/scan/inspect field exists at the top level.
+      var keys = Object.keys(rec).sort();
+      Logger.log('   /Invoices fields: ' + keys.join(', '));
+      var scanLike = keys.filter(function(k) {
+        return /device|scan|barcode|inspect|condition/i.test(k);
+      });
+      if (scanLike.length > 0) {
+        Logger.log('   📡 scan-like on invoice record: ' + scanLike.join(', '));
+        scanLike.forEach(function(k) {
+          Logger.log('      ' + k + ' = ' + JSON.stringify(rec[k]).substring(0, 200));
+        });
+      } else {
+        Logger.log('   (no scan-like fields on /Invoices record itself)');
+      }
     } catch (e) { Logger.log('   parse error: ' + e); }
+  } else {
+    Logger.log('   body: ' + searchResp.getContentText().substring(0, 300));
+  }
+
+  if (!invoiceId || !locationId) {
+    Logger.log('   ✗ Could not resolve InvoiceID or LocationID — aborting probes');
+    return;
   }
 
   var endpointsToTry = [
