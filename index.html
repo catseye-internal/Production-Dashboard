@@ -2378,7 +2378,12 @@ function productionInvoices_() {
   if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return [];
   return STATE.invoiceCache.invoices.filter(function(inv) {
     var t = inv.InvoiceType || '';
-    return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB';
+    // Joe directive 2026-05-27: include PI auto-bills in PRODUCTION lens to
+    // reconcile against Daily Recap. PI represents auto-generated invoices
+    // for ongoing service contracts — the tech IS doing the work, the invoice
+    // just gets system-generated on the schedule instead of created by office
+    // staff. Tech leaderboards correctly credit the tech listed on the SO.
+    return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB' || t === 'PI';
   });
 }
 
