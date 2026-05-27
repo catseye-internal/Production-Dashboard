@@ -149,8 +149,8 @@ function doPost(e) {
       } else {
         var setup = fetchSetup_(token, entityId);
         if (setup) {
-          upsertSetup_(curateSetup_(setup));
-          outcome = 'setup_upserted';
+          var sRes = upsertSetup_(curateSetup_(setup));
+          outcome = 'setup_upsert_' + sRes; // 'ok' / 'push_failed' / 'lock_timeout' / etc.
         } else {
           outcome = 'setup_fetch_returned_null';
         }
@@ -581,23 +581,28 @@ function curateSetup_(setup) {
 // LockService serializes concurrent webhook deliveries; retry-on-409 catches
 // the rare race with another writer (e.g., a CacheRefresh.gs bulk refresh
 // happening at the same moment).
+// Returns string outcome so the webhook recorder can verify writes. Joe 2026-05-27.
 function upsertSetup_(curated) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(90000);
   } catch (e) {
     Logger.log('  ⚠️ Lock timeout — could not serialize setup upsert for ' + curated.SetupID);
-    return;
+    return 'lock_timeout';
   }
+  var lastReason = 'unknown';
   try {
-    var ok = upsertSetupOnce_(curated, 1);
+    var result = upsertSetupOnce_(curated, 1);
     var attempt = 2;
-    while (!ok && attempt <= 3) {
+    while (result !== 'ok' && attempt <= 3) {
+      lastReason = result;
       Utilities.sleep(400 * attempt);
-      ok = upsertSetupOnce_(curated, attempt);
+      result = upsertSetupOnce_(curated, attempt);
       attempt++;
     }
-    if (!ok) Logger.log('  ⚠️ Gave up on setup ' + curated.SetupID + ' after ' + (attempt - 1) + ' attempts');
+    if (result === 'ok') return 'ok';
+    Logger.log('  ⚠️ Gave up on setup ' + curated.SetupID + ' after ' + (attempt - 1) + ' attempts (last: ' + lastReason + ')');
+    return 'gave_up_after_retries:' + lastReason;
   } finally {
     lock.releaseLock();
   }
@@ -613,12 +618,12 @@ function upsertSetupOnce_(curated, attempt) {
   );
   if (resp.getResponseCode() !== 200) {
     Logger.log('  Setup cache read HTTP ' + resp.getResponseCode());
-    return false;
+    return 'read_http_' + resp.getResponseCode();
   }
   var cache;
   try { cache = JSON.parse(resp.getContentText()); } catch (e) {
     Logger.log('  Setup cache parse failed: ' + e.message);
-    return false;
+    return 'parse_failed';
   }
   var setups = cache.setups || [];
   var key = String(curated.SetupID);
@@ -643,9 +648,9 @@ function upsertSetupOnce_(curated, attempt) {
     GH_PATH_SETUPS_WEBHOOK,
     'Webhook upsert setup ' + key + ' ' + new Date().toISOString()
   );
-  if (ok) { Logger.log('  ✅ Setup cache updated'); return true; }
+  if (ok) { Logger.log('  ✅ Setup cache updated'); return 'ok'; }
   Logger.log('  Setup cache write FAILED via pushToGitHub_');
-  return false;
+  return 'push_failed';
 }
 
 // Delete a setup from the cache. Service Setup.Delete events are rare —
