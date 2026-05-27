@@ -2700,6 +2700,52 @@ function bootstrapRetryUncoveredLocationsSlowResume() {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// QUARTERLY BOOTSTRAP — date-gated daily wrapper
+//
+// Wire ONE daily Apps Script trigger to this function (suggested time:
+// 2 AM Pacific = 5 AM Eastern). It's a no-op on 361 days a year, and on
+// quarter-starts (Feb 1, May 1, Aug 1, Nov 1) it fires
+// bootstrapRetryUncoveredLocationsSlow to catch newly-cancelled
+// customers whose webhook delta updates have stopped.
+//
+// Why 4 dates a year: cache-setups.json drifts as customers cancel and
+// PestPac stops including them in delta refreshes. A quarterly sweep
+// keeps the Cancels view's ARR Lost number honest without burning
+// URLfetch quota every night. After the first overnight run drains the
+// backlog (~5,000+ uncovered LocationIDs), each quarterly top-up should
+// be ~100-500 new LocationIDs — well within a single 10-min window.
+// If a single pass isn't enough on a given quarter-start, Joe can
+// manually fire bootstrapRetryUncoveredLocationsSlowResume the next
+// night to drain BRT_MISSING_KEY.
+//
+// Why daily-with-date-check (not a single fixed-date trigger): Apps
+// Script's UI trigger config supports "daily / weekly / monthly" but
+// not "Feb 1 + May 1 + Aug 1 + Nov 1". Daily + early-exit on
+// non-target days is the standard pattern.
+//
+// Joe directive 2026-05-26.
+// ─────────────────────────────────────────────────────────────────────
+function quarterlyBootstrapDaily() {
+  var now = new Date();
+  // Compare in Eastern Time (where Joe's company operates) so a Feb 1
+  // run that fires at 2 AM Pacific = 5 AM Eastern correctly registers
+  // as "Feb 1" rather than getting confused if the PT date shifted.
+  var ymd = Utilities.formatDate(now, 'America/New_York', 'MM-dd');
+  var QUARTERLY_DATES = ['02-01', '05-01', '08-01', '11-01'];
+  if (QUARTERLY_DATES.indexOf(ymd) === -1) {
+    // No-op day. Don't log noisily — daily triggers fire 365 times/yr.
+    return;
+  }
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('📅 QUARTERLY BOOTSTRAP — ' + ymd + ' triggered uncovered-location sweep');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  // Delegate to the existing throttle-safe slow variant. Quota guard
+  // inside _brtImpl_ will still refuse if the trigger somehow fires
+  // outside the midnight-5 AM PT window.
+  return bootstrapRetryUncoveredLocationsSlow();
+}
+
 function clearBootstrapRetryState() {
   var props = PropertiesService.getScriptProperties();
   props.deleteProperty(BRT_CURSOR_KEY);
