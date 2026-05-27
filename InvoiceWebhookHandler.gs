@@ -79,6 +79,7 @@ const GH_PATH_SETUPS_WEBHOOK = 'cache-setups.json';
 // ──────────────────────────────────────────────────────────────
 function doPost(e) {
   var t0 = new Date();
+  var entityType = '', entityId = '', action = '', outcome = '';
   try {
     var body = JSON.parse(e.postData.contents || '{}');
 
@@ -89,14 +90,16 @@ function doPost(e) {
       return handleSaveBudgets_(body);
     }
 
-    var entityType = body.EntityType || '';
-    var entityId   = body.EntityId;
-    var action     = body.Action || ''; // not always present
+    entityType = body.EntityType || '';
+    entityId   = body.EntityId;
+    action     = body.Action || ''; // not always present
 
     Logger.log('🔔 ' + entityType + ' #' + entityId + (action ? ' (' + action + ')' : ''));
 
     if (EXPECTED_TYPES.indexOf(entityType) === -1) {
       Logger.log('  Ignored — not in EXPECTED_TYPES');
+      outcome = 'ignored_type';
+      _recordWebhookEvent_(entityType, entityId, action, outcome, body);
       return ContentService.createTextOutput(JSON.stringify({ ok: true, ignored: true }))
         .setMimeType(ContentService.MimeType.JSON);
     }
@@ -106,22 +109,30 @@ function doPost(e) {
     if (entityType === 'Invoice' || entityType === 'Credit Memo' || entityType === 'CreditMemo') {
       if (action === 'Void') {
         markInvoiceVoided_(entityId);
+        outcome = 'invoice_voided';
       } else {
         var inv = fetchInvoice_(token, entityId);
-        if (inv) upsertInvoice_(curateInvoice_(inv));
+        if (inv) {
+          upsertInvoice_(curateInvoice_(inv));
+          outcome = 'invoice_upserted';
+        } else {
+          outcome = 'invoice_fetch_returned_null';
+        }
       }
     } else if (entityType === 'Payment') {
       // Payment.Apply changes balance on the affected invoice(s).
       // Fetch the payment record to identify which invoices were touched.
       var payment = fetchPayment_(token, entityId);
+      var paid = 0;
       if (payment && payment.Applications) {
         payment.Applications.forEach(function(app) {
           if (app.ApplyToType === 'Invoice' && app.ApplyToID) {
             var inv = fetchInvoice_(token, app.ApplyToID);
-            if (inv) upsertInvoice_(curateInvoice_(inv));
+            if (inv) { upsertInvoice_(curateInvoice_(inv)); paid++; }
           }
         });
       }
+      outcome = 'payment_propagated_to_' + paid + '_invoices';
     } else if (entityType === 'Service Setup' || entityType === 'ServiceSetup') {
       // Service Setup webhook handler. PestPac fires Create / Update / Delete.
       //   Create  → CSR booked a new setup (new business written)
@@ -131,22 +142,95 @@ function doPost(e) {
       // Joe directive 2026-05-25.
       if (action === 'Delete') {
         deleteSetup_(entityId);
+        outcome = 'setup_deleted';
       } else {
         var setup = fetchSetup_(token, entityId);
-        if (setup) upsertSetup_(curateSetup_(setup));
+        if (setup) {
+          upsertSetup_(curateSetup_(setup));
+          outcome = 'setup_upserted';
+        } else {
+          outcome = 'setup_fetch_returned_null';
+        }
       }
     }
 
     var elapsed = ((new Date() - t0) / 1000).toFixed(1);
     Logger.log('✅ Processed in ' + elapsed + 's');
+    _recordWebhookEvent_(entityType, entityId, action, outcome || 'unknown_handler', body);
     return ContentService.createTextOutput(JSON.stringify({ ok: true, elapsed: elapsed }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     Logger.log('❌ Webhook error: ' + err.message + '\n' + err.stack);
+    _recordWebhookEvent_(entityType, entityId, action, 'ERROR: ' + err.message);
     // Return 200 anyway — we don't want PestPac to retry indefinitely on our bugs
     return ContentService.createTextOutput(JSON.stringify({ ok: false, error: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Webhook activity recorder — keeps the last 30 events in
+// PropertiesService so we can diagnose without Cloud Logging.
+// Joe directive 2026-05-27 (Web App executions don't surface
+// Logger.log output in the Apps Script UI clicker).
+// ──────────────────────────────────────────────────────────────
+var WHK_RECENT_KEY = 'WHK_RECENT_EVENTS';
+var WHK_COUNTS_KEY = 'WHK_OUTCOME_COUNTS';
+
+function _recordWebhookEvent_(entityType, entityId, action, outcome, rawBody) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    // Append to recent-events ring buffer (last 30)
+    var recentJson = props.getProperty(WHK_RECENT_KEY) || '[]';
+    var recent = JSON.parse(recentJson);
+    recent.push({
+      ts: new Date().toISOString(),
+      entityType: entityType || '(none)',
+      entityId: entityId,
+      action: action || '',
+      outcome: outcome,
+      bodyKeys: rawBody ? Object.keys(rawBody).join(',') : ''
+    });
+    if (recent.length > 30) recent = recent.slice(-30);
+    props.setProperty(WHK_RECENT_KEY, JSON.stringify(recent));
+    // Increment outcome counter
+    var countsJson = props.getProperty(WHK_COUNTS_KEY) || '{}';
+    var counts = JSON.parse(countsJson);
+    var key = (entityType || '(none)') + ' | ' + outcome;
+    counts[key] = (counts[key] || 0) + 1;
+    props.setProperty(WHK_COUNTS_KEY, JSON.stringify(counts));
+  } catch (e) { /* don't let recorder errors break doPost */ }
+}
+
+// Diagnostic: dump the last 30 webhook events + outcome counters to
+// the execution log. Run from the function dropdown.
+function showWebhookStats() {
+  var props = PropertiesService.getScriptProperties();
+  var recent = JSON.parse(props.getProperty(WHK_RECENT_KEY) || '[]');
+  var counts = JSON.parse(props.getProperty(WHK_COUNTS_KEY) || '{}');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🔔 Webhook Stats — ' + new Date().toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('\n📊 Outcome counters (since last reset):');
+  Object.keys(counts).sort().forEach(function(k) {
+    Logger.log('  ' + counts[k].toString().padStart(5) + ' × ' + k);
+  });
+  Logger.log('\n📜 Last ' + recent.length + ' events (oldest → newest):');
+  recent.forEach(function(ev, i) {
+    Logger.log('  [' + (i+1) + '] ' + ev.ts + ' ' +
+               ev.entityType + ' #' + ev.entityId +
+               (ev.action ? ' (' + ev.action + ')' : '') +
+               ' → ' + ev.outcome);
+  });
+  Logger.log('\nKeys present on most recent body: ' + (recent.length ? recent[recent.length-1].bodyKeys : '(no events recorded yet)'));
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+}
+
+function resetWebhookStats() {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty(WHK_RECENT_KEY);
+  props.deleteProperty(WHK_COUNTS_KEY);
+  Logger.log('Webhook stats cleared.');
 }
 
 // Friendly GET handler — useful for "is the web app live?" checks
