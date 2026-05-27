@@ -35,6 +35,8 @@
     --gray-dim: rgba(156, 163, 175, 0.15);
     --purple: #A78BFA;
     --purple-dim: rgba(167, 139, 250, 0.15);
+    --pink: #F472B6;
+    --pink-dim: rgba(244, 114, 182, 0.15);
   }
 
   body {
@@ -905,10 +907,15 @@
      metric is descriptive rather than pace-tiered. Joe 2026-05-26. */
   .hero-info { border-left-color: #60A5FA; }
   .hero-info .hero-v2-value, .hero-info .hero-ctx-value { color: #60A5FA; }
-  /* Purple accent — used on the +2/+3 outlook context cards on Dashboard.
-     Visually distinguishes outlook days from MTD/NEED/HOT QUEUE. Joe 2026-05-26. */
+  /* Purple accent — used on Prev Prod hero card. Visually distinguishes the
+     past-prod-day card from green-Today + blue-Tomorrow. Joe 2026-05-26. */
   .hero-purple { border-left-color: #A78BFA; }
   .hero-purple .hero-v2-value, .hero-purple .hero-ctx-value { color: #A78BFA; }
+  /* Pink accent — used on the +2/+3/+4 forecast outlook context cards. Visually
+     groups the forward-week-look row apart from purple Prev Prod and the blue
+     Tomorrow hero. Joe directive 2026-05-26. */
+  .hero-pink { border-left-color: #F472B6; }
+  .hero-pink .hero-v2-value, .hero-pink .hero-ctx-value { color: #F472B6; }
 
   /* Pill spans for inline split metrics (HOT QUEUE) */
   .hero-pill {
@@ -6984,9 +6991,9 @@ function renderHeroStrip_(ctx) {
   var d2Sub = (ctx.fcD2Count > 0) ? (ctx.fcD2Count + ' stops scheduled') : '';
   var d3Sub = (ctx.fcD3Count > 0) ? (ctx.fcD3Count + ' stops scheduled') : '';
   var d4Sub = (ctx.fcD4Count > 0) ? (ctx.fcD4Count + ' stops scheduled') : '';
-  var d2Card = buildCtxCard_('+2 · ' + d2Label, d2Sub, '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), 'purple');
-  var d3Card = buildCtxCard_('+3 · ' + d3Label, d3Sub, '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), 'purple');
-  var d4Card = buildCtxCard_('+4 · ' + d4Label, d4Sub, '$' + Math.round(ctx.fcD4 || 0).toLocaleString(), 'purple');
+  var d2Card = buildCtxCard_('+2 · ' + d2Label, d2Sub, '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), 'pink');
+  var d3Card = buildCtxCard_('+3 · ' + d3Label, d3Sub, '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), 'pink');
+  var d4Card = buildCtxCard_('+4 · ' + d4Label, d4Sub, '$' + Math.round(ctx.fcD4 || 0).toLocaleString(), 'pink');
 
   // MTD% — uses full budget (with CGW)
   var mtdPct = (ctx.mtdBudget > 0) ? Math.round(ctx.mtdActual / ctx.mtdBudget * 100) : 0;
