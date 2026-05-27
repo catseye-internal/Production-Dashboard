@@ -3925,6 +3925,14 @@ function renderTechView_() {
     }
   });
 
+  // CE vs USX $ split for the 3 hero cards (Joe directive 2026-05-27).
+  // MUST be declared BEFORE the forecast-orders loop below, otherwise the
+  // `var` hoisting causes loop accumulation into `undefined` → NaN, then a
+  // later re-init wipes the values. Bug fix 2026-05-27 (Joe spotted: Today
+  // hero had no CE/USX line, Tomorrow summed wrong).
+  var fcCeToday = 0, fcUsxToday = 0;
+  var fcCeTmrw  = 0, fcUsxTmrw  = 0;
+
   // Forecast (Today/Tmrw/+2/+3) — orders cache, exact date match.
   // Tracks per-period callbacks and drive points (lat/lng per stop) per tech.
   if (STATE.rawCache && STATE.rawCache.orders) {
@@ -4181,11 +4189,8 @@ function renderTechView_() {
     todayCount: 0, tmrwCount: 0, d2Count: 0, d3Count: 0,
     todayMin: 0,   tmrwMin: 0,   d2Min: 0,   d3Min: 0
   };
-  // CE vs USX $ split for the 3 hero cards (Joe directive 2026-05-27).
-  // Mirrors fcTotals + fcYesterday accumulation; office-credited revenue is
-  // folded in below from officeByCompany (already split per-company).
-  var fcCeToday = 0, fcUsxToday = 0;
-  var fcCeTmrw  = 0, fcUsxTmrw  = 0;
+  // (CE vs USX hero-card accumulators are declared earlier — before the
+  // forecast-orders loop — to avoid var-hoisting NaN trap. See note there.)
   Object.keys(techRows).forEach(function(t) {
     var r = techRows[t];
     fcTotals.today += r.today; fcTotals.tmrw += r.tmrw;
