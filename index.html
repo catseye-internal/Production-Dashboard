@@ -832,6 +832,10 @@
   }
   .hero-v2-target { color: var(--text-muted); }
   .hero-v2-nonprod { color: var(--text-dim); font-style: italic; }
+  /* 5-day total line on Today's hero card — matches "on pace" meta font size,
+     purple accent to call out the multi-day window. Joe 2026-05-26. */
+  .hero-v2-5day { margin-top: 2px; color: var(--text-muted); }
+  .hero-v2-5day-val { color: var(--purple); font-weight: 700; }
   .hero-v2-stops {
     color: var(--text-muted); font-weight: 600;
     font-size: 12px; letter-spacing: 0.3px;
@@ -3666,10 +3670,31 @@ function renderTechView_() {
     return '';
   }
   var dYday  = offsetYmd(lastWorkdayOffset_());  // Yesterday (workday-aware)
+  // Forward production-day walker — symmetric to lastWorkdayOffset_ but going
+  // forward. Returns an array of N offsets, each pointing to the next real
+  // production day (skipping Sun + US holidays; Saturdays count as prod).
+  // Joe directive 2026-05-26: Tmrw/+2/+3 cards should reflect actual upcoming
+  // workdays, not raw calendar days. Same for Tomorrow's Capacity card.
+  function forwardProdOffsets_(n) {
+    var offsets = [];
+    var cursor = 0;
+    while (offsets.length < n) {
+      cursor++;
+      if (cursor > 21) break; // safety cap — 21 days forward always finds N≤5 prod days
+      var d = new Date(todayD);
+      d.setDate(d.getDate() + cursor);
+      if (d.getDay() === 0) continue;   // Sunday → skip
+      if (isUsHoliday_(d)) continue;     // Federal holiday → skip
+      offsets.push(cursor);
+    }
+    return offsets;
+  }
+  var fwd_ = forwardProdOffsets_(5);  // [tmrw, +2, +3, +4, +5] all walk-aware
   var dToday = offsetYmd(0);
-  var dTmrw  = offsetYmd(1);
-  var dPlus2 = offsetYmd(2);
-  var dPlus3 = offsetYmd(3);
+  var dTmrw  = offsetYmd(fwd_[0]);
+  var dPlus2 = offsetYmd(fwd_[1]);
+  var dPlus3 = offsetYmd(fwd_[2]);
+  var dPlus4 = offsetYmd(fwd_[3]);  // used for the 5-day total line on Today's card
   var somDate = new Date(todayD.getFullYear(), todayD.getMonth(), 1);
   var dSom = fmtDate(somDate);
   var yestDate = new Date(todayD); yestDate.setDate(yestDate.getDate() - 1);
@@ -3912,6 +3937,22 @@ function renderTechView_() {
           if (t2 && t2 !== t1) { row(t2).forecastPoints.push(pt); }
         }
       }
+    });
+  }
+
+  // +4 day standalone accumulator — aggregate-only (not per-tech). Powers the
+  // 5-day total line under Today's hero card. Includes office-credited routing
+  // so the total matches the same all-in lens as the other day cards.
+  // Joe directive 2026-05-26.
+  var fcDay4Total = 0;
+  var fcDay4Count = 0;
+  if (STATE.rawCache && STATE.rawCache.orders) {
+    STATE.rawCache.orders.forEach(function(o) {
+      if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
+      var date = String(o.WorkDate || '').substring(0, 10);
+      if (date !== dPlus4) return;
+      fcDay4Total += Number(o.SubTotal) || 0;
+      fcDay4Count += 1;
     });
   }
 
@@ -4414,10 +4455,19 @@ function renderTechView_() {
     fcTmrw:            fcTotals.tmrw,
     fcD2:              fcTotals.d2,
     fcD3:              fcTotals.d3,
+    fcD4:              fcDay4Total,
     fcTodayCount:      fcTotals.todayCount,
     fcTmrwCount:       fcTotals.tmrwCount,
     fcD2Count:         fcTotals.d2Count,
     fcD3Count:         fcTotals.d3Count,
+    fcD4Count:         fcDay4Count,
+    // Forward production-day offsets, skip-aware (Sun + US holidays). Index
+    // 0 = tomorrow, 1 = +2, 2 = +3, 3 = +4. Joe directive 2026-05-26.
+    fcTmrwOffset:      fwd_[0],
+    fcD2Offset:        fwd_[1],
+    fcD3Offset:        fwd_[2],
+    fcD4Offset:        fwd_[3],
+    fc5DayTotal:       fcTotals.today + fcTotals.tmrw + fcTotals.d2 + fcTotals.d3 + fcDay4Total,
     fcDateLabel:       dateLabel,        // function(offset) → "TUE 5/26" etc.
     fcNeededPerDay:    fcNeededPerDay,   // FLOORED need per day (use vs Today/Tmrw)
     fcStandardTarget:  fcStandardTarget, // unfloored standard daily target
@@ -6840,10 +6890,20 @@ function renderHeroStrip_(ctx) {
     } else {
       metaHtml = '<span class="hero-v2-target">no target set</span>' + stopsLine;
     }
+    // 5-day total line — only Today's card uses it. Sum of today + next 4
+    // production days (Tmrw + +2 + +3 + +4). Same font size as the meta line
+    // (matches "on pace" delta sizing), purple accent. Joe directive 2026-05-26.
+    var fiveDayHtml = '';
+    if (opts.fiveDayTotal != null && opts.fiveDayTotal > 0) {
+      fiveDayHtml = '<div class="hero-v2-meta hero-v2-5day">' +
+        '5-day total <span class="hero-v2-5day-val">$' +
+        Math.round(opts.fiveDayTotal).toLocaleString() + '</span></div>';
+    }
     return '<div class="hero-v2-card ' + cardClass + '">' +
              '<div class="hero-v2-label">' + escapeHtml(opts.label) + '</div>' +
              '<div class="hero-v2-value">$' + Math.round(opts.value || 0).toLocaleString() + '</div>' +
              '<div class="hero-v2-meta">' + metaHtml + '</div>' +
+             fiveDayHtml +
              (hint ? '<div class="hero-v2-hint hero-v2-hint-' + tier + '">' + escapeHtml(hint) + '</div>' : '') +
            '</div>';
   }
@@ -6857,7 +6917,11 @@ function renderHeroStrip_(ctx) {
   var ydayPrefix = (ydayOffset === -1) ? 'YESTERDAY' : 'PREV PROD';
   var ydayLbl  = (typeof ctx.fcDateLabel === 'function') ? (ydayPrefix + ' · ' + ctx.fcDateLabel(ydayOffset)) : ydayPrefix;
   var todayLbl = (typeof ctx.fcDateLabel === 'function') ? ('TODAY · ' + ctx.fcDateLabel(0)) : 'TODAY';
-  var tmrwLbl  = (typeof ctx.fcDateLabel === 'function') ? ('TOMORROW · ' + ctx.fcDateLabel(1)) : 'TOMORROW';
+  // Tomorrow uses the walk-aware offset (skips Sun + US holidays). If today
+  // is Friday → fcTmrwOffset = 1 (Sat). If today is Saturday → 2 (skip Sun).
+  // If today is the day before a Monday holiday → 2 (skip the holiday). Etc.
+  var tmrwOff_ = (typeof ctx.fcTmrwOffset === 'number') ? ctx.fcTmrwOffset : 1;
+  var tmrwLbl  = (typeof ctx.fcDateLabel === 'function') ? ('TOMORROW · ' + ctx.fcDateLabel(tmrwOff_)) : 'TOMORROW';
 
   // Fixed brand accents — Yesterday=purple, Today=green, Tomorrow=blue
   // (Joe directive 2026-05-26). Tier signal still shows in the delta + hint
@@ -6876,13 +6940,17 @@ function renderHeroStrip_(ctx) {
     suppressHint: true,
     nonProdNote: ydayNonProd
   });
-  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday,     target: ctx.fcNeededPerDay, accent: 'good',   stops: ctx.fcTodayCount });
+  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday,     target: ctx.fcNeededPerDay, accent: 'good',   stops: ctx.fcTodayCount, fiveDayTotal: ctx.fc5DayTotal });
   var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,      target: ctx.fcNeededPerDay, accent: 'info',   stops: ctx.fcTmrwCount  });
 
   // ── Context strip (5 small cards) ──
   // +2 day
-  var d2Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(2) : '+2';
-  var d3Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(3) : '+3';
+  // +2 / +3 outlook cards — use walk-aware offsets (Sun + holidays skipped).
+  // Joe directive 2026-05-26.
+  var d2Off_ = (typeof ctx.fcD2Offset === 'number') ? ctx.fcD2Offset : 2;
+  var d3Off_ = (typeof ctx.fcD3Offset === 'number') ? ctx.fcD3Offset : 3;
+  var d2Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(d2Off_) : '+2';
+  var d3Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(d3Off_) : '+3';
 
   function buildCtxCard_(label, sub, valueHtml, status) {
     return '<div class="hero-ctx-card hero-' + (status || 'neutral') + '">' +
@@ -7008,8 +7076,14 @@ function renderHeroStrip_(ctx) {
     else if (totalOpenT >= 30) capStatusT = 'warn';
     else capStatusT = 'neutral';
   }
+  // Label reflects the walked "tomorrow" — if Sun + holiday were skipped,
+  // the card shows that day's capacity (e.g. "TOMORROW · MON 6/1" when
+  // today is Sat and Sunday is closed). Joe directive 2026-05-26.
+  var capTmrwLbl = (typeof ctx.fcDateLabel === 'function' && typeof ctx.fcTmrwOffset === 'number')
+                   ? ('TOMORROW · ' + ctx.fcDateLabel(ctx.fcTmrwOffset) + ' CAPACITY')
+                   : 'TOMORROW’S CAPACITY';
   var capacityCardTmrw = buildCtxCard_(
-    'TOMORROW’S CAPACITY',
+    capTmrwLbl,
     capSubT,
     capValueT,
     capStatusT
