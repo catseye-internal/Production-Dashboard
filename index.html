@@ -1992,8 +1992,8 @@ var STATE = {
   budgets: null,              // { Branch: { 'YYYY-MM': dollars } } from budgets.json
   budgetsLoadPromise: null,
   techCardSort: {},           // branch → { key, dir } — per-card sort on Tech view
-  newSetupsWindow: '7d',      // '7d' (rolling 7 days) or 'mtd' (1st of month → yesterday)
-  cancellationsWindow: '7d',  // '7d' (rolling 7 days) or 'mtd' (1st of month → yesterday)
+  newSetupsWindow: 'mtd',     // 'mtd' (1st of month → yesterday) or '7d' (rolling 7 days) · default MTD per Joe 2026-05-26
+  cancellationsWindow: 'mtd', // 'mtd' (1st of month → yesterday) or '7d' (rolling 7 days) · default MTD per Joe 2026-05-26
   // Completed vs Budget card — optional custom date range. null = default to
   // SOM-through-yesterday MTD. If set, the card recomputes its actuals from
   // productionInvoices_() filtered to this window and reframes pace/budget
@@ -4484,8 +4484,8 @@ function renderTechView_() {
   // for setups; cancel-reason breakdown for cancellations.
   var setupsArr = (STATE.setupsCache && STATE.setupsCache.setups) || [];
   // Read user's chosen window mode from STATE (default '7d'), one per card
-  var setupsMode = STATE.newSetupsWindow || '7d';
-  var cancelsMode = STATE.cancellationsWindow || '7d';
+  var setupsMode = STATE.newSetupsWindow || 'mtd';
+  var cancelsMode = STATE.cancellationsWindow || 'mtd';
   var cardNewSetups =
     '<div class="chart-card">' +
       '<h3 class="chart-title">NEW BUSINESS WRITTEN</h3>' +
