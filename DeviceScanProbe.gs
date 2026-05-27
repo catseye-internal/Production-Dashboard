@@ -113,15 +113,21 @@ function probeDeviceScan() {
     return;
   }
 
+  // Also get the OrderID from the invoice record so we can hit /ServiceOrders/{id}
+  // (the work order, which may carry live scan data the invoice header dropped).
+  var orderId = null;
+  try {
+    var rec2 = JSON.parse(searchResp.getContentText());
+    var r2 = Array.isArray(rec2) ? rec2[0] : rec2;
+    orderId = r2.OrderID || r2.orderId;
+  } catch (e) {}
+
   var endpointsToTry = [
+    { name: '/Invoices/{id}/unitSummary (deep)', path: '/Invoices/' + invoiceId + '/unitSummary', deep: true },
+    { name: '/Invoices/{id} (expanded subarrays)', path: '/Invoices/' + invoiceId, expandArrays: true },
+    { name: '/ServiceOrders/{OrderID}',      path: '/ServiceOrders/' + orderId, expandArrays: true },
     { name: '/Invoices/{id}/conditions',     path: '/Invoices/' + invoiceId + '/conditions' },
-    { name: '/Invoices/{id}/unitSummary',    path: '/Invoices/' + invoiceId + '/unitSummary' },
-    { name: '/Invoices/{id}/attributes',     path: '/Invoices/' + invoiceId + '/attributes' },
     { name: '/Locations/{id}/devices',       path: '/Locations/' + locationId + '/devices' },
-    { name: '/Locations/{id}/areas',         path: '/Locations/' + locationId + '/areas' },
-    { name: '/Locations/{id}/flattenedAreas',path: '/Locations/' + locationId + '/flattenedAreas' },
-    { name: '/Devices?locationID=X',         path: '/Devices?locationID=' + locationId },
-    { name: '/Devices?invoiceID=X',          path: '/Devices?invoiceID=' + invoiceId },
   ];
 
   Logger.log('\n3. Probing ' + endpointsToTry.length + ' endpoints...\n');
@@ -140,6 +146,69 @@ function probeDeviceScan() {
       // Try to parse + show structure
       try {
         var json = JSON.parse(body);
+
+        // Special handling: paginated wrapper (Count/Items/Skip/Take)
+        if (ep.deep && json && Array.isArray(json.Items)) {
+          Logger.log('  paginated wrapper: Count=' + json.Count + ' Items.length=' + json.Items.length);
+          if (json.HeaderFields) {
+            Logger.log('  HeaderFields: ' + JSON.stringify(json.HeaderFields).substring(0, 300));
+          }
+          if (json.Items.length === 0) {
+            Logger.log('  (empty Items array)');
+            return;
+          }
+          // Dump the first 3 items' keys + scan-like values
+          for (var ii = 0; ii < Math.min(3, json.Items.length); ii++) {
+            var item = json.Items[ii];
+            var ikeys = Object.keys(item).sort();
+            Logger.log('  Item[' + ii + '] fields: ' + ikeys.join(', '));
+            var iscan = ikeys.filter(function(k) {
+              return /scan|barcode|inspect|device|condition|status|completed|missed|skipped/i.test(k);
+            });
+            if (iscan.length > 0) {
+              Logger.log('  📡 Item[' + ii + '] scan-like: ' + iscan.join(', '));
+              iscan.forEach(function(k) {
+                Logger.log('     ' + k + ' = ' + JSON.stringify(item[k]).substring(0, 200));
+              });
+            }
+            // Dump everything for first item
+            if (ii === 0) {
+              Logger.log('  Item[0] FULL: ' + JSON.stringify(item).substring(0, 1500));
+            }
+          }
+          return;
+        }
+
+        // Special handling: expand sub-arrays on the main record
+        if (ep.expandArrays && json && !Array.isArray(json)) {
+          var topKeys = Object.keys(json).sort();
+          Logger.log('  top-level fields: ' + topKeys.join(', '));
+          var arrayKeys = topKeys.filter(function(k) {
+            return Array.isArray(json[k]) && json[k].length > 0;
+          });
+          Logger.log('  non-empty sub-arrays: ' + arrayKeys.join(', '));
+          arrayKeys.forEach(function(k) {
+            var sub = json[k];
+            var subFirst = sub[0];
+            if (typeof subFirst === 'object' && subFirst !== null) {
+              var subKeys = Object.keys(subFirst).sort();
+              Logger.log('  ' + k + '[0] fields (' + sub.length + ' total): ' + subKeys.join(', '));
+              var sscan = subKeys.filter(function(kk) {
+                return /scan|barcode|inspect|device|condition|status|completed|missed|skipped/i.test(kk);
+              });
+              if (sscan.length > 0) {
+                Logger.log('  📡 ' + k + '[0] scan-like: ' + sscan.join(', '));
+                sscan.forEach(function(kk) {
+                  Logger.log('     ' + kk + ' = ' + JSON.stringify(subFirst[kk]).substring(0, 200));
+                });
+              }
+            } else {
+              Logger.log('  ' + k + '[0] = ' + JSON.stringify(subFirst).substring(0, 200));
+            }
+          });
+          return;
+        }
+
         var arr = Array.isArray(json) ? json : (json.items || json.data || [json]);
         var count = Array.isArray(arr) ? arr.length : 1;
         Logger.log('  records: ' + count);
