@@ -1828,7 +1828,7 @@
   <span class="sub-tabs-label">Invoice lens:</span>
   <div class="sub-tab-group" id="invoiceModeGroup">
     <button class="sub-tab" data-mode="all">All Invoices</button>
-    <button class="sub-tab active" data-mode="production">Completed <span class="sub-tab-hint">IN · PR · CM · CB · PI</span></button>
+    <button class="sub-tab active" data-mode="production">Completed <span class="sub-tab-hint">IN · PR · CM · CB</span></button>
     <button class="sub-tab" data-mode="revenue">Revenue <span class="sub-tab-hint">IN · PI · CM</span></button>
   </div>
 </div>
@@ -2378,12 +2378,14 @@ function productionInvoices_() {
   if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return [];
   return STATE.invoiceCache.invoices.filter(function(inv) {
     var t = inv.InvoiceType || '';
-    // Joe directive 2026-05-27: include PI auto-bills in PRODUCTION lens to
-    // reconcile against Daily Recap. PI represents auto-generated invoices
-    // for ongoing service contracts — the tech IS doing the work, the invoice
-    // just gets system-generated on the schedule instead of created by office
-    // staff. Tech leaderboards correctly credit the tech listed on the SO.
-    return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB' || t === 'PI';
+    // PRODUCTION lens = IN+PR+CM+CB. PI auto-bills are EXCLUDED to match
+    // the Daily Recap, which filters by Origin = [One Time, Initial, Order
+    // Link, Generated] and thereby drops most Auto-Bill records. Briefly
+    // included PI on 2026-05-27 to "match" the recap — turned out to be a
+    // misdiagnosis: the recap's real exclusion is via Origin filter, not
+    // InvoiceType. Reverted same day. PI represents billing events for
+    // recurring contracts; the underlying tech work generates IN invoices.
+    return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB';
   });
 }
 
