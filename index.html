@@ -2374,18 +2374,27 @@ function nonEstimateInvoices_() {
 // REVENUE = IN+PI+CM is end-of-day accounting truth and lives on the Summary
 // view. The Tech view uses PRODUCTION so daily pacing isn't distorted by
 // the first-week auto-bill lump.
+// Daily Recap Origin filter — the exact set Joe's monthly recap uses.
+// Records with Origin in this set are "production" revenue. Everything else
+// (Auto Bill, blank, garbage strings, etc.) is excluded.
+var RECAP_ORIGINS_INCLUDED = ['One Time', 'Initial', 'Order Link', 'Generated'];
 function productionInvoices_() {
   if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return [];
   return STATE.invoiceCache.invoices.filter(function(inv) {
-    var t = inv.InvoiceType || '';
-    // PRODUCTION lens = IN+PR+CM+CB. PI auto-bills are EXCLUDED to match
-    // the Daily Recap, which filters by Origin = [One Time, Initial, Order
-    // Link, Generated] and thereby drops most Auto-Bill records. Briefly
-    // included PI on 2026-05-27 to "match" the recap — turned out to be a
-    // misdiagnosis: the recap's real exclusion is via Origin filter, not
-    // InvoiceType. Reverted same day. PI represents billing events for
-    // recurring contracts; the underlying tech work generates IN invoices.
-    return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB';
+    // PHASE 1 (during Origin backfill window): records whose Origin field is
+    // undefined/null have not yet been checked against PestPac. Fall back to
+    // the legacy IN/PR/CM/CB InvoiceType filter so the dashboard stays whole
+    // while CacheRefresh.gs's backfillInvoiceOrigins() runs.
+    if (inv.Origin === undefined || inv.Origin === null) {
+      var t = inv.InvoiceType || '';
+      return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB';
+    }
+    // PHASE 2 (post-backfill): match the Daily Recap's Origin filter exactly.
+    //   - Origin === '' (checked, PestPac returned empty)  → exclude
+    //   - Origin in {One Time, Initial, Order Link, Generated} → include
+    //   - Origin anything else (Auto Bill, garbage)        → exclude
+    // This is what makes the dashboard headline match the recap to the dollar.
+    return RECAP_ORIGINS_INCLUDED.indexOf(inv.Origin) >= 0;
   });
 }
 

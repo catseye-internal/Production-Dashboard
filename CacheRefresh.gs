@@ -97,11 +97,14 @@ const ENRICH_MAX_RECORDS = 1500;   // safety cap — large enough to cover all 7
 const ENRICH_BATCH_SIZE  = 30;     // PARALLEL calls per batch via UrlFetchApp.fetchAll
 const ENRICH_BATCH_PAUSE_MS = 200; // small pause between batches (rate-limit friendly)
 // Invoices: still pending /Invoices endpoint discovery — placeholders only.
+// (Note: this list is unused — the actual invoice cache shape is set by the
+// merge_invoices.py / Report Writer CSV pipeline, which captures 38 fields
+// directly. Adding 'Origin' here for future consistency — daily-recap reconcile.)
 const CURATED_FIELDS_INVOICE = [
   'InvoiceNumber', 'InvoiceDate', 'Branch',
   'CustomerID', 'LocationID', 'OrderID',
   'Total', 'Subtotal', 'TaxTotal', 'BalanceDue',
-  'Status',
+  'Status', 'Origin',
 ];
 
 // Curated Location whitelist — what survives into cache-locations.json
@@ -1967,6 +1970,329 @@ function curateInvoiceForBackfill_(rec) {
   return out;
 }
 const GH_PATH_INVOICES_FOR_BACKFILL = 'cache-invoices.json';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORIGIN BACKFILL — populate Origin field on existing cache records
+//
+// Why: Daily Recap filters invoices by Origin ∈ {One Time, Initial,
+// Order Link, Generated}, which excludes Auto-Bill recurring invoices. Our
+// cache was built before Origin was captured by the CSV pipeline, so most
+// records lack the field. Once every record has Origin (even empty), the
+// dashboard's productionInvoices_() can match the Recap exactly.
+//
+// Throttle: 5 calls/batch · 1200ms pause = ~4/sec sustained = ~240/min.
+// 9-min safety stop = ~2K records per run. The ~13K-record backlog needs
+// roughly 6-7 runs to drain. After drain, webhook upserts (which already
+// capture Origin via CURATED_INV_KEYS in InvoiceWebhookHandler.gs) keep
+// new records covered automatically.
+//
+// Race safety: each flush re-reads cache from GitHub before merging, then
+// pushes. This means concurrent webhook upserts that arrive between flushes
+// are preserved (we don't clobber them with a stale in-memory snapshot).
+// LockService serializes our flush against webhook writes.
+//
+// Empty-Origin sentinel: when PestPac returns no Origin for an invoice,
+// we write `''` (explicit empty string) so subsequent missing-list rebuilds
+// know we've already checked. Records with `Origin === undefined` are the
+// only ones we re-fetch on resume.
+//
+// State keys:
+//   BIO_MISSING — JSON array of InvoiceNumbers queued for backfill
+//   BIO_CURSOR  — index into BIO_MISSING (advances on each batch)
+//
+// Joe directive 2026-05-27 (Option C of daily-recap reconciliation).
+// ─────────────────────────────────────────────────────────────────────────────
+const BIO_MISSING_KEY = 'BIO_MISSING';
+const BIO_CURSOR_KEY  = 'BIO_CURSOR';
+const BIO_BATCH_SIZE  = 5;
+const BIO_PAUSE_MS    = 1200;
+const BIO_SAFETY_SEC  = 540;   // 9 min — leaves margin under the 10-min Workspace cap
+const BIO_FLUSH_EVERY = 1000;  // records between cache writes
+
+// One-shot probe: verify /Invoices/{id} returns the Origin field for a known
+// invoice. Run this BEFORE kicking off the backfill to confirm the field is
+// reachable. Picks the first invoice in the cache that already has Origin set
+// (proves the round-trip works) plus one that doesn't (proves we'll learn
+// something new). Joe 2026-05-27.
+function probeInvoiceOriginField() {
+  var token = ppToken_();
+  var cache = readInvoicesCacheDirect_();
+  var invs = cache.invoices || [];
+  var withOrigin = null, withoutOrigin = null;
+  for (var i = 0; i < invs.length && (!withOrigin || !withoutOrigin); i++) {
+    var inv = invs[i];
+    if (!inv.InvoiceNumber) continue;
+    if (!withOrigin && inv.Origin) withOrigin = String(inv.InvoiceNumber);
+    if (!withoutOrigin && (inv.Origin === undefined || inv.Origin === null || inv.Origin === '')) {
+      withoutOrigin = String(inv.InvoiceNumber);
+    }
+  }
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🔬 Probing /Invoices/{id} for Origin field');
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  [{ label: 'cache-has-Origin', num: withOrigin },
+   { label: 'cache-missing-Origin', num: withoutOrigin }].forEach(function(s) {
+    if (!s.num) { Logger.log('  (no sample for ' + s.label + ')'); return; }
+    Logger.log('━━━ ' + s.label + ': InvoiceNumber=' + s.num + ' ━━━');
+    var r = ppGet_(token, '/Invoices/' + encodeURIComponent(s.num));
+    Logger.log('  HTTP ' + r.code);
+    if (r.code !== 200) {
+      Logger.log('  body: ' + r.text.substring(0, 300));
+      return;
+    }
+    try {
+      var body = JSON.parse(r.text);
+      var rec = Array.isArray(body) ? body[0] : body;
+      if (!rec) { Logger.log('  empty body'); return; }
+      Logger.log('  Origin: ' + JSON.stringify(rec.Origin) + ' (type: ' + typeof rec.Origin + ')');
+      Logger.log('  InvoiceType: ' + JSON.stringify(rec.InvoiceType));
+      Logger.log('  InvoiceNumber: ' + JSON.stringify(rec.InvoiceNumber));
+    } catch (e) {
+      Logger.log('  parse error: ' + e.message);
+    }
+  });
+  Logger.log('━━━ PROBE COMPLETE — proceed with backfillInvoiceOrigins() if Origin field is present ━━━');
+}
+
+function backfillInvoiceOrigins() {
+  return _bioImpl_(false);
+}
+
+function backfillInvoiceOriginsResume() {
+  return _bioImpl_(true);
+}
+
+function clearBackfillInvoiceOriginsState() {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty(BIO_MISSING_KEY);
+  props.deleteProperty(BIO_CURSOR_KEY);
+  Logger.log('Origin backfill cursor + missing list cleared. Next run starts fresh.');
+}
+
+function _bioImpl_(resume) {
+  var t0 = new Date();
+  var props = PropertiesService.getScriptProperties();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🏷️  Origin backfill' + (resume ? ' — RESUMING' : ' — fresh start') + ' — ' + t0.toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  // ── Phase 1: build missing-Origin list (or restore from cursor) ──
+  var missingJson = resume ? props.getProperty(BIO_MISSING_KEY) : null;
+  var missingNums;
+  if (missingJson) {
+    missingNums = JSON.parse(missingJson);
+    Logger.log('1. Restored missing-Origin list: ' + missingNums.length.toLocaleString() + ' invoices queued');
+  } else {
+    Logger.log('1. Loading cache-invoices.json to discover missing-Origin records...');
+    var cache0 = readInvoicesCacheDirect_();
+    var invs0 = cache0.invoices || [];
+    Logger.log('   ' + invs0.length.toLocaleString() + ' total invoices in cache');
+    missingNums = [];
+    var existingOrigin = 0, emptyOrigin = 0;
+    for (var i = 0; i < invs0.length; i++) {
+      var inv = invs0[i];
+      if (!inv.InvoiceNumber) continue;
+      // Records where Origin field is UNDEFINED (never checked) → queue.
+      // Records where Origin is '' (checked, PestPac returned empty) → skip.
+      // Records where Origin is a real value → skip.
+      if (inv.Origin === undefined || inv.Origin === null) {
+        missingNums.push(String(inv.InvoiceNumber));
+      } else if (inv.Origin === '') {
+        emptyOrigin++;
+      } else {
+        existingOrigin++;
+      }
+    }
+    Logger.log('   Already populated: ' + existingOrigin.toLocaleString() +
+               ' · checked-empty: ' + emptyOrigin.toLocaleString() +
+               ' · QUEUED: ' + missingNums.length.toLocaleString());
+    props.setProperty(BIO_MISSING_KEY, JSON.stringify(missingNums));
+  }
+
+  if (missingNums.length === 0) {
+    Logger.log('✅ Nothing to backfill — every invoice already has Origin (or has been checked).');
+    props.deleteProperty(BIO_CURSOR_KEY);
+    props.deleteProperty(BIO_MISSING_KEY);
+    return;
+  }
+
+  // ── Phase 2: walk the list with batched fetch + safety stop ──
+  var token = ppToken_();
+  var apiHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'apikey': PP_API_KEY,
+    'tenant-id': PP_TENANT_ID
+  };
+
+  var startIdx = resume ? Number(props.getProperty(BIO_CURSOR_KEY) || 0) : 0;
+  Logger.log('2. Walking missing list from index ' + startIdx.toLocaleString() +
+             ' of ' + missingNums.length.toLocaleString());
+  Logger.log('   Throttle: ' + BIO_BATCH_SIZE + '/batch · pause ' + BIO_PAUSE_MS + 'ms · safety ' + BIO_SAFETY_SEC + 's');
+  Logger.log('   Sustained: ~' + Math.round((BIO_BATCH_SIZE / (BIO_PAUSE_MS / 1000)) * 60) + ' calls/min');
+
+  var pendingUpdates = {};   // InvoiceNumber → Origin value (or '' for checked-empty)
+  var updated = 0;
+  var checkedEmpty = 0;
+  var notFound = 0;
+  var httpErrors = 0;
+  var safetyTriggered = false;
+  var lastFlushAt = startIdx;
+  var b;
+
+  for (b = startIdx; b < missingNums.length; b += BIO_BATCH_SIZE) {
+    var elapsedSec = (new Date() - t0) / 1000;
+    if (elapsedSec >= BIO_SAFETY_SEC) {
+      safetyTriggered = true;
+      Logger.log('   ⏰ Safety stop at ' + elapsedSec.toFixed(0) + 's — flushing + saving cursor');
+      break;
+    }
+
+    var slice = missingNums.slice(b, b + BIO_BATCH_SIZE);
+    var requests = slice.map(function(num) {
+      return {
+        url: PP_API_BASE + '/Invoices/' + encodeURIComponent(num),
+        method: 'get',
+        headers: apiHeaders,
+        muteHttpExceptions: true
+      };
+    });
+
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      httpErrors += slice.length;
+      Utilities.sleep(BIO_PAUSE_MS);
+      continue;
+    }
+
+    for (var k = 0; k < responses.length; k++) {
+      var resp = responses[k];
+      var num = slice[k];
+      var rc = resp.getResponseCode();
+      if (rc === 404) { notFound++; continue; }
+      if (rc !== 200) {
+        if (rc === 401) {
+          // Quota hit — bail out so we don't pile on the throttle
+          Logger.log('   ❌ HTTP 401 (quota?) at index ' + (b + k) + ' — aborting run');
+          safetyTriggered = true;
+          break;
+        }
+        httpErrors++;
+        continue;
+      }
+      try {
+        var body = JSON.parse(resp.getContentText());
+        var rec = Array.isArray(body) ? body[0] : body;
+        if (!rec) { httpErrors++; continue; }
+        var origin = rec.Origin;
+        if (origin === undefined || origin === null || origin === '') {
+          pendingUpdates[String(num)] = '';   // explicit empty = checked, no value in PP
+          checkedEmpty++;
+        } else {
+          pendingUpdates[String(num)] = origin;
+          updated++;
+        }
+      } catch (e) {
+        httpErrors++;
+      }
+    }
+
+    if (safetyTriggered) break;   // 401 inside the inner loop
+
+    var done = b + slice.length;
+
+    if (done % 500 === 0 || done >= missingNums.length) {
+      Logger.log('   [' + done.toLocaleString() + ' / ' + missingNums.length.toLocaleString() + ']  ' +
+                 'updated: ' + updated.toLocaleString() + ' · empty: ' + checkedEmpty.toLocaleString() +
+                 ' · 404: ' + notFound + ' · err: ' + httpErrors +
+                 ' · elapsed: ' + elapsedSec.toFixed(0) + 's');
+    }
+
+    // Periodic cache flush so a mid-run crash doesn't lose progress
+    if (done - lastFlushAt >= BIO_FLUSH_EVERY) {
+      var flushOk = _bioFlushCache_(pendingUpdates, 'Origin backfill checkpoint ' + done + '/' + missingNums.length);
+      if (flushOk) {
+        props.setProperty(BIO_CURSOR_KEY, String(done));
+        lastFlushAt = done;
+      }
+    }
+
+    if (b + BIO_BATCH_SIZE < missingNums.length) Utilities.sleep(BIO_PAUSE_MS);
+  }
+
+  // Safety-stop branch: flush, save cursor, keep missing list for resume
+  if (safetyTriggered) {
+    _bioFlushCache_(pendingUpdates, 'Origin backfill safety-stop checkpoint');
+    props.setProperty(BIO_CURSOR_KEY, String(b));
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('⏸  PAUSED for safety. Re-run backfillInvoiceOriginsResume() to continue.');
+    Logger.log('   Cursor saved at ' + b.toLocaleString() + ' of ' + missingNums.length.toLocaleString());
+    Logger.log('   This run: updated ' + updated.toLocaleString() + ' · empty ' + checkedEmpty.toLocaleString() +
+               ' · 404 ' + notFound + ' · err ' + httpErrors);
+    return;
+  }
+
+  // Completion: final flush + clean up state
+  _bioFlushCache_(pendingUpdates, 'Origin backfill COMPLETE (' + missingNums.length + ' invoices processed)');
+  props.deleteProperty(BIO_CURSOR_KEY);
+  props.deleteProperty(BIO_MISSING_KEY);
+
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('✅ Origin backfill COMPLETE');
+  Logger.log('   Invoices processed:  ' + missingNums.length.toLocaleString());
+  Logger.log('   Origin populated:    ' + updated.toLocaleString());
+  Logger.log('   Checked-empty:       ' + checkedEmpty.toLocaleString() + ' (PP returned no Origin)');
+  Logger.log('   404 not found:       ' + notFound.toLocaleString());
+  Logger.log('   HTTP errors:         ' + httpErrors.toLocaleString());
+  Logger.log('   Total elapsed:       ' + ((new Date() - t0) / 1000).toFixed(1) + 's');
+  Logger.log('   Dashboard will now match Daily Recap on Origin-filtered records.');
+}
+
+// Race-safe flush: re-read cache from GitHub, merge pending Origin updates,
+// push via Git Data API. Locks against webhook writes so concurrent invoice
+// upserts can't be clobbered by our stale in-memory snapshot. Clears
+// `pendingUpdates` only on successful push so a failed flush retries on the
+// next checkpoint.
+function _bioFlushCache_(pendingUpdates, commitMsg) {
+  var pendingCount = Object.keys(pendingUpdates).length;
+  if (pendingCount === 0) return true;
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(90000);
+  } catch (e) {
+    Logger.log('   ⚠️ Lock timeout on flush — keeping pending for next checkpoint');
+    return false;
+  }
+  try {
+    var cache = readInvoicesCacheDirect_();
+    var invs = cache.invoices || [];
+    var matched = 0;
+    for (var i = 0; i < invs.length; i++) {
+      var num = String(invs[i].InvoiceNumber || '');
+      if (pendingUpdates[num] !== undefined) {
+        invs[i].Origin = pendingUpdates[num];
+        matched++;
+      }
+    }
+    cache.invoices = invs;
+    cache.updated = new Date().toISOString();
+    cache.recordCount = invs.length;
+    cache.lastOriginBackfill = new Date().toISOString();
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('   ↪ flushing cache: ' + Math.round(jsonStr.length / 1024) + ' KB · merged ' + matched + ' / ' + pendingCount + ' pending Origin updates');
+    var ok = pushToGitHub_(jsonStr, GH_PATH_INVOICES_FOR_BACKFILL, commitMsg + ' ' + new Date().toISOString());
+    if (ok) {
+      // Clear pending only on successful push
+      Object.keys(pendingUpdates).forEach(function(k) { delete pendingUpdates[k]; });
+      return true;
+    }
+    Logger.log('   ⚠️ flush FAILED — pending retained for next attempt');
+    return false;
+  } finally {
+    lock.releaseLock();
+  }
+}
 
 // readSetupsCache_ — fetch cache-setups.json from GitHub Pages.
 //
