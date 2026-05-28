@@ -4749,50 +4749,32 @@ function renderTechView_() {
     });
   } catch (e) { /* leave at 0 — capacity card will show 'no data' */ }
 
-  // Yesterday totals from invoices (Joe directive 2026-05-26 — hero card #3).
-  // Service orders for yesterday are gone by today (PestPac flips them to
-  // invoices once posted), so the only place yesterday's revenue lives is in
-  // cache-invoices.json. PRODUCTION lens (IN/PR/CM/CB) — matches what TODAY's
-  // card aggregates so the three cards are comparable.
+  // Yesterday totals — aligned to Summary view's Yesterday Completed lens
+  // exactly (Joe directive 2026-05-28). Uses InvoiceDate (not WorkDate) so the
+  // same records are counted whether you look at the YESTERDAY hero card or
+  // open Summary view and pick Period=Yesterday + Lens=Completed.
+  //
+  // PREVIOUS BEHAVIOR (removed): also included unposted Service Orders from
+  // cache.json with WorkDate=yesterday, deduped against invoiced OrderIDs.
+  // That worked around a multi-day webhook lag but, with the new daily 6:45 AM
+  // ET auto-merge in DailyInvoiceMerge.gs, the cache is current within 24 hrs
+  // and the SO addition created double-counts (SO had different OrderID than
+  // the resulting invoice, dedup failed). Dropping it makes YESTERDAY match
+  // Summary to the dollar.
   var fcYesterday = 0;
   var fcYesterdayCount = 0;
-  var fcYesterdaySeenOrderIds = {};
-  // CE vs USX split for the Yesterday hero card (Joe 2026-05-27)
+  // CE vs USX split for the Yesterday hero card
   var fcYdayCe = 0, fcYdayUsx = 0;
   try {
-    // Match invoices by WORK DATE (when the work happened), not InvoiceDate
-    // (when the invoice was posted). Catches yesterday's work even if the
-    // invoice was generated this morning. Joe directive 2026-05-27 — without
-    // this, late-posted invoices show up on Today instead of Yesterday.
     productionInvoices_().forEach(function(inv) {
-      var d = String(inv.WorkDate || inv.InvoiceDate || '').substring(0, 10);
+      var d = String(inv.InvoiceDate || '').substring(0, 10);
       if (d !== dYday) return;
       var amt = Number(inv.SubTotal) || 0;
       fcYesterday += amt;
       fcYesterdayCount += 1;
       if (isUsxBranch(inv.Branch)) fcYdayUsx += amt; else fcYdayCe += amt;
       _accumBreak_('yday', inv, amt);
-      if (inv.OrderID != null) fcYesterdaySeenOrderIds[String(inv.OrderID)] = true;
     });
-    // Also include yesterday-dated SERVICE ORDERS that haven't been posted to
-    // invoices yet (PestPac removes posted SOs from /ServiceOrders, then there's
-    // a gap of hours-to-days before the invoice is generated). The merge logic
-    // in refreshProductionCache keeps these recent SOs in cache.json for 2 days,
-    // so once webhook adds the invoice we'd double-count without this OrderID
-    // dedupe. Joe 2026-05-26 / refined 2026-05-27.
-    if (STATE.rawCache && STATE.rawCache.orders) {
-      STATE.rawCache.orders.forEach(function(o) {
-        if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
-        var d = String(o.WorkDate || '').substring(0, 10);
-        if (d !== dYday) return;
-        if (o.OrderID != null && fcYesterdaySeenOrderIds[String(o.OrderID)]) return;
-        var amt = Number(o.SubTotal) || 0;
-        fcYesterday += amt;
-        fcYesterdayCount += 1;
-        if (isUsxBranch(o.Branch)) fcYdayUsx += amt; else fcYdayCe += amt;
-        _accumBreak_('yday', o, amt);
-      });
-    }
   } catch (e) { /* leave at 0 */ }
 
   // Build a Date for whatever "yesterday" resolves to (skip-Sunday aware)
