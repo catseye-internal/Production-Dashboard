@@ -924,69 +924,142 @@ function backfillLocationsForMtdInvoices() {
 // Use this as the regular trigger.
 function refreshSetupsCache() { return refreshSetupsCacheImpl_(false); }
 
-// Standalone version that ONLY does the dropped-active re-fetch step —
-// useful when Joe wants to close a known cancellation gap immediately
-// without doing the full forecast-driven new-SetupID scan. Joe 2026-05-28.
-function refreshDroppedActiveSetups() {
+// Re-fetch setups for customers who had invoice activity in the last N days.
+// This is the daily-cancellation safety net (Joe directive 2026-05-28).
+//
+// Why: PestPac removes future SOs the moment a setup is cancelled. The SetupID
+// drops out of /ServiceOrders → cache.json doesn't see it → refreshSetupsCache
+// doesn't re-fetch it → cache-setups.json keeps the customer marked Active
+// indefinitely. We need a separate signal that says "this customer is
+// commercially active, re-check their setups."
+//
+// The signal we use: an invoice in the last LOOKBACK_DAYS. If a customer
+// invoiced recently AND has setups in cache, those setups are the most
+// likely candidates for state change (new CancelDate, new Active=false,
+// CancelReason update, etc.). We call /Locations/{LocationCode}/serviceSetups
+// for each unique customer and upsert every returned setup.
+//
+// Targeted scope (~2K-5K customers/14d) keeps the call budget tight: each
+// /Locations/{code}/serviceSetups returns ALL setups for that customer in
+// one round-trip, so 5K customers ≈ 5K calls. About 5% of the daily URLfetch
+// quota — runnable manually or on a daily trigger without strain.
+function refreshSetupsForRecentInvoiceCustomers() {
   var t0 = new Date();
+  var LOOKBACK_DAYS = 14;
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  Logger.log('🔁 Dropped-Active setup re-fetch — ' + t0.toISOString());
+  Logger.log('🔁 Refresh setups for recently-invoiced customers — ' + t0.toISOString());
+  Logger.log('   Lookback: ' + LOOKBACK_DAYS + ' days');
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   try {
     var token = ppToken_();
-    var existing = readSetupsCache_();
-    var existingMap = {};
-    (existing.setups || []).forEach(function(s) {
-      if (s.SetupID != null) existingMap[String(s.SetupID)] = s;
-    });
-    Logger.log('1. Cache: ' + Object.keys(existingMap).length + ' setups loaded');
+    var apiHeaders = {
+      'Authorization': 'Bearer ' + token,
+      'apikey': PP_API_KEY,
+      'tenant-id': PP_TENANT_ID
+    };
 
-    var ordersResp = UrlFetchApp.fetch(
-      'https://catseye-internal.github.io/Production-Dashboard/cache.json',
+    // ─── Phase 1: load invoice cache, build unique LocationCode set ───
+    Logger.log('1. Reading cache-invoices.json...');
+    var invResp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache-invoices.json?v=' + Date.now(),
       { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
     );
-    if (ordersResp.getResponseCode() !== 200) {
-      throw new Error('cache.json fetch HTTP ' + ordersResp.getResponseCode());
+    if (invResp.getResponseCode() !== 200) {
+      throw new Error('cache-invoices.json fetch HTTP ' + invResp.getResponseCode());
     }
-    var ordersData = JSON.parse(ordersResp.getContentText());
-    var seen = {};
-    (ordersData.orders || []).forEach(function(o) {
-      if (o.SetupID) seen[String(o.SetupID)] = true;
-    });
-    Logger.log('2. Forecast cache.json: ' + Object.keys(seen).length + ' unique SetupIDs');
+    var invCache = JSON.parse(invResp.getContentText());
+    var allInvoices = invCache.invoices || [];
+    Logger.log('   ' + allInvoices.length.toLocaleString() + ' total invoices in cache');
 
-    var droppedActive = [];
-    Object.keys(existingMap).forEach(function(sid) {
-      var s = existingMap[sid];
-      if (!s) return;
-      if (s.CancelDate) return;
-      if (s.Active === false) return;
-      if (seen[sid]) return;
-      droppedActive.push(sid);
+    var cutoff = new Date(t0.getTime() - LOOKBACK_DAYS * 86400000);
+    var cutoffStr = cutoff.toISOString().substring(0, 10);
+    var locCodeSet = {};
+    allInvoices.forEach(function(inv) {
+      var d = String(inv.InvoiceDate || inv.WorkDate || '').substring(0, 10);
+      if (!d || d < cutoffStr) return;
+      var lc = inv.LocationCode;
+      if (lc == null) return;
+      locCodeSet[String(lc).trim()] = true;
     });
-    Logger.log('3. Dropped-Active candidates: ' + droppedActive.length);
+    var locCodes = Object.keys(locCodeSet);
+    Logger.log('   Unique LocationCodes with invoices since ' + cutoffStr + ': ' + locCodes.length);
 
-    if (droppedActive.length === 0) {
-      Logger.log('✅ Nothing to refresh — every Active setup is still in the forecast.');
+    if (locCodes.length === 0) {
+      Logger.log('✅ No recent customers — nothing to refresh.');
       return;
     }
 
-    var refreshed = fetchSetups_(token, droppedActive);
-    var nowCancelled = 0, nowInactive = 0;
-    refreshed.forEach(function(s) {
-      if (s.SetupID == null) return;
-      var prev = existingMap[String(s.SetupID)] || {};
-      existingMap[String(s.SetupID)] = s;
-      if (s.CancelDate && !prev.CancelDate) nowCancelled++;
-      if (s.Active === false && prev.Active !== false) nowInactive++;
+    // ─── Phase 2: load existing setups cache for merge ───
+    Logger.log('2. Loading cache-setups.json for merge...');
+    var existing = readSetupsCache_();
+    var setupsMap = {};
+    (existing.setups || []).forEach(function(s) {
+      if (s.SetupID != null) setupsMap[String(s.SetupID)] = s;
     });
-    Logger.log('4. Re-fetched ' + refreshed.length + ' / ' + droppedActive.length);
-    Logger.log('   Newly-cancelled discovered:  ' + nowCancelled);
-    Logger.log('   Newly-inactive discovered:   ' + nowInactive);
+    Logger.log('   ' + Object.keys(setupsMap).length.toLocaleString() + ' setups already cached');
 
-    // Persist
+    // ─── Phase 3: batched fetch /Locations/{LocationCode}/serviceSetups ───
+    Logger.log('3. Fetching setups for each customer...');
+    var BATCH_SIZE = 10;
+    var BATCH_PAUSE_MS = 400;
+    var newCount = 0;
+    var updatedCount = 0;
+    var cancelDateAdded = 0;
+    var failedLocations = 0;
+
+    for (var b = 0; b < locCodes.length; b += BATCH_SIZE) {
+      var slice = locCodes.slice(b, b + BATCH_SIZE);
+      var requests = slice.map(function(lc) {
+        return {
+          url: PP_API_BASE + '/Locations/' + encodeURIComponent(lc) + '/serviceSetups',
+          method: 'get',
+          headers: apiHeaders,
+          muteHttpExceptions: true
+        };
+      });
+      var responses;
+      try { responses = UrlFetchApp.fetchAll(requests); }
+      catch (e) {
+        failedLocations += slice.length;
+        Utilities.sleep(BATCH_PAUSE_MS);
+        continue;
+      }
+      for (var k = 0; k < responses.length; k++) {
+        var resp = responses[k];
+        if (resp.getResponseCode() !== 200) { failedLocations++; continue; }
+        try {
+          var setups = JSON.parse(resp.getContentText());
+          if (!Array.isArray(setups)) { failedLocations++; continue; }
+          setups.forEach(function(raw) {
+            if (!raw || raw.SetupID == null) return;
+            var curated = curate_(raw, CURATED_FIELDS_SETUP);
+            enrichSetupCreator_(curated, raw);
+            var sid = String(curated.SetupID);
+            var prev = setupsMap[sid];
+            if (!prev) {
+              newCount++;
+              setupsMap[sid] = curated;
+            } else {
+              if (curated.CancelDate && !prev.CancelDate) cancelDateAdded++;
+              setupsMap[sid] = curated;
+              updatedCount++;
+            }
+          });
+        } catch (e) { failedLocations++; }
+      }
+      var done = b + slice.length;
+      if (done % 500 === 0 || done >= locCodes.length) {
+        var elapsed = ((new Date() - t0) / 1000).toFixed(0);
+        Logger.log('   [' + done.toLocaleString() + ' / ' + locCodes.length.toLocaleString() + ']  ' +
+                   'new: ' + newCount + ' · updated: ' + updatedCount + ' · cancels found: ' + cancelDateAdded +
+                   ' · failed: ' + failedLocations + ' · elapsed: ' + elapsed + 's');
+      }
+      if (b + BATCH_SIZE < locCodes.length) Utilities.sleep(BATCH_PAUSE_MS);
+    }
+
+    // ─── Phase 4: persist ───
     var allSetups = [];
-    Object.keys(existingMap).forEach(function(k) { allSetups.push(existingMap[k]); });
+    Object.keys(setupsMap).forEach(function(k) { allSetups.push(setupsMap[k]); });
     allSetups.sort(function(a, b) { return Number(a.SetupID) - Number(b.SetupID); });
     var cache = {
       updated: new Date().toISOString(),
@@ -994,9 +1067,18 @@ function refreshDroppedActiveSetups() {
       setups: allSetups
     };
     var jsonStr = JSON.stringify(cache);
-    Logger.log('   Writing ' + Math.round(jsonStr.length / 1024) + ' KB to cache-setups.json...');
-    var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS, 'Dropped-Active setup refresh ' + new Date().toISOString());
-    Logger.log('✅ Complete in ' + ((new Date() - t0) / 1000).toFixed(1) + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+    Logger.log('4. Writing cache-setups.json: ' + Math.round(jsonStr.length / 1024) + ' KB · ' + allSetups.length + ' setups');
+    var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS,
+      'Setup refresh for recently-invoiced customers ' + new Date().toISOString());
+
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('✅ Complete in ' + ((new Date() - t0) / 1000).toFixed(1) + 's');
+    Logger.log('   Customers checked:           ' + locCodes.length);
+    Logger.log('   New setups added:            ' + newCount);
+    Logger.log('   Existing setups refreshed:   ' + updatedCount);
+    Logger.log('   New CancelDates discovered:  ' + cancelDateAdded);
+    Logger.log('   Failed locations:            ' + failedLocations);
+    Logger.log('   Push: ' + (ok ? 'OK' : 'FAIL'));
   } catch (err) {
     Logger.log('❌ Error: ' + err.message + '\n' + err.stack);
   }
@@ -1052,40 +1134,10 @@ function refreshSetupsCacheImpl_(forceFull) {
       Logger.log('  ✓ Cache up to date — no new fetches needed');
     }
 
-    // ── Daily-cancellation detection (Joe directive 2026-05-28) ──
-    // When a customer cancels, PestPac immediately removes their future SOs.
-    // Their SetupID drops out of cache.json. The "only fetch NEW SetupIDs"
-    // logic above then never re-checks the setup, so cache-setups.json keeps
-    // showing Active=true / CancelDate=null long after the cancel happened.
-    //
-    // Fix: identify setups in cache that are Active + no CancelDate but
-    // whose SetupID is NO LONGER in cache.json (the forecast). Re-fetch each
-    // via /ServiceSetups/{id} to catch new CancelDate / Active=false. False
-    // positives are fine (a setup whose SOs are >90d out drops harmlessly).
-    //
-    // Cost: typically 10-60 fetches per run (5-min refresh cadence × small
-    // drop pool). Trivial vs the URLfetch quota.
-    var droppedActive = [];
-    Object.keys(existingMap).forEach(function(sid) {
-      var s = existingMap[sid];
-      if (!s) return;
-      if (s.CancelDate) return;             // already marked cancelled — skip
-      if (s.Active === false) return;       // already marked inactive — skip
-      if (seen[sid]) return;                // still in forecast — skip
-      droppedActive.push(sid);
-    });
-    if (droppedActive.length > 0) {
-      Logger.log('  Dropped-from-forecast Active setups (potential new cancels): ' + droppedActive.length);
-      var refreshed = fetchSetups_(token, droppedActive);
-      var nowCancelled = 0;
-      refreshed.forEach(function(s) {
-        if (s.SetupID == null) return;
-        var prev = existingMap[String(s.SetupID)] || {};
-        existingMap[String(s.SetupID)] = s;
-        if (s.CancelDate && !prev.CancelDate) nowCancelled++;
-      });
-      Logger.log('  Re-fetched: ' + refreshed.length + ' · newly-cancelled discovered: ' + nowCancelled);
-    }
+    // (Removed 2026-05-28: dropped-from-forecast heuristic flagged 37K+
+    // false positives. Replaced with refreshSetupsForRecentInvoiceCustomers()
+    // — a separate scheduled function that targets a tight signal: setups
+    // belonging to customers with invoice activity in the last 14 days.)
 
     // Build final array, sorted by SetupID
     var allSetups = [];
