@@ -2517,24 +2517,38 @@ function productionInvoices_() {
 // Completed cards (Yesterday/Completed-vs-Budget/Summary "Completed" lens).
 // Forecast → completed comparison is now apples-to-apples. Joe directive 2026-05-28.
 //
+// IMPORTANT — SOs in cache.json do NOT carry ServiceClass directly. We resolve
+// it via three fallback paths (in priority order):
+//   1. order.ServiceClass — direct field (rare on SOs, common on invoices)
+//   2. order._Class       — pre-joined by joinLocationData() in some pathways
+//   3. STATE.codeToClassMap[ServiceCode] — runtime lookup of the SO's
+//      ServiceCode → ServiceClass via the invoice-cache-derived map.
+// If none of these resolve a class, we fall back to "broadly include" so that
+// SOs we can't classify aren't silently lost from the forecast.
+//
 // Differences from the invoice predicate:
 //   - Uses OrderType (not InvoiceType). Estimates are excluded via the existing
 //     ORDER_TYPES_EXCLUDED set so estimate orders never count.
 //   - Doesn't apply the InvoiceType=IN filter for prebill ServiceCodes — SOs
-//     don't have an InvoiceType yet. Forecast may briefly include a few
-//     PR-bound prebill SOs that the invoice predicate would later exclude;
-//     in practice these are a tiny minority of the prebill volume and the
-//     simplification keeps the SO-side filter symmetric.
+//     don't have an InvoiceType yet.
 function passesRecapProductionLensSO_(order) {
   if (!order) return false;
   if (typeof ORDER_TYPES_EXCLUDED !== 'undefined' &&
       ORDER_TYPES_EXCLUDED.indexOf(order.OrderType || order.orderType) !== -1) return false;
   var prodClasses = (typeof RECAP_PRODUCTION_CLASSES !== 'undefined') ? RECAP_PRODUCTION_CLASSES : null;
   var prebillCodes = (typeof RECAP_PREBILL_CODES !== 'undefined') ? RECAP_PREBILL_CODES : null;
-  if (!prodClasses || !prebillCodes) return false;
+  if (!prodClasses || !prebillCodes) return true;   // config not loaded — don't strip the forecast
   var scode = String(order.ServiceCode || '').trim().toUpperCase();
   if (prebillCodes.has(scode)) return true;
-  var sc = String(order.ServiceClass || '').trim().toUpperCase();
+  // Resolve ServiceClass via 3-step fallback
+  var sc = String(order.ServiceClass || order._Class || '').trim().toUpperCase();
+  if (!sc && STATE && STATE.codeToClassMap && scode) {
+    sc = String(STATE.codeToClassMap[scode] || '').trim().toUpperCase();
+  }
+  // If we still can't resolve a class, include the SO. Avoids the failure
+  // mode where ~$50K of today's forecast silently disappears because the
+  // ServiceCode is novel / not yet in the invoice-derived map.
+  if (!sc) return true;
   return prodClasses.has(sc);
 }
 
