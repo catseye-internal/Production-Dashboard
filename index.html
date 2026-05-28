@@ -2444,6 +2444,21 @@ function nonEstimateInvoices_() {
 // REVENUE = IN+PI+CM is end-of-day accounting truth and lives on the Summary
 // view. The Tech view uses PRODUCTION so daily pacing isn't distorted by
 // the first-week auto-bill lump.
+// OPERATIONAL lens — every invoice where a tech actually performed work
+// (IN/PR/CM/CB). NO Origin filter. Use this for COUNT-based aggregations:
+// callback counts, total MTD order denominators, per-tech callback rates.
+// productionInvoices_() below is REVENUE-aligned (Origin filter to match the
+// Daily Recap); operationalInvoices_() is COUNT-aligned. They diverge on
+// records like callbacks whose Origin isn't in the recap's bucket.
+// Joe directive 2026-05-28 — fixes the Callbacks-by-Branch donut undercount.
+function operationalInvoices_() {
+  if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return [];
+  return STATE.invoiceCache.invoices.filter(function(inv) {
+    var t = inv.InvoiceType || '';
+    return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB';
+  });
+}
+
 // Daily Recap Origin filter — the exact set Joe's monthly recap uses.
 // Records with Origin in this set are "production" revenue. Everything else
 // (Auto Bill, blank, garbage strings, etc.) is excluded.
@@ -4160,11 +4175,58 @@ function renderTechView_() {
     }
   });
 
+  // ─── OPERATIONAL-LENS COUNT REPAIR PASS (Joe directive 2026-05-28) ───
+  // The main MTD loop above uses productionInvoices_() (Origin-filtered) for
+  // revenue alignment with the Daily Recap. But the loop ALSO populates two
+  // COUNT-based fields that need a wider lens (any tech-performed work,
+  // regardless of Origin):
+  //   1. mtdOrdersByBranch — denominator for callback-rate %
+  //   2. per-tech row(t).completedCallbacks — Techs view per-tech callback count
+  //   3. office bk.completedCallbacks — office-credited callback bucket
+  //
+  // Reset those three, then re-populate from operationalInvoices_(). Revenue
+  // accumulators (bumpCategory_, attribute('completed'), bk.completed, etc.)
+  // stay untouched — they're correctly Origin-aligned from the main loop.
+  mtdOrdersByBranch = {};
+  Object.keys(techRows).forEach(function(t) {
+    if (techRows[t].completedCallbacks != null) techRows[t].completedCallbacks = 0;
+  });
+  if (typeof officeByCompany === 'object' && officeByCompany) {
+    Object.keys(officeByCompany).forEach(function(co) {
+      if (officeByCompany[co] && officeByCompany[co].completedCallbacks != null) {
+        officeByCompany[co].completedCallbacks = 0;
+      }
+    });
+  }
+  operationalInvoices_().forEach(function(inv) {
+    var date = String(inv.InvoiceDate || '').substring(0, 10);
+    if (date < dSom || date > dYest) return;
+    // Total MTD order count per branch — denominator for callback rate %
+    if (inv.Branch) mtdOrdersByBranch[inv.Branch] = (mtdOrdersByBranch[inv.Branch] || 0) + 1;
+    if ((inv.InvoiceType || '') !== 'CB') return;
+    // Office-routed callbacks
+    if (typeof shouldRouteToOffice_ === 'function' && shouldRouteToOffice_(inv, inv.Tech)) {
+      var bk = (typeof officeBucketFor_ === 'function') ? officeBucketFor_(inv.Branch) : null;
+      if (bk) bk.completedCallbacks = (bk.completedCallbacks || 0) + 1;
+      return;
+    }
+    // Per-tech callback count
+    var t1 = inv.Tech, t2 = inv.Tech2;
+    if (t2 && typeof isNonTechCode === 'function' && isNonTechCode(t2)) t2 = null;
+    if (t1) { row(t1).completedCallbacks = (row(t1).completedCallbacks || 0) + 1; }
+    if (t2 && t2 !== t1) { row(t2).completedCallbacks = (row(t2).completedCallbacks || 0) + 1; }
+  });
+
   // Callbacks by Branch (mini-donuts): MTD invoices with InvoiceType='CB',
   // grouped by Branch + ServiceCode. Joe directive 2026-05-22: switched from
   // forecast service-orders to MTD invoices for retrospective signal.
+  // Lens: operationalInvoices_() (NOT productionInvoices_()) — callback counts
+  // are operational tracking, must include CBs regardless of Origin value.
+  // Bug fix 2026-05-28: previously used productionInvoices_() which silently
+  // dropped most CB invoices because callbacks rarely carry an Origin in the
+  // recap's [One Time, Initial, Order Link, Generated] set.
   var callbacksByBranchService = {};  // { branch: { ServiceCode: count } }
-  productionInvoices_().forEach(function(inv) {
+  operationalInvoices_().forEach(function(inv) {
     if ((inv.InvoiceType || '') !== 'CB') return;
     var date = String(inv.InvoiceDate || '').substring(0, 10);
     if (date < dSom || date > dYest) return;
