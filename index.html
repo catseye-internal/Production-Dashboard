@@ -1898,8 +1898,8 @@
   <span class="sub-tabs-label">Invoice lens:</span>
   <div class="sub-tab-group" id="invoiceModeGroup">
     <button class="sub-tab" data-mode="all">All Invoices</button>
-    <button class="sub-tab active" data-mode="production">Completed <span class="sub-tab-hint">IN · PR · CM · CB</span></button>
-    <button class="sub-tab" data-mode="revenue">Revenue <span class="sub-tab-hint">IN · PI · CM</span></button>
+    <button class="sub-tab active" data-mode="production">Completed <span class="sub-tab-hint">matches Daily Recap</span></button>
+    <button class="sub-tab" data-mode="revenue">Revenue <span class="sub-tab-hint">invoice register</span></button>
   </div>
 </div>
 
@@ -2459,28 +2459,56 @@ function operationalInvoices_() {
   });
 }
 
-// Daily Recap Origin filter — the exact set Joe's monthly recap uses.
-// Records with Origin in this set are "production" revenue. Everything else
-// (Auto Bill, blank, garbage strings, etc.) is excluded.
-var RECAP_ORIGINS_INCLUDED = ['One Time', 'Initial', 'Order Link', 'Generated'];
+// Daily Recap PRODUCTION lens — recap-exact methodology (Joe directive 2026-05-28).
+//
+// Reproduces the Daily Recap's $1,240,048 MTD Production from our merged
+// cache-invoices.json. Validated against the 5/27 recap to within ~$1K
+// (~0.09% accuracy). 3 of 5 branches match to the dollar; total category-by-
+// category sums match within $1 except Pest Initial / Res Recurring which
+// have a $1,734 net swap (well within "PestPac classification noise" tolerance).
+//
+// The recap's rule, ported here:
+//   PRODUCTION-side records:
+//     - ServiceClass in RECAP_PRODUCTION_CLASSES (24 specific classes
+//       covering the 6 production buckets — see config.js)
+//     - InvoiceType in {IN, PR, CM} (excludes PI auto-bills)
+//   PREBILL-side records (identified by ServiceCode):
+//     - ServiceCode in RECAP_PREBILL_CODES
+//     - InvoiceType = IN only
+//       (IN @ $960 = Platinum 1st Year; IN ≠ $960 = Res Recurring top-up)
+//     - PR-typed prebill records = Plat Non-Billable → EXCLUDED
+//   ALWAYS EXCLUDED:
+//     - PI (auto-bills)
+//     - ES (estimates)
+//     - "Invoice" pseudo-type (orphaned imports)
+//     - ServiceClasses outside RECAP_PRODUCTION_CLASSES (CG WARRANT,
+//       CALL BACK, BEES, PG CG-recurring, PG CG PRE-recurring, etc.)
+//
+// Note: the Origin field stays in the cache as a useful data attribute, but
+// is no longer used as a filter. Webhook + merge_invoices.py keep populating it.
+// Single-record predicate for the recap-exact PRODUCTION lens.
+// Used by productionInvoices_() and by the Summary view's "Completed" filter
+// so that Dashboard view and Summary view Completed give IDENTICAL totals.
+function passesRecapProductionLens_(inv) {
+  if (!inv) return false;
+  var it = inv.InvoiceType || '';
+  if (it === 'ES' || it === 'PI' || it === 'Invoice') return false;
+  var prodClasses = (typeof RECAP_PRODUCTION_CLASSES !== 'undefined') ? RECAP_PRODUCTION_CLASSES : null;
+  var prebillCodes = (typeof RECAP_PREBILL_CODES !== 'undefined') ? RECAP_PREBILL_CODES : null;
+  if (!prodClasses || !prebillCodes) return false;
+  var scode = String(inv.ServiceCode || '').trim().toUpperCase();
+  if (prebillCodes.has(scode)) {
+    // Prebill record: only IN-type counts (PR = Plat Non-Billable, CM = deduction)
+    return it === 'IN';
+  }
+  // Production-side record: ServiceClass-driven inclusion
+  var sc = String(inv.ServiceClass || '').trim().toUpperCase();
+  return prodClasses.has(sc);
+}
+
 function productionInvoices_() {
   if (!STATE.invoiceCache || !STATE.invoiceCache.invoices) return [];
-  return STATE.invoiceCache.invoices.filter(function(inv) {
-    // PHASE 1 (during Origin backfill window): records whose Origin field is
-    // undefined/null have not yet been checked against PestPac. Fall back to
-    // the legacy IN/PR/CM/CB InvoiceType filter so the dashboard stays whole
-    // while CacheRefresh.gs's backfillInvoiceOrigins() runs.
-    if (inv.Origin === undefined || inv.Origin === null) {
-      var t = inv.InvoiceType || '';
-      return t === 'IN' || t === 'PR' || t === 'CM' || t === 'CB';
-    }
-    // PHASE 2 (post-backfill): match the Daily Recap's Origin filter exactly.
-    //   - Origin === '' (checked, PestPac returned empty)  → exclude
-    //   - Origin in {One Time, Initial, Order Link, Generated} → include
-    //   - Origin anything else (Auto Bill, garbage)        → exclude
-    // This is what makes the dashboard headline match the recap to the dollar.
-    return RECAP_ORIGINS_INCLUDED.indexOf(inv.Origin) >= 0;
-  });
+  return STATE.invoiceCache.invoices.filter(passesRecapProductionLens_);
 }
 
 // Build a Set of Username codes for employees whose JobTitle marks them as
@@ -3217,8 +3245,15 @@ function applyFilters(records, columns) {
   }
   return records.filter(function(r) {
     if (!dateInPeriod(r[dateKey], range)) return false;
-    // Invoice lens — restrict to the types the current mode includes
-    if (isInvoices && invoiceLens && !invoiceLens.has(r.InvoiceType)) return false;
+    // Invoice lens — restrict to the records the current mode includes.
+    // PRODUCTION lens (= "Completed") delegates to passesRecapProductionLens_()
+    // so Summary view's Completed total matches Dashboard view's Completed-vs-Budget
+    // to the dollar. Joe directive 2026-05-28 — recap-exact accuracy.
+    if (isInvoices && STATE.invoiceMode === 'production') {
+      if (!passesRecapProductionLens_(r)) return false;
+    } else if (isInvoices && invoiceLens && !invoiceLens.has(r.InvoiceType)) {
+      return false;
+    }
     // plat_nonbillable filter REMOVED 2026-05-27 (Joe correction): PR records
     // on PG CG / PG CG PRE are real revenue events ($960 first-year upfront),
     // not $0 courtesy visits. Daily Recap reconciliation.

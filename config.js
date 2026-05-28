@@ -239,6 +239,37 @@ const CANCELS_COLUMNS = [
   { key: 'LocationID',          label: 'Loc ID (raw)',  type: 'number',        sortable: true, default: false },
 ];
 
+// ─── DAILY RECAP PRODUCTION LENS (Joe directive 2026-05-28) ────────────────
+// Mirrors the Daily Recap's exact MTD Production formula. Two sets:
+//   RECAP_PRODUCTION_CLASSES — production-side ServiceClasses that count
+//   RECAP_PREBILL_CODES      — prebill rollup ServiceCodes (only IN counts)
+// Together with InvoiceType filter (exclude PI/ES/Invoice/PR-when-prebill),
+// this reproduces the recap's $1,240,048 from our cache to within $1K.
+// See production_dashboard_recap_lens.md for the full derivation.
+const RECAP_PRODUCTION_CLASSES = new Set([
+  // Cat-Guard
+  'CAT-GUARD', 'CATGUARD',
+  // NWL
+  'NWL',
+  // Pest Control Initial
+  'PG INITIAL', 'PG CG INIT', 'PG PLUS INIT', 'PG PLUS IN', 'SEASONAL INIT',
+  'PC', 'TERMITE', 'COMM INIT', 'PG FU', 'BEDBUGS', 'CA', 'PEST', 'ANNUAL', 'ONE TIME',
+  // Residential Recurring
+  'LAWN/ORNAM', 'PG PLUS', 'PG SERVICE', 'TERMITE RE', 'SEASONAL',
+  // Commercial Recurring
+  'COMM SERVI', 'COMMERCIAL',
+  // Rodent
+  'RODENT'
+]);
+
+// Prebill rollup ServiceCodes — production records w/ these codes ARE the
+// Platinum 1st Year (IN @ $960) + Residential Recurring top-up (IN ≠ $960).
+// PR-typed records for these codes are Plat Non-Billable → excluded.
+const RECAP_PREBILL_CODES = new Set([
+  'TTL PLAT 1ST YR', 'TOTAL PLAT', 'TOTAL PLAT CGW',
+  'TOTAL PLATNOCGW', 'USX TOTAL PLAT', 'TOTAL PLAT INIT'
+]);
+
 // ── Division classification (Pest vs CG vs NWL, Resi vs Commercial) ──
 // Per Joe 2026-05-20.
 //
