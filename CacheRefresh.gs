@@ -945,7 +945,12 @@ function refreshSetupsCache() { return refreshSetupsCacheImpl_(false); }
 // quota — runnable manually or on a daily trigger without strain.
 function refreshSetupsForRecentInvoiceCustomers() {
   var t0 = new Date();
-  var LOOKBACK_DAYS = 14;
+  // 30-day lookback — initial 14-day run on 2026-05-28 caught most but missed
+  // 2 cancels for customers with long-cycle billing (no invoice in last 14d).
+  // 30d catches essentially every active customer since most have at least
+  // one auto-bill or monthly invoice in a 30-day window. Cost is still
+  // bounded (~3-5K customers/30d) because we dedupe on LocationCode.
+  var LOOKBACK_DAYS = 30;
   Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   Logger.log('🔁 Refresh setups for recently-invoiced customers — ' + t0.toISOString());
   Logger.log('   Lookback: ' + LOOKBACK_DAYS + ' days');
