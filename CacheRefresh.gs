@@ -989,8 +989,8 @@ function refreshSetupsForRecentInvoiceCustomers() {
       return;
     }
 
-    // ─── Phase 2: load existing setups cache for merge ───
-    Logger.log('2. Loading cache-setups.json for merge...');
+    // ─── Phase 2: load existing setups cache + locations cache for ID lookup ───
+    Logger.log('2. Loading cache-setups.json + cache-locations.json...');
     var existing = readSetupsCache_();
     var setupsMap = {};
     (existing.setups || []).forEach(function(s) {
@@ -998,7 +998,75 @@ function refreshSetupsForRecentInvoiceCustomers() {
     });
     Logger.log('   ' + Object.keys(setupsMap).length.toLocaleString() + ' setups already cached');
 
-    // ─── Phase 3: batched fetch /Locations/{LocationCode}/serviceSetups ───
+    // LocationCode → LocationID map (PestPac /Locations/{id}/serviceSetups
+    // requires the INTERNAL LocationID, not the customer-facing LocationCode
+    // that invoices carry — same gotcha as InvoiceID vs InvoiceNumber).
+    var codeToId = {};
+    try {
+      var locResp = UrlFetchApp.fetch(
+        'https://catseye-internal.github.io/Production-Dashboard/cache-locations.json?v=' + Date.now(),
+        { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+      );
+      if (locResp.getResponseCode() === 200) {
+        var locCache = JSON.parse(locResp.getContentText());
+        (locCache.locations || []).forEach(function(L) {
+          if (L.LocationCode != null && L.LocationID != null) {
+            codeToId[String(L.LocationCode).trim()] = String(L.LocationID);
+          }
+        });
+      }
+    } catch (e) { /* fallthrough — empty map */ }
+    Logger.log('   LocationCode→LocationID mappings available: ' + Object.keys(codeToId).length);
+
+    // ─── Phase 3a: resolve any LocationCodes not in the map via /Locations?q= ───
+    var unresolved = locCodes.filter(function(lc) { return !codeToId[lc]; });
+    Logger.log('   LocationCodes needing resolution: ' + unresolved.length);
+    if (unresolved.length > 0) {
+      var R_BATCH = 5, R_PAUSE = 600;
+      for (var u = 0; u < unresolved.length; u += R_BATCH) {
+        var rslice = unresolved.slice(u, u + R_BATCH);
+        var rreqs = rslice.map(function(lc) {
+          return {
+            url: PP_API_BASE + '/Locations?q=' + encodeURIComponent(lc),
+            method: 'get', headers: apiHeaders, muteHttpExceptions: true
+          };
+        });
+        var rresps;
+        try { rresps = UrlFetchApp.fetchAll(rreqs); }
+        catch (e) { Utilities.sleep(R_PAUSE); continue; }
+        for (var rk = 0; rk < rresps.length; rk++) {
+          if (rresps[rk].getResponseCode() !== 200) continue;
+          try {
+            var hits = JSON.parse(rresps[rk].getContentText());
+            if (!Array.isArray(hits)) continue;
+            var target = rslice[rk];
+            var match = null;
+            for (var h = 0; h < hits.length; h++) {
+              if (String(hits[h].LocationCode).trim() === target) { match = hits[h]; break; }
+            }
+            // Fallback: take the only hit if there's exactly one
+            if (!match && hits.length === 1) match = hits[0];
+            if (match && match.LocationID != null) {
+              codeToId[target] = String(match.LocationID);
+            }
+          } catch (e) { /* skip */ }
+        }
+        if (u + R_BATCH < unresolved.length) Utilities.sleep(R_PAUSE);
+      }
+      Logger.log('   After resolution: ' + Object.keys(codeToId).filter(function(k) { return locCodeSet[k]; }).length + ' / ' + locCodes.length + ' mapped');
+    }
+
+    // Final list of LocationIDs to fetch setups for
+    var locIds = [];
+    var unmappedCount = 0;
+    locCodes.forEach(function(lc) {
+      var lid = codeToId[lc];
+      if (lid) locIds.push(lid);
+      else unmappedCount++;
+    });
+    Logger.log('   LocationIDs ready to fetch: ' + locIds.length + ' (' + unmappedCount + ' unmapped, skipped)');
+
+    // ─── Phase 3b: batched fetch /Locations/{LocationID}/serviceSetups ───
     Logger.log('3. Fetching setups for each customer...');
     var BATCH_SIZE = 10;
     var BATCH_PAUSE_MS = 400;
@@ -1007,11 +1075,11 @@ function refreshSetupsForRecentInvoiceCustomers() {
     var cancelDateAdded = 0;
     var failedLocations = 0;
 
-    for (var b = 0; b < locCodes.length; b += BATCH_SIZE) {
-      var slice = locCodes.slice(b, b + BATCH_SIZE);
-      var requests = slice.map(function(lc) {
+    for (var b = 0; b < locIds.length; b += BATCH_SIZE) {
+      var slice = locIds.slice(b, b + BATCH_SIZE);
+      var requests = slice.map(function(lid) {
         return {
-          url: PP_API_BASE + '/Locations/' + encodeURIComponent(lc) + '/serviceSetups',
+          url: PP_API_BASE + '/Locations/' + lid + '/serviceSetups',
           method: 'get',
           headers: apiHeaders,
           muteHttpExceptions: true
