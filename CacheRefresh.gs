@@ -924,6 +924,84 @@ function backfillLocationsForMtdInvoices() {
 // Use this as the regular trigger.
 function refreshSetupsCache() { return refreshSetupsCacheImpl_(false); }
 
+// Standalone version that ONLY does the dropped-active re-fetch step —
+// useful when Joe wants to close a known cancellation gap immediately
+// without doing the full forecast-driven new-SetupID scan. Joe 2026-05-28.
+function refreshDroppedActiveSetups() {
+  var t0 = new Date();
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  Logger.log('🔁 Dropped-Active setup re-fetch — ' + t0.toISOString());
+  Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  try {
+    var token = ppToken_();
+    var existing = readSetupsCache_();
+    var existingMap = {};
+    (existing.setups || []).forEach(function(s) {
+      if (s.SetupID != null) existingMap[String(s.SetupID)] = s;
+    });
+    Logger.log('1. Cache: ' + Object.keys(existingMap).length + ' setups loaded');
+
+    var ordersResp = UrlFetchApp.fetch(
+      'https://catseye-internal.github.io/Production-Dashboard/cache.json',
+      { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } }
+    );
+    if (ordersResp.getResponseCode() !== 200) {
+      throw new Error('cache.json fetch HTTP ' + ordersResp.getResponseCode());
+    }
+    var ordersData = JSON.parse(ordersResp.getContentText());
+    var seen = {};
+    (ordersData.orders || []).forEach(function(o) {
+      if (o.SetupID) seen[String(o.SetupID)] = true;
+    });
+    Logger.log('2. Forecast cache.json: ' + Object.keys(seen).length + ' unique SetupIDs');
+
+    var droppedActive = [];
+    Object.keys(existingMap).forEach(function(sid) {
+      var s = existingMap[sid];
+      if (!s) return;
+      if (s.CancelDate) return;
+      if (s.Active === false) return;
+      if (seen[sid]) return;
+      droppedActive.push(sid);
+    });
+    Logger.log('3. Dropped-Active candidates: ' + droppedActive.length);
+
+    if (droppedActive.length === 0) {
+      Logger.log('✅ Nothing to refresh — every Active setup is still in the forecast.');
+      return;
+    }
+
+    var refreshed = fetchSetups_(token, droppedActive);
+    var nowCancelled = 0, nowInactive = 0;
+    refreshed.forEach(function(s) {
+      if (s.SetupID == null) return;
+      var prev = existingMap[String(s.SetupID)] || {};
+      existingMap[String(s.SetupID)] = s;
+      if (s.CancelDate && !prev.CancelDate) nowCancelled++;
+      if (s.Active === false && prev.Active !== false) nowInactive++;
+    });
+    Logger.log('4. Re-fetched ' + refreshed.length + ' / ' + droppedActive.length);
+    Logger.log('   Newly-cancelled discovered:  ' + nowCancelled);
+    Logger.log('   Newly-inactive discovered:   ' + nowInactive);
+
+    // Persist
+    var allSetups = [];
+    Object.keys(existingMap).forEach(function(k) { allSetups.push(existingMap[k]); });
+    allSetups.sort(function(a, b) { return Number(a.SetupID) - Number(b.SetupID); });
+    var cache = {
+      updated: new Date().toISOString(),
+      recordCount: allSetups.length,
+      setups: allSetups
+    };
+    var jsonStr = JSON.stringify(cache);
+    Logger.log('   Writing ' + Math.round(jsonStr.length / 1024) + ' KB to cache-setups.json...');
+    var ok = pushToGitHub_(jsonStr, GH_PATH_SETUPS, 'Dropped-Active setup refresh ' + new Date().toISOString());
+    Logger.log('✅ Complete in ' + ((new Date() - t0) / 1000).toFixed(1) + 's | push: ' + (ok ? 'OK' : 'FAIL'));
+  } catch (err) {
+    Logger.log('❌ Error: ' + err.message + '\n' + err.stack);
+  }
+}
+
 // Public entry — force full rebuild (re-fetches every SetupID, ignoring cache).
 // Use this when the whitelist changes or when you suspect stale curated fields.
 function rebuildSetupsCache() { return refreshSetupsCacheImpl_(true); }
@@ -972,6 +1050,41 @@ function refreshSetupsCacheImpl_(forceFull) {
       });
     } else {
       Logger.log('  ✓ Cache up to date — no new fetches needed');
+    }
+
+    // ── Daily-cancellation detection (Joe directive 2026-05-28) ──
+    // When a customer cancels, PestPac immediately removes their future SOs.
+    // Their SetupID drops out of cache.json. The "only fetch NEW SetupIDs"
+    // logic above then never re-checks the setup, so cache-setups.json keeps
+    // showing Active=true / CancelDate=null long after the cancel happened.
+    //
+    // Fix: identify setups in cache that are Active + no CancelDate but
+    // whose SetupID is NO LONGER in cache.json (the forecast). Re-fetch each
+    // via /ServiceSetups/{id} to catch new CancelDate / Active=false. False
+    // positives are fine (a setup whose SOs are >90d out drops harmlessly).
+    //
+    // Cost: typically 10-60 fetches per run (5-min refresh cadence × small
+    // drop pool). Trivial vs the URLfetch quota.
+    var droppedActive = [];
+    Object.keys(existingMap).forEach(function(sid) {
+      var s = existingMap[sid];
+      if (!s) return;
+      if (s.CancelDate) return;             // already marked cancelled — skip
+      if (s.Active === false) return;       // already marked inactive — skip
+      if (seen[sid]) return;                // still in forecast — skip
+      droppedActive.push(sid);
+    });
+    if (droppedActive.length > 0) {
+      Logger.log('  Dropped-from-forecast Active setups (potential new cancels): ' + droppedActive.length);
+      var refreshed = fetchSetups_(token, droppedActive);
+      var nowCancelled = 0;
+      refreshed.forEach(function(s) {
+        if (s.SetupID == null) return;
+        var prev = existingMap[String(s.SetupID)] || {};
+        existingMap[String(s.SetupID)] = s;
+        if (s.CancelDate && !prev.CancelDate) nowCancelled++;
+      });
+      Logger.log('  Re-fetched: ' + refreshed.length + ' · newly-cancelled discovered: ' + nowCancelled);
     }
 
     // Build final array, sorted by SetupID
