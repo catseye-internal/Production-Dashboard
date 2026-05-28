@@ -842,9 +842,9 @@
     color: var(--text-muted); font-weight: 600;
     font-size: 12px; letter-spacing: 0.3px;
   }
-  /* CE / USX dollar split — sub-line under the headline number on each hero
-     card (Yesterday/Today/Tomorrow). Catseye-left + USX-right per the
-     visual-patterns standard. Joe directive 2026-05-27. */
+  /* CE / USX dollar split — legacy inline form. Kept for back-compat with any
+     callers that still pass coSplit as { catseye: number, usx: number }.
+     Joe directive 2026-05-27. Superseded by .hero-bubbles below 2026-05-28. */
   .hero-v2-cosplit {
     font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
     font-variant-numeric: tabular-nums;
@@ -853,6 +853,54 @@
   .hero-v2-co-ce  { color: #F47B20; }   /* Catseye orange */
   .hero-v2-co-usx { color: #60A5FA; }   /* USX blue */
   .hero-v2-co-sep { color: var(--text-dim); font-weight: 500; }
+
+  /* CE / USX bubble pair — sits between the headline $ and the "vs target"
+     meta line on hero cards (yday/today/tmrw) AND on context cards (+2/+3/+4).
+     Each bubble shows the company total on top with a pest vs CG/NWL sub-split
+     below. Joe directive 2026-05-28. */
+  .hero-bubbles {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 6px; margin: 4px 0 8px;
+  }
+  .hero-bubble {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 6px 8px;
+    display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  .hero-bubble-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 1px;
+  }
+  .hero-bubble-total {
+    font-size: 15px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+  }
+  .hero-bubble-sub {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.2px;
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px; color: var(--text-muted);
+  }
+  .hero-bubble-pest { color: #34D399; }                       /* mint pest */
+  .hero-bubble-cg   { color: #FBBF24; }                       /* golden CG/NWL */
+  .hero-bubble-sep  { color: var(--text-dim); }
+  .hero-bubble-ce  .hero-bubble-total { color: #F47B20; }     /* Catseye orange */
+  .hero-bubble-usx .hero-bubble-total { color: #60A5FA; }     /* USX blue */
+  .hero-bubble-ce  .hero-bubble-label { color: #F47B20; opacity: 0.85; }
+  .hero-bubble-usx .hero-bubble-label { color: #60A5FA; opacity: 0.85; }
+  .hero-bubble-empty .hero-bubble-total { color: var(--text-dim); }
+
+  /* Context-strip variant — smaller bubbles for the +2/+3/+4 forecast cards
+     since those cards have less vertical space and a smaller headline. */
+  .hero-ctx-card .hero-bubbles { margin: 3px 0 5px; gap: 4px; }
+  .hero-ctx-card .hero-bubble { padding: 4px 6px; }
+  .hero-ctx-card .hero-bubble-total { font-size: 13px; }
+  .hero-ctx-card .hero-bubble-label { font-size: 9px; }
+  .hero-ctx-card .hero-bubble-sub { font-size: 9px; }
   .hero-v2-delta { font-weight: 700; margin-left: 6px; }
   .hero-v2-delta-good { color: #34D399; }
   .hero-v2-delta-warn { color: #FBBF24; }
@@ -3925,11 +3973,49 @@ function renderTechView_() {
     }
   });
 
-  // CE vs USX $ split for the 3 hero cards (Joe directive 2026-05-27).
+  // CE vs USX × Pest vs CG/NWL breakdown for all 6 hero cards
+  // (Joe directive 2026-05-28). Each card shows two bubbles (CE / USX),
+  // each with a total + pest/cgnwl sub-split.
+  //
   // MUST be declared BEFORE the forecast-orders loop below, otherwise the
   // `var` hoisting causes loop accumulation into `undefined` → NaN, then a
-  // later re-init wipes the values. Bug fix 2026-05-27 (Joe spotted: Today
-  // hero had no CE/USX line, Tomorrow summed wrong).
+  // later re-init wipes the values. Joe spotted this 2026-05-27.
+  //
+  // Structure: fcBreak[bucket] = { ceP, ceC, usxP, usxC }
+  //   ceP  = Catseye pest
+  //   ceC  = Catseye CG/NWL
+  //   usxP = USX pest
+  //   usxC = USX CG/NWL
+  // Sum of all four = card's headline $.
+  function makeBreak_() { return { ceP: 0, ceC: 0, usxP: 0, usxC: 0 }; }
+  var fcBreak = {
+    yday:  makeBreak_(),
+    today: makeBreak_(),
+    tmrw:  makeBreak_(),
+    d2:    makeBreak_(),
+    d3:    makeBreak_(),
+    d4:    makeBreak_()
+  };
+  // Pest vs CG/NWL classifier — uses classifyDivision() from config.js,
+  // collapsed to a binary pest/cgnwl decision. 'cg' or 'nwl' → cgnwl;
+  // everything else (pest-resi, pest-commerc, unknown) → pest.
+  function _isCgNwl_(rec) {
+    try {
+      var d = (typeof classifyDivision === 'function') ? classifyDivision(rec) : '';
+      return d === 'cg' || d === 'nwl';
+    } catch (e) { return false; }
+  }
+  // One-stop accumulator: bumps the right cell of fcBreak[bucket].
+  function _accumBreak_(bucket, rec, amount) {
+    if (!fcBreak[bucket]) return;
+    var isUsx = (typeof isUsxBranch === 'function') && isUsxBranch(rec.Branch);
+    var isCg  = _isCgNwl_(rec);
+    var key = (isUsx ? 'usx' : 'ce') + (isCg ? 'C' : 'P');
+    fcBreak[bucket][key] += amount;
+  }
+  // Legacy CE/USX totals — preserved for the few code paths that read them
+  // (mostly the existing CE/USX sub-line which is now replaced by bubbles).
+  // Computed lazily from fcBreak at render time.
   var fcCeToday = 0, fcUsxToday = 0;
   var fcCeTmrw  = 0, fcUsxTmrw  = 0;
 
@@ -3954,12 +4040,19 @@ function renderTechView_() {
         if ((o.OrderType || '') === 'CallBack') obk[bucket + 'Callbacks'] += 1;
         noteOfficeContributor_(obk, o.Tech1, amount);
         noteOfficeCode_(obk, o.ServiceCode, amount);
+        // Office records still count toward the hero pest/CG breakdown
+        // (they have a real ServiceClass — classifier doesn't care about
+        // the office-routing decision). Joe directive 2026-05-28.
+        _accumBreak_(bucket, o, amount);
         return;
       }
       var role = roleOf(o);
       attribute(bucket, o.Branch, role, amount, o.Tech1, o.Tech2);
-      // CE vs USX hero-card sidecar (Joe 2026-05-27) — non-office path.
-      // Office contributions fold in later from officeByCompany.
+      // Hero-card pest/CG × CE/USX breakdown for all forecast buckets
+      // (Joe directive 2026-05-28). Non-office path; office records fold
+      // in below via officeByCompany re-walk.
+      _accumBreak_(bucket, o, amount);
+      // Legacy CE/USX totals — kept in sync for backwards-compat reads
       if (bucket === 'today') {
         if (isUsxBranch(o.Branch)) fcUsxToday += amount; else fcCeToday += amount;
       } else if (bucket === 'tmrw') {
@@ -4012,8 +4105,11 @@ function renderTechView_() {
       if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
       var date = String(o.WorkDate || '').substring(0, 10);
       if (date !== dPlus4) return;
-      fcDay4Total += Number(o.SubTotal) || 0;
+      var amount4 = Number(o.SubTotal) || 0;
+      fcDay4Total += amount4;
       fcDay4Count += 1;
+      // Hero-card pest/CG × CE/USX breakdown for the +4 bucket
+      _accumBreak_('d4', o, amount4);
     });
   }
 
@@ -4036,11 +4132,14 @@ function renderTechView_() {
       if ((inv.InvoiceType || '') === 'CB') obk2.todayCallbacks += 1;
       noteOfficeContributor_(obk2, inv.Tech, amount);
       noteOfficeCode_(obk2, inv.ServiceCode, amount);
+      _accumBreak_('today', inv, amount);
       return;
     }
     var role2 = roleOf(inv);
     attribute('today', inv.Branch, role2, amount, inv.Tech, inv.Tech2);
-    // CE vs USX hero-card sidecar (Joe 2026-05-27) — non-office path
+    // Hero-card breakdown (Joe directive 2026-05-28)
+    _accumBreak_('today', inv, amount);
+    // Legacy CE/USX accumulators — kept in sync
     if (isUsxBranch(inv.Branch)) fcUsxToday += amount; else fcCeToday += amount;
     var it1 = inv.Tech, it2 = inv.Tech2;
     if (it2 && isNonTechCode(it2)) it2 = null;
@@ -4419,93 +4518,93 @@ function renderTechView_() {
   // PTO threshold — when a tech is blocked ≥ this many min, count them as "out"
   // (not just "fully booked"). Defaults to half the productive day.
   var OUT_BLOCK_THRESHOLD_MIN = NET_DAY_MIN / 2;  // 232.5 min
-  // Today's capacity totals (pest + CG/NWL counted separately — Joe 2026-05-26)
+  // Today's capacity totals — PEST-ONLY (Joe directive 2026-05-28).
+  // CG/NWL excluded entirely (different unit-of-work cadence — one install
+  // ≠ one stop). Managers excluded too (don't carry routes). Booked techs
+  // (openMin <= 0) excluded so the card answers "remaining capacity among
+  // techs not yet booked" rather than mixing in fully-loaded routes.
   var capacityOpenMin = 0;
   var capacityUsedMin = 0;
   var capacityTotalMin = 0;
   var capacityTechCount = 0;
-  var capacityTechsFree = 0;     // PEST techs with at least 30 min open
-  var capacityTechsOut  = 0;     // techs blocked ≥ OUT_BLOCK_THRESHOLD_MIN
-  var capacityCgFree    = 0;     // CG/NWL techs with at least 30 min open
-  // Tomorrow's capacity totals
+  var capacityTechsFree = 0;       // pest techs with at least 30 min open
+  var capacityTechsOut  = 0;       // techs blocked ≥ OUT_BLOCK_THRESHOLD_MIN
+  var capacityTechsBooked = 0;     // pest techs with openMin <= 0 (excluded from totals)
+  // Tomorrow's capacity totals — same exclusion model
   var capacityOpenMinTmrw = 0;
   var capacityUsedMinTmrw = 0;
   var capacityTotalMinTmrw = 0;
   var capacityTechCountTmrw = 0;
   var capacityTechsFreeTmrw = 0;
   var capacityTechsOutTmrw  = 0;
-  var capacityCgFreeTmrw    = 0;
+  var capacityTechsBookedTmrw = 0;
   try {
     Object.keys(byBranch).forEach(function(branch) {
       (byBranch[branch] || []).forEach(function(t) {
-        if (t.role !== 'pest' && t.role !== 'cgnwl') return;
-        // Exclude managers (don't carry routes)
+        // PEST-ONLY filter (Joe directive 2026-05-28). CG/NWL excluded — their
+        // unit-of-work cadence (one install ≠ one stop) doesn't fit the
+        // open-minutes model. Managers excluded — they don't carry routes.
+        if (t.role !== 'pest') return;
         var isM = (typeof isManagerCode === 'function' && isManagerCode(t.tech)) ||
                   (typeof dynamicMgrSet !== 'undefined' && dynamicMgrSet.has && dynamicMgrSet.has(String(t.tech).toUpperCase()));
         if (isM) return;
-        var isPest = (t.role === 'pest');
         var blockTodayMin = Math.min(NET_DAY_MIN, timeBlockMinFor_(t.tech, dToday));
         var blockTmrwMin  = Math.min(NET_DAY_MIN, timeBlockMinFor_(t.tech, dTmrw));
-        // Today
+        // ─── Today bucket ───
         var todayDur = Number(t.data.todayMin) || 0;
         var todayPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dToday; });
         var driveMin = (computeDriveMiles_(todayPts) / 30) * 60;
         var usedMin = todayDur + driveMin + blockTodayMin;
         var openMin = Math.max(0, NET_DAY_MIN - usedMin);
-        // Pest-only metrics drive the headline open-hours number on the card
-        // (CG/NWL has a fundamentally different unit-of-work cadence — one
-        // install ≠ one stop — so we keep them in their own counter, not in
-        // the headline minutes pool). Joe directive 2026-05-26.
         // INTERIM HEURISTIC (Joe 2026-05-26): until PestPac fixes /TimeBlocks
-        // (currently returns []), we infer "out" when openMin ≥ 6 hr (360 min).
-        // A typical pest day leaves 3-5 hr open; >6 hr is usually PTO/half-day.
-        // Today-only — Tmrw/+2/+3 are forecast days, normally near-empty.
-        // No time-of-day gate — Catseye dispatch loads routes by 7-8 AM, so the
-        // empty-tech signal is already meaningful when Joe checks the dashboard.
-        var LIKELY_OFF_MIN = 360;  // 6 hours
+        // (currently returns []), we infer "out" when openMin ≥ 6 hr (360 min)
+        // for today. A typical pest day leaves 3-5 hr open; >6 hr is usually
+        // PTO/half-day. Today-only — Tmrw/+2/+3 are forecast days, normally
+        // near-empty so the heuristic would generate false positives.
+        var LIKELY_OFF_MIN = 360;
         var likelyOffToday = (openMin >= LIKELY_OFF_MIN) && (blockTodayMin < OUT_BLOCK_THRESHOLD_MIN);
-        // Joe directive 2026-05-27 — fix capacity inflation bug. Previously the
-        // PTO heuristic only re-bucketed techs from "free" → "out", but their
-        // full 6+hr of "open" was still summed into capacityOpenMin/Total. So
-        // a day with 2 PTO techs reported ~37hr open vs ~25hr actual usable.
-        // Fix: when out/PTO, drop the tech from the open-pool entirely.
-        var isOutToday = (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN || likelyOffToday);
-        if (isPest) {
-          capacityTechCount++;
-          capacityUsedMin += usedMin;
-          if (isOutToday) {
-            capacityTechsOut++;
-          } else {
-            capacityOpenMin += openMin;
-            capacityTotalMin += NET_DAY_MIN;
-            if (openMin >= 30) capacityTechsFree++;
-          }
+        var isOutToday    = (blockTodayMin >= OUT_BLOCK_THRESHOLD_MIN || likelyOffToday);
+        var isBookedToday = !isOutToday && openMin <= 0;
+        // Bucket assignment — three mutually exclusive cohorts:
+        //   out    → PTO/blocked tech, not present today
+        //   booked → tech is fully loaded (openMin <= 0), excluded from the
+        //           open-minutes pool entirely (Joe directive 2026-05-28)
+        //   free pool → counted in capacityTechCount + capacityTotalMin
+        if (isOutToday) {
+          capacityTechsOut++;
+        } else if (isBookedToday) {
+          capacityTechsBooked++;
+          // EXCLUDED from open-pool entirely — no usedMin, no totalMin, no
+          // techCount increment. The card answers "remaining capacity among
+          // techs not yet booked" rather than mixing in fully-loaded routes.
         } else {
-          if (isOutToday) capacityTechsOut++;
-          else if (openMin >= 30) capacityCgFree++;
+          capacityTechCount++;
+          capacityUsedMin  += usedMin;
+          capacityOpenMin  += openMin;
+          capacityTotalMin += NET_DAY_MIN;
+          if (openMin >= 30) capacityTechsFree++;
         }
-        // Tomorrow — same exclusion model, but no >6hr PTO inference (tomorrow's
-        // routes aren't loaded yet; nearly every tech would have full open hrs
-        // and get filtered out). Only block-out exclusion applies.
+        // ─── Tomorrow bucket ───
+        // Same exclusion model, but no >6hr PTO inference (tomorrow's routes
+        // aren't loaded yet; nearly every tech would have full open hrs and
+        // get filtered out). Only block-out exclusion applies.
         var tmrwDur = Number(t.data.tmrwMin) || 0;
         var tmrwPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dTmrw; });
         var driveMinT = (computeDriveMiles_(tmrwPts) / 30) * 60;
         var usedMinT = tmrwDur + driveMinT + blockTmrwMin;
         var openMinT = Math.max(0, NET_DAY_MIN - usedMinT);
-        var isOutTmrw = (blockTmrwMin >= OUT_BLOCK_THRESHOLD_MIN);
-        if (isPest) {
-          capacityTechCountTmrw++;
-          capacityUsedMinTmrw += usedMinT;
-          if (isOutTmrw) {
-            capacityTechsOutTmrw++;
-          } else {
-            capacityOpenMinTmrw += openMinT;
-            capacityTotalMinTmrw += NET_DAY_MIN;
-            if (openMinT >= 30) capacityTechsFreeTmrw++;
-          }
+        var isOutTmrw    = (blockTmrwMin >= OUT_BLOCK_THRESHOLD_MIN);
+        var isBookedTmrw = !isOutTmrw && openMinT <= 0;
+        if (isOutTmrw) {
+          capacityTechsOutTmrw++;
+        } else if (isBookedTmrw) {
+          capacityTechsBookedTmrw++;
         } else {
-          if (isOutTmrw) capacityTechsOutTmrw++;
-          else if (openMinT >= 30) capacityCgFreeTmrw++;
+          capacityTechCountTmrw++;
+          capacityUsedMinTmrw  += usedMinT;
+          capacityOpenMinTmrw  += openMinT;
+          capacityTotalMinTmrw += NET_DAY_MIN;
+          if (openMinT >= 30) capacityTechsFreeTmrw++;
         }
       });
     });
@@ -4533,6 +4632,7 @@ function renderTechView_() {
       fcYesterday += amt;
       fcYesterdayCount += 1;
       if (isUsxBranch(inv.Branch)) fcYdayUsx += amt; else fcYdayCe += amt;
+      _accumBreak_('yday', inv, amt);
       if (inv.OrderID != null) fcYesterdaySeenOrderIds[String(inv.OrderID)] = true;
     });
     // Also include yesterday-dated SERVICE ORDERS that haven't been posted to
@@ -4551,6 +4651,7 @@ function renderTechView_() {
         fcYesterday += amt;
         fcYesterdayCount += 1;
         if (isUsxBranch(o.Branch)) fcYdayUsx += amt; else fcYdayCe += amt;
+        _accumBreak_('yday', o, amt);
       });
     }
   } catch (e) { /* leave at 0 */ }
@@ -4592,27 +4693,30 @@ function renderTechView_() {
     workingElapsed:    workingElapsedMtd,
     workingTotal:      heroWorkingTotal,
     workingRemaining:  heroWorkingRemaining,
-    capacityOpenMin:   capacityOpenMin,
-    capacityUsedMin:   capacityUsedMin,
-    capacityTotalMin:  capacityTotalMin,
-    capacityTechCount: capacityTechCount,
-    capacityTechsFree: capacityTechsFree,
-    capacityTechsOut:  capacityTechsOut,
-    capacityCgFree:    capacityCgFree,
-    capacityOpenMinTmrw:   capacityOpenMinTmrw,
-    capacityUsedMinTmrw:   capacityUsedMinTmrw,
-    capacityTotalMinTmrw:  capacityTotalMinTmrw,
-    capacityTechCountTmrw: capacityTechCountTmrw,
-    capacityTechsFreeTmrw: capacityTechsFreeTmrw,
-    capacityTechsOutTmrw:  capacityTechsOutTmrw,
-    capacityCgFreeTmrw:    capacityCgFreeTmrw,
-    // CE vs USX hero-card splits (Joe directive 2026-05-27)
+    capacityOpenMin:     capacityOpenMin,
+    capacityUsedMin:     capacityUsedMin,
+    capacityTotalMin:    capacityTotalMin,
+    capacityTechCount:   capacityTechCount,
+    capacityTechsFree:   capacityTechsFree,
+    capacityTechsOut:    capacityTechsOut,
+    capacityTechsBooked: capacityTechsBooked,
+    capacityOpenMinTmrw:     capacityOpenMinTmrw,
+    capacityUsedMinTmrw:     capacityUsedMinTmrw,
+    capacityTotalMinTmrw:    capacityTotalMinTmrw,
+    capacityTechCountTmrw:   capacityTechCountTmrw,
+    capacityTechsFreeTmrw:   capacityTechsFreeTmrw,
+    capacityTechsOutTmrw:    capacityTechsOutTmrw,
+    capacityTechsBookedTmrw: capacityTechsBookedTmrw,
+    // CE vs USX hero-card splits (Joe directive 2026-05-27) — legacy
     fcYdayCe:    fcYdayCe,
     fcYdayUsx:   fcYdayUsx,
     fcCeToday:   fcCeToday,
     fcUsxToday:  fcUsxToday,
     fcCeTmrw:    fcCeTmrw,
     fcUsxTmrw:   fcUsxTmrw,
+    // 6-card pest/CG × CE/USX breakdown (Joe directive 2026-05-28) — new
+    // bubble structure for the hero cards. Each value is { ceP, ceC, usxP, usxC }.
+    fcBreak:     fcBreak,
     setupsWeekCount:   heroSetupsCount,
     cancelsWeekCount:  heroCancelsCount,
     callbacksToday:    heroCallbacksToday
@@ -7016,20 +7120,18 @@ function renderHeroStrip_(ctx) {
         '5-day total <span class="hero-v2-5day-val">$' +
         Math.round(opts.fiveDayTotal).toLocaleString() + '</span></div>';
     }
-    // CE / USX dollar split — sub-line under value. Joe directive 2026-05-27.
-    // Catseye left / USX right per the visual-patterns standard.
-    var coSplitHtml = '';
-    if (opts.coSplit) {
-      var ce = Number(opts.coSplit.catseye) || 0;
-      var ux = Number(opts.coSplit.usx)     || 0;
-      if (ce > 0 || ux > 0) {
-        coSplitHtml = '<div class="hero-v2-cosplit">' +
-          '<span class="hero-v2-co hero-v2-co-ce">CE $' + Math.round(ce).toLocaleString() + '</span>' +
-          '<span class="hero-v2-co-sep"> · </span>' +
-          '<span class="hero-v2-co hero-v2-co-usx">USX $' + Math.round(ux).toLocaleString() + '</span>' +
-        '</div>';
-      }
-    }
+    // CE / USX bubble pair — each bubble shows the company total on top and
+    // a pest vs CG/NWL sub-split below. Two bubbles sit side-by-side under
+    // the headline. Catseye left / USX right per visual-patterns standard.
+    // Joe directive 2026-05-28 (evolved from the inline CE/USX line that
+    // shipped 2026-05-27).
+    //
+    // Accepts either shape on opts.coSplit:
+    //   { catseye: 12345, usx: 6789 }                          ← legacy total-only
+    //   { catseye: {total,pest,cgnwl}, usx: {total,pest,cgnwl} } ← new bubble
+    var coSplitHtml = (typeof _heroBubblesHtml_ === 'function')
+      ? _heroBubblesHtml_(opts.coSplit)
+      : '';
     return '<div class="hero-v2-card ' + cardClass + '">' +
              '<div class="hero-v2-label">' + escapeHtml(opts.label) + '</div>' +
              '<div class="hero-v2-value">$' + Math.round(opts.value || 0).toLocaleString() + '</div>' +
@@ -7037,6 +7139,52 @@ function renderHeroStrip_(ctx) {
              '<div class="hero-v2-meta">' + metaHtml + '</div>' +
              fiveDayHtml +
              (hint ? '<div class="hero-v2-hint hero-v2-hint-' + tier + '">' + escapeHtml(hint) + '</div>' : '') +
+           '</div>';
+  }
+
+  // Shared bubble-pair renderer — used by buildHeroCard_ (yday/today/tmrw)
+  // and buildCtxCard_ (+2/+3/+4). Accepts the canonical structured form:
+  //   { catseye: {total,pest,cgnwl}, usx: {total,pest,cgnwl} }
+  // …or the legacy total-only form (renders bubbles without sub-split).
+  // Joe directive 2026-05-28.
+  function _heroBubblesHtml_(coSplit) {
+    if (!coSplit) return '';
+    function norm(side) {
+      if (side == null) return null;
+      if (typeof side === 'number') return { total: side, pest: 0, cgnwl: 0, hasSplit: false };
+      var total = Number(side.total);
+      if (!isFinite(total)) total = (Number(side.pest) || 0) + (Number(side.cgnwl) || 0);
+      var pest  = Number(side.pest)  || 0;
+      var cgnwl = Number(side.cgnwl) || 0;
+      return { total: total, pest: pest, cgnwl: cgnwl, hasSplit: (pest > 0 || cgnwl > 0) };
+    }
+    var ce = norm(coSplit.catseye);
+    var ux = norm(coSplit.usx);
+    if ((!ce || ce.total <= 0) && (!ux || ux.total <= 0)) return '';
+    function bubble(side, label, cls) {
+      if (!side || side.total <= 0) {
+        return '<div class="hero-bubble ' + cls + ' hero-bubble-empty">' +
+                 '<div class="hero-bubble-label">' + label + '</div>' +
+                 '<div class="hero-bubble-total">—</div>' +
+               '</div>';
+      }
+      var subHtml = '';
+      if (side.hasSplit) {
+        subHtml = '<div class="hero-bubble-sub">' +
+                    '<span class="hero-bubble-pest">pest $' + Math.round(side.pest).toLocaleString() + '</span>' +
+                    '<span class="hero-bubble-sep"> · </span>' +
+                    '<span class="hero-bubble-cg">CG/NWL $' + Math.round(side.cgnwl).toLocaleString() + '</span>' +
+                  '</div>';
+      }
+      return '<div class="hero-bubble ' + cls + '">' +
+               '<div class="hero-bubble-label">' + label + '</div>' +
+               '<div class="hero-bubble-total">$' + Math.round(side.total).toLocaleString() + '</div>' +
+               subHtml +
+             '</div>';
+    }
+    return '<div class="hero-bubbles">' +
+             bubble(ce, 'CE',  'hero-bubble-ce')  +
+             bubble(ux, 'USX', 'hero-bubble-usx') +
            '</div>';
   }
 
@@ -7063,6 +7211,10 @@ function renderHeroStrip_(ctx) {
   // non-prod note instead of "vs target" (the daily target is a Mon-Fri
   // pacing number; comparing a Saturday or holiday to it is misleading).
   var ydayNonProd = ctx.fcYesterdayNonProd || '';
+  // Bubble slices for all 6 hero cards (Joe directive 2026-05-28). When
+  // fcBreak isn't populated yet (race during initial load), _bubblesFromBreak_
+  // returns null and the bubble row is suppressed for that card.
+  var fcB = ctx.fcBreak || {};
   var ydayCard  = buildHeroCard_({
     label: ydayLbl,
     value: ctx.fcYesterday,
@@ -7071,12 +7223,12 @@ function renderHeroStrip_(ctx) {
     stops: ctx.fcYesterdayCount,
     suppressHint: true,
     nonProdNote: ydayNonProd,
-    coSplit: { catseye: ctx.fcYdayCe,  usx: ctx.fcYdayUsx  }
+    coSplit: _bubblesFromBreak_(fcB.yday)
   });
-  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday,     target: ctx.fcNeededPerDay, accent: 'good',   stops: ctx.fcTodayCount, fiveDayTotal: ctx.fc5DayTotal,
-    coSplit: { catseye: ctx.fcCeToday, usx: ctx.fcUsxToday } });
-  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,      target: ctx.fcNeededPerDay, accent: 'info',   stops: ctx.fcTmrwCount,
-    coSplit: { catseye: ctx.fcCeTmrw,  usx: ctx.fcUsxTmrw  } });
+  var todayCard = buildHeroCard_({ label: todayLbl, value: ctx.fcToday, target: ctx.fcNeededPerDay, accent: 'good', stops: ctx.fcTodayCount, fiveDayTotal: ctx.fc5DayTotal,
+    coSplit: _bubblesFromBreak_(fcB.today) });
+  var tmrwCard  = buildHeroCard_({ label: tmrwLbl,  value: ctx.fcTmrw,  target: ctx.fcNeededPerDay, accent: 'info', stops: ctx.fcTmrwCount,
+    coSplit: _bubblesFromBreak_(fcB.tmrw) });
 
   // ── Context strip (5 small cards) ──
   // +2 day
@@ -7090,12 +7242,31 @@ function renderHeroStrip_(ctx) {
   var d3Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(d3Off_) : '+3';
   var d4Label = (typeof ctx.fcDateLabel === 'function') ? ctx.fcDateLabel(d4Off_) : '+4';
 
-  function buildCtxCard_(label, sub, valueHtml, status) {
+  function buildCtxCard_(label, sub, valueHtml, status, bubbles) {
+    // `bubbles` (optional) takes the same coSplit shape as buildHeroCard_ —
+    // when provided, renders the CE/USX bubble pair under the value. Used by
+    // the +2/+3/+4 forecast outlook cards. Joe directive 2026-05-28.
+    var bubblesHtml = (bubbles && typeof _heroBubblesHtml_ === 'function')
+      ? _heroBubblesHtml_(bubbles)
+      : '';
     return '<div class="hero-ctx-card hero-' + (status || 'neutral') + '">' +
              '<div class="hero-ctx-label">' + escapeHtml(label) + '</div>' +
              '<div class="hero-ctx-value">' + valueHtml + '</div>' +
+             bubblesHtml +
              (sub ? '<div class="hero-ctx-sub">' + sub + '</div>' : '') +
            '</div>';
+  }
+
+  // Translate an fcBreak slice ({ceP,ceC,usxP,usxC}) into the bubble shape
+  // expected by _heroBubblesHtml_. Safe on undefined input.
+  function _bubblesFromBreak_(slice) {
+    if (!slice) return null;
+    var ceP = Number(slice.ceP) || 0, ceC = Number(slice.ceC) || 0;
+    var usxP = Number(slice.usxP) || 0, usxC = Number(slice.usxC) || 0;
+    return {
+      catseye: { total: ceP + ceC,  pest: ceP,  cgnwl: ceC  },
+      usx:     { total: usxP + usxC, pest: usxP, cgnwl: usxC }
+    };
   }
 
   // +2 / +3 outlook cards — fixed purple accent (Joe 2026-05-26). Stops count
@@ -7103,9 +7274,9 @@ function renderHeroStrip_(ctx) {
   var d2Sub = (ctx.fcD2Count > 0) ? (ctx.fcD2Count + ' stops scheduled') : '';
   var d3Sub = (ctx.fcD3Count > 0) ? (ctx.fcD3Count + ' stops scheduled') : '';
   var d4Sub = (ctx.fcD4Count > 0) ? (ctx.fcD4Count + ' stops scheduled') : '';
-  var d2Card = buildCtxCard_('+2 · ' + d2Label, d2Sub, '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), 'pink');
-  var d3Card = buildCtxCard_('+3 · ' + d3Label, d3Sub, '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), 'pink');
-  var d4Card = buildCtxCard_('+4 · ' + d4Label, d4Sub, '$' + Math.round(ctx.fcD4 || 0).toLocaleString(), 'pink');
+  var d2Card = buildCtxCard_('+2 · ' + d2Label, d2Sub, '$' + Math.round(ctx.fcD2 || 0).toLocaleString(), 'pink', _bubblesFromBreak_(fcB.d2));
+  var d3Card = buildCtxCard_('+3 · ' + d3Label, d3Sub, '$' + Math.round(ctx.fcD3 || 0).toLocaleString(), 'pink', _bubblesFromBreak_(fcB.d3));
+  var d4Card = buildCtxCard_('+4 · ' + d4Label, d4Sub, '$' + Math.round(ctx.fcD4 || 0).toLocaleString(), 'pink', _bubblesFromBreak_(fcB.d4));
 
   // MTD% — uses full budget (with CGW)
   var mtdPct = (ctx.mtdBudget > 0) ? Math.round(ctx.mtdActual / ctx.mtdBudget * 100) : 0;
@@ -7160,14 +7331,17 @@ function renderHeroStrip_(ctx) {
     if (rem === 0) return hr + ' hr';
     return hr + 'h ' + rem + 'm';
   }
-  // Helper: build the standard "X pest free · Y CG/NWL free · Z booked · N out"
-  // sub-line. Used by both Today's and Tomorrow's Capacity cards. Joe 2026-05-26.
-  function capacitySubLine_(pestFree, cgFree, bookedMin, outCount) {
+  // Helper: build the standard "X pest free · Y booked · N out" sub-line.
+  // Used by both Today's and Tomorrow's Capacity cards.
+  // CG/NWL counter removed 2026-05-28 — capacity cards are pest-only now.
+  // "Booked" here is a TECH COUNT (techs with openMin <= 0), not a minutes
+  // total — those techs are excluded from the headline open-pool entirely,
+  // so the sub-line surfaces their count for visibility.
+  function capacitySubLine_(pestFree, bookedCount, outCount) {
     var parts = [];
     parts.push(pestFree + ' pest free');
-    parts.push(cgFree + ' CG/NWL free');
-    parts.push(fmtHrMin_(bookedMin) + ' booked');
-    if (outCount > 0) parts.push(outCount + ' out');
+    if (bookedCount > 0) parts.push(bookedCount + ' booked');
+    if (outCount > 0)    parts.push(outCount + ' out');
     return parts.join(' · ');
   }
 
@@ -7179,10 +7353,9 @@ function renderHeroStrip_(ctx) {
   } else {
     capValue = fmtHrMin_(ctx.capacityOpenMin || 0);
     capSub = capacitySubLine_(
-      ctx.capacityTechsFree || 0,
-      ctx.capacityCgFree    || 0,
-      (ctx.capacityTotalMin || 0) - (ctx.capacityOpenMin || 0),
-      ctx.capacityTechsOut  || 0
+      ctx.capacityTechsFree   || 0,
+      ctx.capacityTechsBooked || 0,
+      ctx.capacityTechsOut    || 0
     );
     // Tier: green if >2 hr free, yellow if 30 min–2 hr, neutral if fully booked
     var totalOpen = ctx.capacityOpenMin || 0;
@@ -7206,10 +7379,9 @@ function renderHeroStrip_(ctx) {
   } else {
     capValueT = fmtHrMin_(ctx.capacityOpenMinTmrw || 0);
     capSubT = capacitySubLine_(
-      ctx.capacityTechsFreeTmrw || 0,
-      ctx.capacityCgFreeTmrw    || 0,
-      (ctx.capacityTotalMinTmrw || 0) - (ctx.capacityOpenMinTmrw || 0),
-      ctx.capacityTechsOutTmrw  || 0
+      ctx.capacityTechsFreeTmrw   || 0,
+      ctx.capacityTechsBookedTmrw || 0,
+      ctx.capacityTechsOutTmrw    || 0
     );
     var totalOpenT = ctx.capacityOpenMinTmrw || 0;
     if (totalOpenT >= 120) capStatusT = 'good';
