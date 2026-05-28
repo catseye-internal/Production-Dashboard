@@ -2511,6 +2511,33 @@ function productionInvoices_() {
   return STATE.invoiceCache.invoices.filter(passesRecapProductionLens_);
 }
 
+// Sibling predicate for SERVICE ORDERS — applies the same ServiceClass +
+// ServiceCode rules used by passesRecapProductionLens_() on invoices, so the
+// 5 forecast cards (Today/Tmrw/+2/+3/+4) count by the same rule as the
+// Completed cards (Yesterday/Completed-vs-Budget/Summary "Completed" lens).
+// Forecast → completed comparison is now apples-to-apples. Joe directive 2026-05-28.
+//
+// Differences from the invoice predicate:
+//   - Uses OrderType (not InvoiceType). Estimates are excluded via the existing
+//     ORDER_TYPES_EXCLUDED set so estimate orders never count.
+//   - Doesn't apply the InvoiceType=IN filter for prebill ServiceCodes — SOs
+//     don't have an InvoiceType yet. Forecast may briefly include a few
+//     PR-bound prebill SOs that the invoice predicate would later exclude;
+//     in practice these are a tiny minority of the prebill volume and the
+//     simplification keeps the SO-side filter symmetric.
+function passesRecapProductionLensSO_(order) {
+  if (!order) return false;
+  if (typeof ORDER_TYPES_EXCLUDED !== 'undefined' &&
+      ORDER_TYPES_EXCLUDED.indexOf(order.OrderType || order.orderType) !== -1) return false;
+  var prodClasses = (typeof RECAP_PRODUCTION_CLASSES !== 'undefined') ? RECAP_PRODUCTION_CLASSES : null;
+  var prebillCodes = (typeof RECAP_PREBILL_CODES !== 'undefined') ? RECAP_PREBILL_CODES : null;
+  if (!prodClasses || !prebillCodes) return false;
+  var scode = String(order.ServiceCode || '').trim().toUpperCase();
+  if (prebillCodes.has(scode)) return true;
+  var sc = String(order.ServiceClass || '').trim().toUpperCase();
+  return prodClasses.has(sc);
+}
+
 // Build a Set of Username codes for employees whose JobTitle marks them as
 // a manager/supervisor/director. Used by the Pest Efficiency card to exclude
 // these people from per-tech averages without removing their revenue from
@@ -4084,7 +4111,10 @@ function renderTechView_() {
   // Tracks per-period callbacks and drive points (lat/lng per stop) per tech.
   if (STATE.rawCache && STATE.rawCache.orders) {
     STATE.rawCache.orders.forEach(function(o) {
-      if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
+      // Same ServiceClass + ServiceCode rules used by the invoice production
+      // filter — keeps Today/Tmrw/+2/+3 forecast totals apples-to-apples with
+      // the Yesterday + Completed-vs-Budget cards once these SOs become invoices.
+      if (!passesRecapProductionLensSO_(o)) return;
       var date = String(o.WorkDate || '').substring(0, 10);
       var bucket = null;
       if      (date === dToday) bucket = 'today';
@@ -4163,7 +4193,8 @@ function renderTechView_() {
   var fcDay4Count = 0;
   if (STATE.rawCache && STATE.rawCache.orders) {
     STATE.rawCache.orders.forEach(function(o) {
-      if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
+      // Recap-aligned production filter (same as Today/Tmrw/+2/+3 loop above).
+      if (!passesRecapProductionLensSO_(o)) return;
       var date = String(o.WorkDate || '').substring(0, 10);
       if (date !== dPlus4) return;
       var amount4 = Number(o.SubTotal) || 0;
@@ -5357,9 +5388,11 @@ function renderTechView_() {
     // Service orders for this tech — MTD (completed work) PLUS the 4 forecast
     // days (Today/Tomorrow/+2/+3) so the drill-down matches the full scope of
     // the master card row above it. Customer + city looked up via location.
+    // Recap-aligned filter so drill-down totals match the master card and the
+    // YESTERDAY/Completed-vs-Budget cards. Joe directive 2026-05-28.
     if (STATE.rawCache && STATE.rawCache.orders) {
       STATE.rawCache.orders.forEach(function(o) {
-        if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
+        if (!passesRecapProductionLensSO_(o)) return;
         var d = String(o.WorkDate || '').substring(0, 10);
         // Accept records that fall in MTD OR in any of the 4 forecast days
         var inMtd      = (d >= dSom && d <= dYest);
@@ -5580,10 +5613,11 @@ function renderTechView_() {
       });
     });
 
-    // Office-event service orders (rare but possible) — MTD + 4 forecast days
+    // Office-event service orders (rare but possible) — MTD + 4 forecast days.
+    // Recap-aligned filter (matches per-tech drill-down above).
     if (STATE.rawCache && STATE.rawCache.orders) {
       STATE.rawCache.orders.forEach(function(o) {
-        if (ORDER_TYPES_EXCLUDED.indexOf(o.OrderType || o.orderType) !== -1) return;
+        if (!passesRecapProductionLensSO_(o)) return;
         var d = String(o.WorkDate || '').substring(0, 10);
         var inMtd      = (d >= dSom && d <= dYest);
         var inForecast = (d === dToday || d === dTmrw || d === dPlus2 || d === dPlus3);
