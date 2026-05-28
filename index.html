@@ -901,6 +901,12 @@
   .hero-ctx-card .hero-bubble-total { font-size: 13px; }
   .hero-ctx-card .hero-bubble-label { font-size: 9px; }
   .hero-ctx-card .hero-bubble-sub { font-size: 9px; }
+  /* Mobile: drop bubbles on +2/+3/+4 to keep those cards compact. Top-row
+     hero bubbles (yday/today/tmrw) keep theirs on mobile — those are the
+     decisional cards Joe glances at most. Joe directive 2026-05-28. */
+  @media (max-width: 768px) {
+    .hero-ctx-card .hero-bubbles { display: none; }
+  }
   .hero-v2-delta { font-weight: 700; margin-left: 6px; }
   .hero-v2-delta-good { color: #34D399; }
   .hero-v2-delta-warn { color: #FBBF24; }
@@ -1476,23 +1482,28 @@
   .mtd-prod-pacing.pace-behind { color: #FBBF24; }
   .mtd-prod-pacing.pace-unset  { color: var(--text-dim); font-weight: 500; }
 
+  /* Combined-Total metric rows — bumped sizing 2026-05-28 (Joe directive).
+     With w/CGW rows removed, the remaining 3 rows (Actual / On Pace / Budget)
+     have more vertical real estate; this scale takes advantage of it without
+     making the card dominate the page. Branch + branch-child variants further
+     down stay smaller to preserve hierarchy. */
   .mtd-prod-metric {
-    display: grid; grid-template-columns: 80px 70px 1fr 76px;
-    gap: 10px; align-items: center; font-size: 11px;
+    display: grid; grid-template-columns: 96px 90px 1fr 84px;
+    gap: 12px; align-items: center; font-size: 13px;
     font-variant-numeric: tabular-nums;
-    padding: 2px 0;
+    padding: 4px 0;
   }
   .mtd-prod-metric-label {
-    font-size: 10px; font-weight: 600; color: var(--text-dim);
+    font-size: 12px; font-weight: 600; color: var(--text-dim);
     letter-spacing: 0.2px;
   }
-  .mtd-prod-metric-value { font-weight: 600; color: var(--text); }
+  .mtd-prod-metric-value { font-weight: 700; font-size: 14px; color: var(--text); }
   .mtd-prod-metric-bar {
-    height: 7px; background: rgba(255, 255, 255, 0.04); border-radius: 4px;
+    height: 12px; background: rgba(255, 255, 255, 0.04); border-radius: 5px;
     overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.05);
   }
   .mtd-prod-metric-fill {
-    height: 100%; border-radius: 3px;
+    height: 100%; border-radius: 4px;
     transition: width 0.3s ease;
   }
   /* Refined palette — Joe directive 2026-05-23 (v2). Goal: less visual noise,
@@ -1517,11 +1528,11 @@
     box-sizing: border-box;
   }
   .mtd-prod-metric-pct {
-    font-size: 10px; color: var(--text-dim); text-align: right; font-weight: 500;
+    font-size: 12px; color: var(--text-dim); text-align: right; font-weight: 600;
   }
   .mtd-prod-metric-empty {
-    color: var(--text-dim); font-style: italic; font-size: 10px;
-    padding-left: 72px;
+    color: var(--text-dim); font-style: italic; font-size: 12px;
+    padding-left: 96px;
   }
   .mtd-prod-divider { height: 1px; background: var(--border); margin: 6px 0; }
 
@@ -4538,6 +4549,32 @@ function renderTechView_() {
   var capacityTechsFreeTmrw = 0;
   var capacityTechsOutTmrw  = 0;
   var capacityTechsBookedTmrw = 0;
+  // ─── Pre-pass: dispatch-progress gate for Tmrw likely-off heuristic ───
+  // The "likely off ≥6hr open" inference works for today because dispatch has
+  // loaded morning routes by the time Joe glances at the card. For Tmrw, the
+  // same threshold would over-mark techs in the early morning before next-day
+  // routes exist. Gate the Tmrw heuristic on "dispatch is building tomorrow":
+  // fire only when ≥25% of pest techs already have route minutes assigned
+  // for tomorrow. Joe directive 2026-05-28.
+  var _tmrwPestEligible = 0;
+  var _tmrwPestWithRoute = 0;
+  try {
+    Object.keys(byBranch).forEach(function(branch) {
+      (byBranch[branch] || []).forEach(function(t) {
+        if (t.role !== 'pest') return;
+        var _isM = (typeof isManagerCode === 'function' && isManagerCode(t.tech)) ||
+                   (typeof dynamicMgrSet !== 'undefined' && dynamicMgrSet.has && dynamicMgrSet.has(String(t.tech).toUpperCase()));
+        if (_isM) return;
+        _tmrwPestEligible++;
+        if ((Number(t.data.tmrwMin) || 0) > 0) _tmrwPestWithRoute++;
+      });
+    });
+  } catch (e) { /* leave gate closed */ }
+  var _tmrwDispatchProgress = (_tmrwPestEligible > 0)
+                              ? (_tmrwPestWithRoute / _tmrwPestEligible) : 0;
+  var TMRW_LIKELY_OFF_GATE = 0.25;  // 25% threshold
+  var _tmrwLikelyOffActive = (_tmrwDispatchProgress >= TMRW_LIKELY_OFF_GATE);
+
   try {
     Object.keys(byBranch).forEach(function(branch) {
       (byBranch[branch] || []).forEach(function(t) {
@@ -4585,15 +4622,20 @@ function renderTechView_() {
           if (openMin >= 30) capacityTechsFree++;
         }
         // ─── Tomorrow bucket ───
-        // Same exclusion model, but no >6hr PTO inference (tomorrow's routes
-        // aren't loaded yet; nearly every tech would have full open hrs and
-        // get filtered out). Only block-out exclusion applies.
+        // Same exclusion model. Likely-off ≥6hr heuristic applies here too,
+        // but GATED on dispatch-progress signal (≥25% of pest techs already
+        // booked for tomorrow). Without the gate, early-morning Tmrw cards
+        // over-mark every tech as "off" because routes aren't loaded yet.
+        // Joe directive 2026-05-28.
         var tmrwDur = Number(t.data.tmrwMin) || 0;
         var tmrwPts = (t.data.forecastPoints || []).filter(function(p) { return p.day === dTmrw; });
         var driveMinT = (computeDriveMiles_(tmrwPts) / 30) * 60;
         var usedMinT = tmrwDur + driveMinT + blockTmrwMin;
         var openMinT = Math.max(0, NET_DAY_MIN - usedMinT);
-        var isOutTmrw    = (blockTmrwMin >= OUT_BLOCK_THRESHOLD_MIN);
+        var likelyOffTmrw = _tmrwLikelyOffActive
+                            && (openMinT >= LIKELY_OFF_MIN)
+                            && (blockTmrwMin < OUT_BLOCK_THRESHOLD_MIN);
+        var isOutTmrw    = (blockTmrwMin >= OUT_BLOCK_THRESHOLD_MIN || likelyOffTmrw);
         var isBookedTmrw = !isOutTmrw && openMinT <= 0;
         if (isOutTmrw) {
           capacityTechsOutTmrw++;
@@ -6325,11 +6367,14 @@ function renderMtdProductionCard_(byBranch, todayD, mtdByBranchCategory, officeB
       '</div>' +
       '<span class="mtd-prod-metric-pct">' + pctOfBudget(item.mtdAll) + '</span>' +
     '</div>';
-    rows += metricRow('On Pace',        item.onPaceProd,    'fill-pace-no-cgw',  paceTip);
-    rows += metricRow('On Pace w/ CGW', item.onPaceWithCgw, 'fill-pace-with-cgw', paceTip);
+    // "On Pace w/ CGW" and "Budget w/ CGW" rows removed 2026-05-28 (Joe directive).
+    // The two non-CGW rows + Actual carry the operational signal — w/CGW lines
+    // are guaranteed pre-bill revenue that smooths the picture without changing
+    // the pacing decision. Variables (onPaceWithCgw / budgetWithCgw) still
+    // available in `item` for future re-introduction or tooltip enrichment.
+    rows += metricRow('On Pace', item.onPaceProd, 'fill-pace-no-cgw', paceTip);
     if (hasBudget) {
-      rows += metricRow('Budget',        item.budgetNoCgw,   'fill-bdgt-no-cgw',   null);
-      rows += metricRow('Budget w/ CGW', item.budgetWithCgw, 'fill-bdgt-with-cgw', null);
+      rows += metricRow('Budget', item.budgetNoCgw, 'fill-bdgt-no-cgw', null);
     } else {
       rows += '<div class="mtd-prod-metric-empty">No budget set for this month</div>';
     }
@@ -7345,7 +7390,12 @@ function renderHeroStrip_(ctx) {
     return parts.join(' · ');
   }
 
-  var capStatus = 'neutral';
+  // Capacity cards use a fixed BLUE accent (Joe directive 2026-05-28). The
+  // tier signal (good/warn/neutral) is no longer surfaced on these cards — the
+  // headline number + sub-line carry the actionable info, and operational
+  // dashboards benefit from a stable card color so glance-reads aren't biased
+  // by today's particular openness.
+  var capStatus = 'info';
   var capValue, capSub;
   if ((ctx.capacityTechCount || 0) === 0) {
     capValue = '—';
@@ -7357,11 +7407,6 @@ function renderHeroStrip_(ctx) {
       ctx.capacityTechsBooked || 0,
       ctx.capacityTechsOut    || 0
     );
-    // Tier: green if >2 hr free, yellow if 30 min–2 hr, neutral if fully booked
-    var totalOpen = ctx.capacityOpenMin || 0;
-    if (totalOpen >= 120) capStatus = 'good';
-    else if (totalOpen >= 30) capStatus = 'warn';
-    else capStatus = 'neutral';
   }
   var capacityCard = buildCtxCard_(
     'TODAY’S CAPACITY',
@@ -7370,8 +7415,8 @@ function renderHeroStrip_(ctx) {
     capStatus
   );
 
-  // ── TOMORROW'S CAPACITY card (Joe directive 2026-05-26) ──
-  var capStatusT = 'neutral';
+  // ── TOMORROW'S CAPACITY card — same fixed blue accent as Today's (2026-05-28)
+  var capStatusT = 'info';
   var capValueT, capSubT;
   if ((ctx.capacityTechCountTmrw || 0) === 0) {
     capValueT = '—';
@@ -7383,10 +7428,6 @@ function renderHeroStrip_(ctx) {
       ctx.capacityTechsBookedTmrw || 0,
       ctx.capacityTechsOutTmrw    || 0
     );
-    var totalOpenT = ctx.capacityOpenMinTmrw || 0;
-    if (totalOpenT >= 120) capStatusT = 'good';
-    else if (totalOpenT >= 30) capStatusT = 'warn';
-    else capStatusT = 'neutral';
   }
   // Label reflects the walked "tomorrow" — if Sun + holiday were skipped,
   // the card shows that day's capacity (e.g. "TOMORROW · MON 6/1" when
