@@ -174,8 +174,8 @@ function _dimRun_(opts) {
     // 3. Parse the CSV — reuses WIM parser
     Logger.log('3. Parsing CSV with _wimParseInvoiceCsv_...');
     var parsed = _wimParseInvoiceCsv_(attachment.getDataAsString());
-    Logger.log('   Parsed ' + parsed.records.length + ' records (' + parsed.invoiceTypes.join(', ') + ')');
-    Logger.log('   Date range: ' + parsed.dateRange.start + ' → ' + parsed.dateRange.end);
+    Logger.log('   Parsed ' + parsed.records.length + ' records (' + (parsed.typesBreakdown || '') + ')');
+    Logger.log('   Date range: ' + parsed.dateRange.min + ' → ' + parsed.dateRange.max);
 
     // 4. Read existing cache
     Logger.log('4. Reading existing cache-invoices.json...');
@@ -200,7 +200,8 @@ function _dimRun_(opts) {
     Logger.log('6. Running sanity checks...');
     var sanity = _wimRunSanityChecks_(existing, mergeResult.merged, parsed.dateRange);
     Logger.log('   Verdict: ' + sanity.verdict);
-    sanity.findings.forEach(function(f) { Logger.log('   ' + f); });
+    (sanity.stops || []).forEach(function(f) { Logger.log('   🛑 ' + f); });
+    (sanity.warnings || []).forEach(function(f) { Logger.log('   ⚠️  ' + f); });
     if (sanity.verdict === 'STOP') {
       Logger.log('🛑 STOP verdict — not pushing.');
       if (live) {
@@ -225,7 +226,7 @@ function _dimRun_(opts) {
     cache.lastDailyMergeAt = new Date().toISOString();
     var jsonStr = JSON.stringify(cache);
     var ok = pushToGitHub_(jsonStr, WIM_CACHE_PATH,
-      'Daily invoice merge — ' + parsed.dateRange.start + '→' + parsed.dateRange.end +
+      'Daily invoice merge — ' + parsed.dateRange.min + '→' + parsed.dateRange.max +
       ' (+' + mergeResult.added + ' new, ' + mergeResult.updated + ' updated)'
     );
     if (!ok) {
