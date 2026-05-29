@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "Monthly production budgets per branch. Six categories \u00d7 two tiers (TRUE = private; ENHANCED = team-facing stretch goal). Dashboard displays the sum of ENHANCED categories. Edit via the /admin.html page \u2014 direct editing supported but not recommended.",
+    "description": "Monthly production budgets per branch. Six categories × two tiers (TRUE = private; ENHANCED = team-facing stretch goal). Dashboard displays the sum of ENHANCED categories. Edit via the /admin.html page — direct editing supported but not recommended.",
     "categories": [
       "cg_nwl",
       "pest_rodent_initial",
@@ -13,8 +13,8 @@
       "true",
       "enhanced"
     ],
-    "updated": "2026-05-23T00:00:00.000Z",
-    "updatedBy": "all-2026 TRUE backfill from source sheets"
+    "updated": "2026-05-29T13:33:35.957Z",
+    "updatedBy": "admin"
   },
   "Eastern Mass": {
     "2026-01": {
@@ -88,7 +88,14 @@
         "recurring_total_platinum": 1091,
         "cgw_generated": 12600
       },
-      "enhanced": {}
+      "enhanced": {
+        "recurring_residential": 192121,
+        "recurring_commercial": 109482,
+        "recurring_total_platinum": 22996,
+        "cgw_generated": 11272,
+        "cg_nwl": 265000,
+        "pest_rodent_initial": 120000
+      }
     },
     "2026-07": {
       "true": {
