@@ -13,7 +13,7 @@
       "true",
       "enhanced"
     ],
-    "updated": "2026-05-29T13:38:33.523Z",
+    "updated": "2026-05-29T13:42:12.984Z",
     "updatedBy": "admin"
   },
   "Eastern Mass": {
@@ -384,7 +384,14 @@
         "recurring_total_platinum": 0,
         "cgw_generated": 0
       },
-      "enhanced": {}
+      "enhanced": {
+        "recurring_residential": 13621,
+        "recurring_commercial": 12734,
+        "recurring_total_platinum": 960,
+        "cgw_generated": 599,
+        "cg_nwl": 10000,
+        "pest_rodent_initial": 12000
+      }
     },
     "2026-07": {
       "true": {
