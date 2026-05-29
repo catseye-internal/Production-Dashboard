@@ -4253,6 +4253,17 @@ function renderTechView_() {
       if (it1) { row(it1).todayCallbacks = (row(it1).todayCallbacks || 0) + 1; }
       if (it2 && it2 !== it1) { row(it2).todayCallbacks = (row(it2).todayCallbacks || 0) + 1; }
     }
+    // ── Duration → todayMin for Today's Capacity calc (Joe directive 2026-05-29) ──
+    // Without this, Today's Capacity drifts UP through the day as SOs transition
+    // to invoices: the SO loop's contribution to todayMin disappears the moment
+    // a job is posted, but its Duration is still real work that happened. Add
+    // the invoice's Duration here so capacity stays stable as SO→invoice flips.
+    // Full duration to each assigned tech (matches SO-loop attribution semantics).
+    var idur = Number(inv.Duration) || 0;
+    if (idur > 0) {
+      if (it1) { row(it1).todayMin = (row(it1).todayMin || 0) + idur; }
+      if (it2 && it2 !== it1) { row(it2).todayMin = (row(it2).todayMin || 0) + idur; }
+    }
   });
 
   // ─── OPERATIONAL-LENS COUNT REPAIR PASS (Joe directive 2026-05-28) ───
