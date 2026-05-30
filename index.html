@@ -4121,6 +4121,20 @@ function renderTechView_() {
   var fcCeToday = 0, fcUsxToday = 0;
   var fcCeTmrw  = 0, fcUsxTmrw  = 0;
 
+  // Today's-invoiced OrderNumber set — used to dedupe between SO cache and
+  // invoice cache (Joe directive 2026-05-29 — fixes $146K Today inflation).
+  // The SO cache intentionally retains recent Posted SOs for a 2-day window
+  // (Yesterday-bleed fix). Tonight's manual merge added 191 today-dated
+  // invoices — 208 of them ALSO existed in the SO cache, causing the today
+  // bucket to be double-summed ($65K invoices + $81K SOs = $146K, vs $79K
+  // actual). Skip already-invoiced SOs in the today bucket below.
+  var todayInvoicedOrderKeys = new Set();
+  productionInvoices_().forEach(function(inv) {
+    if (String(inv.InvoiceDate || '').substring(0, 10) === dToday && inv.OrderNumber != null) {
+      todayInvoicedOrderKeys.add(String(inv.OrderNumber));
+    }
+  });
+
   // Forecast (Today/Tmrw/+2/+3) — orders cache, exact date match.
   // Tracks per-period callbacks and drive points (lat/lng per stop) per tech.
   if (STATE.rawCache && STATE.rawCache.orders) {
@@ -4130,6 +4144,13 @@ function renderTechView_() {
       // the Yesterday + Completed-vs-Budget cards once these SOs become invoices.
       if (!passesRecapProductionLensSO_(o)) return;
       var date = String(o.WorkDate || '').substring(0, 10);
+      // Dedup against today-invoiced records — if this SO has already been
+      // posted as an invoice today, the invoice-loop below will count it.
+      // Skipping here prevents double-count in today $, today count, and
+      // todayMin (capacity). Joe directive 2026-05-29.
+      if (date === dToday && o.OrderNumber != null && todayInvoicedOrderKeys.has(String(o.OrderNumber))) {
+        return;
+      }
       var bucket = null;
       if      (date === dToday) bucket = 'today';
       else if (date === dTmrw)  bucket = 'tmrw';
