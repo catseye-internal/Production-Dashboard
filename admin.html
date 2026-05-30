@@ -288,7 +288,7 @@
 
     /* ── Per-branch cards (one card per branch, all visible at once) ── */
     .branches-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
       gap: 16px; margin-bottom: 18px;
     }
     .branch-card {
@@ -332,13 +332,13 @@
       display: block; font-size: 9px; color: var(--text-dim); margin-top: 1px;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
-    table.branch-grid td.binput-cell { width: 100px; text-align: right; }
+    table.branch-grid td.binput-cell { width: 120px; text-align: right; }
     table.branch-grid td.binput-cell input {
       width: 100%; box-sizing: border-box;
       background: var(--bg); color: var(--text); border: 1px solid var(--border);
-      border-radius: 6px; padding: 5px 7px; font-size: 12px;
+      border-radius: 6px; padding: 5px 8px; font-size: 12px;
       font-variant-numeric: tabular-nums; text-align: right;
-      font-family: inherit;
+      font-family: inherit; min-width: 0;
     }
     table.branch-grid td.binput-cell input:focus {
       outline: none; border-color: var(--green);
