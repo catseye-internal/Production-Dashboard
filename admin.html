@@ -249,6 +249,123 @@
       font-variant-numeric: tabular-nums;
     }
 
+    /* ── Company summary cards (Combined / Catseye / USX) — all-branches month view ── */
+    .company-summary { margin-bottom: 22px; }
+    .company-summary-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+    }
+    @media (max-width: 900px) { .company-summary-grid { grid-template-columns: 1fr; } }
+    .cs-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 18px;
+    }
+    .cs-card.cs-combined { border-left: 4px solid #A78BFA; }
+    .cs-card.cs-catseye  { border-left: 4px solid var(--orange); }
+    .cs-card.cs-usx      { border-left: 4px solid var(--blue); }
+    .cs-card-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;
+    }
+    .cs-card-rows { display: flex; flex-direction: column; gap: 4px; }
+    .cs-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-variant-numeric: tabular-nums;
+    }
+    .cs-row-label {
+      font-size: 11px; font-weight: 600; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.6px;
+    }
+    .cs-row-val {
+      font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums;
+    }
+    .cs-row-pct { padding-top: 6px; border-top: 1px dashed var(--border); margin-top: 4px; }
+    .cs-row-pct .cs-row-label { color: var(--green); }
+    .cs-row-pct .cs-pct {
+      font-size: 22px; font-weight: 800; color: var(--green);
+    }
+    .cs-row-pct .cs-pct.cs-pct-zero { color: var(--text-dim); }
+    .cs-row-pct .cs-pct.cs-pct-negative { color: var(--salmon); }
+
+    /* ── Per-branch cards (one card per branch, all visible at once) ── */
+    .branches-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px; margin-bottom: 18px;
+    }
+    .branch-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .branch-card.branch-catseye { border-left: 4px solid var(--orange); }
+    .branch-card.branch-usx     { border-left: 4px solid var(--blue); }
+    .branch-card.dirty          { box-shadow: 0 0 0 2px rgba(251,191,36,0.35); }
+    .branch-card-header {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 10px;
+    }
+    .branch-card-name {
+      font-size: 13px; font-weight: 700; letter-spacing: 0.4px;
+    }
+    .branch-card-dirty-flag {
+      font-size: 10px; color: var(--yellow); font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.6px; display: none;
+    }
+    .branch-card.dirty .branch-card-dirty-flag { display: inline; }
+    table.branch-grid {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    table.branch-grid th {
+      text-align: right; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-dim);
+      padding: 4px 6px 8px; border-bottom: 1px solid var(--border);
+    }
+    table.branch-grid th:first-child { text-align: left; }
+    table.branch-grid th.tier-true     { color: var(--text-dim); }
+    table.branch-grid th.tier-enhanced { color: var(--green); }
+    table.branch-grid td {
+      padding: 4px 6px; vertical-align: middle;
+    }
+    table.branch-grid td.bcat-label {
+      font-size: 11px; color: var(--text); padding-right: 8px;
+    }
+    table.branch-grid td.bcat-label .bcat-key {
+      display: block; font-size: 9px; color: var(--text-dim); margin-top: 1px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    table.branch-grid td.binput-cell { width: 100px; text-align: right; }
+    table.branch-grid td.binput-cell input {
+      width: 100%; box-sizing: border-box;
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 7px; font-size: 12px;
+      font-variant-numeric: tabular-nums; text-align: right;
+      font-family: inherit;
+    }
+    table.branch-grid td.binput-cell input:focus {
+      outline: none; border-color: var(--green);
+      box-shadow: 0 0 0 2px rgba(52,211,153,0.15);
+    }
+    table.branch-grid tr.branch-total-row td {
+      padding-top: 8px; border-top: 1px solid var(--border);
+      font-weight: 700;
+    }
+    table.branch-grid tr.branch-total-row td.bcat-label { text-transform: uppercase; font-size: 11px; }
+    table.branch-grid tr.branch-total-row td.btotal-val {
+      text-align: right; font-size: 13px; font-variant-numeric: tabular-nums;
+    }
+    table.branch-grid tr.branch-total-row td.btotal-val.tier-true     { color: var(--text-dim); }
+    table.branch-grid tr.branch-total-row td.btotal-val.tier-enhanced { color: var(--green); }
+    table.branch-grid tr.branch-pct-row td {
+      padding-top: 4px; padding-bottom: 2px;
+      text-align: right; font-size: 11px; font-weight: 700;
+      color: var(--green); font-variant-numeric: tabular-nums;
+    }
+    table.branch-grid tr.branch-pct-row td.bpct-label {
+      text-align: left; font-size: 10px; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600;
+    }
+    table.branch-grid tr.branch-pct-row td.bpct-val.cs-pct-zero { color: var(--text-dim); }
+    table.branch-grid tr.branch-pct-row td.bpct-val.cs-pct-negative { color: var(--salmon); }
+
     .info-note {
       background: rgba(167, 139, 250, 0.06); border: 1px solid rgba(167, 139, 250, 0.25);
       border-radius: 8px; padding: 12px 18px; font-size: 12px;
@@ -400,18 +517,14 @@
         <button data-view="year" id="view-year-btn">Year view</button>
       </div>
 
-      <!-- ── MONTH VIEW (existing) ── -->
+      <!-- ── MONTH VIEW (all-branches one-page editor) ── -->
       <div id="monthView">
       <div class="info-note">
         <strong>TRUE budget</strong> is private — only visible here, never displayed on the dashboard.
-        <strong>ENHANCED budget</strong> (team-facing stretch goal) is what the dashboard shows as "Budget" on the MTD Production card. Edit either column independently.
+        <strong>ENHANCED budget</strong> (team-facing stretch goal) is what the dashboard shows as "Budget" on the MTD Production card. Edit any branch on this page; Save commits all branches with changes.
       </div>
 
       <div class="controls">
-        <label>
-          Branch
-          <select id="branch-select"></select>
-        </label>
         <label>
           Month
           <select id="month-select"></select>
@@ -421,81 +534,46 @@
         <button id="save-btn" disabled>Save</button>
       </div>
 
-      <!-- Month-wide summary: Catseye vs USX, TRUE vs ENHANCED.
-           Updates as the user changes month or saves any branch. -->
-      <div class="month-summary">
+      <!-- Company summary: Combined / Catseye / USX with TRUE, ENHANCED, and
+           the % the Enhanced budget is over the True budget (the "stretch"
+           target). All 5 dashboard categories — Total Platinum 1st-yr-free
+           excluded since it carries no revenue. -->
+      <div class="company-summary">
         <div class="month-summary-header">
           <h3 id="summary-title">Month Summary</h3>
-          <span id="summary-sub" class="month-summary-sub">All 6 categories · dashboard subtotal in parentheses</span>
+          <span class="month-summary-sub">Enhanced ÷ True − 100% = stretch over true · dashboard categories only</span>
         </div>
-        <!-- Company filter — Combined / Catseye / USX. Joe directive 2026-05-26.
-             Used to audit company-level totals. -->
-        <div class="company-toggle" data-toggle-group="month">
-          <button type="button" class="ct-btn active" data-co="combined">Combined</button>
-          <button type="button" class="ct-btn" data-co="catseye">Catseye</button>
-          <button type="button" class="ct-btn" data-co="usx">USX Pest</button>
-        </div>
-        <div class="month-summary-grid">
-          <div class="ms-card ms-combined" data-co-card="combined">
-            <div class="ms-card-label">Combined · True</div>
-            <div class="ms-card-value" id="ms-all-true">$0</div>
-            <div class="ms-card-sub" id="ms-all-true-sub">Dashboard: $0</div>
+        <div class="company-summary-grid">
+          <div class="cs-card cs-combined">
+            <div class="cs-card-label">Combined</div>
+            <div class="cs-card-rows">
+              <div class="cs-row"><span class="cs-row-label">True</span><span class="cs-row-val tier-true" id="cs-all-true">$0</span></div>
+              <div class="cs-row"><span class="cs-row-label">Enhanced</span><span class="cs-row-val tier-enhanced" id="cs-all-enh">$0</span></div>
+              <div class="cs-row cs-row-pct"><span class="cs-row-label">Stretch</span><span class="cs-row-val cs-pct" id="cs-all-pct">+0%</span></div>
+            </div>
           </div>
-          <div class="ms-card ms-combined" data-co-card="combined">
-            <div class="ms-card-label">Combined · Enhanced</div>
-            <div class="ms-card-value" id="ms-all-enh">$0</div>
-            <div class="ms-card-sub" id="ms-all-enh-sub">Dashboard: $0</div>
+          <div class="cs-card cs-catseye">
+            <div class="cs-card-label">Catseye Pest Control</div>
+            <div class="cs-card-rows">
+              <div class="cs-row"><span class="cs-row-label">True</span><span class="cs-row-val tier-true" id="cs-cat-true">$0</span></div>
+              <div class="cs-row"><span class="cs-row-label">Enhanced</span><span class="cs-row-val tier-enhanced" id="cs-cat-enh">$0</span></div>
+              <div class="cs-row cs-row-pct"><span class="cs-row-label">Stretch</span><span class="cs-row-val cs-pct" id="cs-cat-pct">+0%</span></div>
+            </div>
           </div>
-          <div class="ms-card ms-catseye" data-co-card="catseye">
-            <div class="ms-card-label">Catseye · True</div>
-            <div class="ms-card-value" id="ms-cat-true">$0</div>
-            <div class="ms-card-sub" id="ms-cat-true-sub">Dashboard: $0</div>
-          </div>
-          <div class="ms-card ms-catseye" data-co-card="catseye">
-            <div class="ms-card-label">Catseye · Enhanced</div>
-            <div class="ms-card-value" id="ms-cat-enh">$0</div>
-            <div class="ms-card-sub" id="ms-cat-enh-sub">Dashboard: $0</div>
-          </div>
-          <div class="ms-card ms-usx" data-co-card="usx">
-            <div class="ms-card-label">USX Pest · True</div>
-            <div class="ms-card-value" id="ms-usx-true">$0</div>
-            <div class="ms-card-sub" id="ms-usx-true-sub">Dashboard: $0</div>
-          </div>
-          <div class="ms-card ms-usx" data-co-card="usx">
-            <div class="ms-card-label">USX Pest · Enhanced</div>
-            <div class="ms-card-value" id="ms-usx-enh">$0</div>
-            <div class="ms-card-sub" id="ms-usx-enh-sub">Dashboard: $0</div>
+          <div class="cs-card cs-usx">
+            <div class="cs-card-label">USX Pest</div>
+            <div class="cs-card-rows">
+              <div class="cs-row"><span class="cs-row-label">True</span><span class="cs-row-val tier-true" id="cs-usx-true">$0</span></div>
+              <div class="cs-row"><span class="cs-row-label">Enhanced</span><span class="cs-row-val tier-enhanced" id="cs-usx-enh">$0</span></div>
+              <div class="cs-row cs-row-pct"><span class="cs-row-label">Stretch</span><span class="cs-row-val cs-pct" id="cs-usx-pct">+0%</span></div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="preview-card">
-        <h3>Dashboard Preview · ENHANCED Total</h3>
-        <div class="sub">What the MTD Production card will show as "Budget" for the selected branch + month. Excludes Recurring — Total Platinum (1st yr free) since it carries no revenue.</div>
-        <div id="preview-total" class="dashboard-value">$0</div>
-      </div>
-
-      <div class="grid-card">
-        <h3 id="grid-title">Budget breakdown</h3>
-        <div id="branch-info" class="branch-info"></div>
-        <table class="budget-grid">
-          <thead>
-            <tr>
-              <th>Category</th>
-              <th class="tier-true">True (private)</th>
-              <th class="tier-enhanced">Enhanced (dashboard)</th>
-            </tr>
-          </thead>
-          <tbody id="grid-body"></tbody>
-          <tfoot>
-            <tr class="total-row">
-              <td class="label">Total</td>
-              <td class="total-value tier-true" id="total-true">$0</td>
-              <td class="total-value tier-enhanced" id="total-enhanced">$0</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      <!-- All-branches editor grid. One card per branch — each card has its
+           own True / Enhanced input columns and a per-branch stretch %. -->
+      <div id="branches-grid" class="branches-grid"></div>
 
       <div class="changelog">
         Edits save to <strong>budgets.json</strong> in the GitHub repo. Git history preserves every change — to view past edits, see the commits log for that file.
@@ -623,9 +701,9 @@
     var state = {
       password: null,
       budgets: null,       // full budgets.json object
-      currentBranch: null,
+      currentBranch: null, // year view still uses this
       currentMonth: null,  // "YYYY-MM"
-      dirty: false
+      dirtyBranches: {}    // { branchName: true } — tracks which branches need saving
     };
 
     // ── DOM helpers ──
@@ -687,19 +765,6 @@
     }
 
     function buildSelectors() {
-      // Branch dropdown
-      var branchSel = $('branch-select');
-      branchSel.innerHTML = '';
-      BRANCHES.forEach(function(b) {
-        var o = el('option', { value: b, text: b }, []);
-        branchSel.appendChild(o);
-      });
-      branchSel.addEventListener('change', function() {
-        if (!confirmIfDirty()) { branchSel.value = state.currentBranch; return; }
-        state.currentBranch = branchSel.value;
-        renderGrid();
-      });
-
       // Month dropdown — current month + next 11 months + previous 6 months
       var monthSel = $('month-select');
       monthSel.innerHTML = '';
@@ -724,19 +789,20 @@
         renderGrid();
       });
 
-      state.currentBranch = branchSel.value;
+      // Year view still has its own branch dropdown (`yr-branch`) — wire that
+      // in the year-view init code path. For month view, all branches render
+      // on the page; no dropdown needed.
+      state.currentBranch = BRANCHES[0];  // safe default for year-view click handlers
       state.currentMonth  = monthSel.value;
     }
 
     function confirmIfDirty() {
-      if (!state.dirty) return true;
+      if (Object.keys(state.dirtyBranches).length === 0) return true;
       return confirm('You have unsaved changes. Discard them?');
     }
 
     // ── Grid rendering ──
-    function getCurrentEntry() {
-      var branch = state.currentBranch;
-      var ym     = state.currentMonth;
+    function getEntry_(branch, ym) {
       if (!state.budgets[branch]) state.budgets[branch] = {};
       if (!state.budgets[branch][ym]) {
         state.budgets[branch][ym] = { 'true': {}, 'enhanced': {} };
@@ -746,128 +812,195 @@
       if (!entry['enhanced']) entry['enhanced'] = {};
       return entry;
     }
+    // Year-view click handler calls this with state.currentBranch + state.currentMonth set.
+    function getCurrentEntry() { return getEntry_(state.currentBranch, state.currentMonth); }
 
-    function renderGrid() {
-      var entry = getCurrentEntry();
-      var body  = $('grid-body');
-      body.innerHTML = '';
-
-      CATEGORIES.forEach(function(cat) {
-        var tr = el('tr', null, []);
-
-        var labelCell = el('td', { class: 'cat-label' }, [
-          document.createTextNode(CATEGORY_LABELS[cat] || cat)
-        ]);
-        var keyEl = el('span', { class: 'cat-key', text: cat }, []);
-        labelCell.appendChild(keyEl);
-        tr.appendChild(labelCell);
-
-        ['true', 'enhanced'].forEach(function(tier) {
-          var td = el('td', { class: 'input-cell' }, []);
-          var input = el('input', {
-            type: 'text',
-            inputmode: 'numeric',
-            placeholder: '$0',
-            'data-tier': tier,
-            'data-cat': cat,
-            value: (entry[tier][cat] ? fmtMoney(entry[tier][cat]) : '')
-          }, []);
-          input.addEventListener('focus', function() {
-            // strip formatting on focus for easier editing
-            var n = parseMoney(input.value);
-            input.value = n ? String(n) : '';
-          });
-          input.addEventListener('blur', function() {
-            var n = parseMoney(input.value);
-            input.value = n ? fmtMoney(n) : '';
-            entry[tier][cat] = n;
-            recomputeTotals();
-            markDirty();
-          });
-          input.addEventListener('input', function() {
-            // live-update totals as the user types
-            entry[tier][cat] = parseMoney(input.value);
-            recomputeTotals();
-            markDirty();
-          });
-          td.appendChild(input);
-          tr.appendChild(td);
-        });
-
-        body.appendChild(tr);
+    // Build one input cell — handles focus/blur formatting + dirty tracking.
+    function makeBudgetInput_(branch, tier, cat) {
+      var entry = getEntry_(branch, state.currentMonth);
+      var input = el('input', {
+        type: 'text',
+        inputmode: 'numeric',
+        placeholder: '$0',
+        'data-tier': tier,
+        'data-cat': cat,
+        'data-branch': branch,
+        value: (entry[tier][cat] ? fmtMoney(entry[tier][cat]) : '')
+      }, []);
+      input.addEventListener('focus', function() {
+        var n = parseMoney(input.value);
+        input.value = n ? String(n) : '';
       });
+      input.addEventListener('blur', function() {
+        var n = parseMoney(input.value);
+        input.value = n ? fmtMoney(n) : '';
+        entry[tier][cat] = n;
+        recomputeBranchTotals_(branch);
+        recomputeMonthSummary();
+        markBranchDirty_(branch);
+      });
+      input.addEventListener('input', function() {
+        entry[tier][cat] = parseMoney(input.value);
+        recomputeBranchTotals_(branch);
+        recomputeMonthSummary();
+        markBranchDirty_(branch);
+      });
+      return input;
+    }
 
-      $('grid-title').textContent = state.currentBranch + ' · ' + $('month-select').selectedOptions[0].text;
-      $('branch-info').innerHTML = 'Editing budgets for <strong>' + escapeHtml(state.currentBranch) + '</strong>, month <strong>' + escapeHtml(state.currentMonth) + '</strong>.';
-      state.dirty = false;
+    // Render the whole all-branches month view. One card per branch with its
+    // own True / Enhanced columns + per-branch stretch % at the bottom.
+    function renderGrid() {
+      var grid = $('branches-grid');
+      grid.innerHTML = '';
+      state.dirtyBranches = {};
       $('save-btn').disabled = true;
       $('save-status').textContent = '';
       $('save-status').className = 'save-status';
-      recomputeTotals();
-    }
 
-    function recomputeTotals() {
-      var entry = getCurrentEntry();
-      // Total of ALL 6 categories — shown on the input grid's Total row so
-      // Joe sees the full picture including Total Platinum.
-      var totalTrue = CATEGORIES.reduce(function(s, c) {
-        return s + (Number(entry['true'][c]) || 0);
-      }, 0);
-      var totalEnhanced = CATEGORIES.reduce(function(s, c) {
-        return s + (Number(entry['enhanced'][c]) || 0);
-      }, 0);
-      // What the DASHBOARD will actually display — sum of the 5 dashboard
-      // categories (Total Platinum 1st-yr-free excluded per Joe 2026-05-23).
-      var dashboardEnhanced = DASHBOARD_CATEGORIES.reduce(function(s, c) {
-        return s + (Number(entry['enhanced'][c]) || 0);
-      }, 0);
-      $('total-true').textContent     = fmtMoney(totalTrue);
-      $('total-enhanced').textContent = fmtMoney(totalEnhanced);
-      $('preview-total').textContent  = fmtMoney(dashboardEnhanced);
+      BRANCHES.forEach(function(branch) {
+        var isCatseye = CATSEYE_BRANCHES.indexOf(branch) >= 0;
+        var card = el('div', {
+          class: 'branch-card ' + (isCatseye ? 'branch-catseye' : 'branch-usx'),
+          'data-branch-card': branch,
+          id: 'bc-' + branchSlug_(branch)
+        }, []);
+
+        // Header — branch name + dirty flag
+        var hdr = el('div', { class: 'branch-card-header' }, []);
+        hdr.appendChild(el('div', { class: 'branch-card-name', text: branch }, []));
+        hdr.appendChild(el('div', { class: 'branch-card-dirty-flag', text: 'unsaved' }, []));
+        card.appendChild(hdr);
+
+        // Table — Category | True | Enhanced rows
+        var table = el('table', { class: 'branch-grid' }, []);
+        var thead = el('thead', null, []);
+        var hrow = el('tr', null, [
+          el('th', { text: 'Category' }, []),
+          el('th', { class: 'tier-true', text: 'True' }, []),
+          el('th', { class: 'tier-enhanced', text: 'Enhanced' }, [])
+        ]);
+        thead.appendChild(hrow);
+        table.appendChild(thead);
+
+        var tbody = el('tbody', null, []);
+        CATEGORIES.forEach(function(cat) {
+          var tr = el('tr', null, []);
+          var labelCell = el('td', { class: 'bcat-label' }, [
+            document.createTextNode(CATEGORY_LABELS[cat] || cat),
+            el('span', { class: 'bcat-key', text: cat }, [])
+          ]);
+          tr.appendChild(labelCell);
+          ['true', 'enhanced'].forEach(function(tier) {
+            var td = el('td', { class: 'binput-cell' }, []);
+            td.appendChild(makeBudgetInput_(branch, tier, cat));
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+
+        // Footer — totals + stretch %
+        var tfoot = el('tfoot', null, []);
+        var totalRow = el('tr', { class: 'branch-total-row' }, [
+          el('td', { class: 'bcat-label', text: 'Total' }, []),
+          el('td', { class: 'btotal-val tier-true',     id: 'bt-true-' + branchSlug_(branch),     text: '$0' }, []),
+          el('td', { class: 'btotal-val tier-enhanced', id: 'bt-enh-'  + branchSlug_(branch),     text: '$0' }, [])
+        ]);
+        var pctRow = el('tr', { class: 'branch-pct-row' }, [
+          el('td', { class: 'bpct-label', colspan: '2', text: 'Stretch over True' }, []),
+          el('td', { class: 'bpct-val',                 id: 'bp-pct-' + branchSlug_(branch),     text: '+0%' }, [])
+        ]);
+        tfoot.appendChild(totalRow);
+        tfoot.appendChild(pctRow);
+        table.appendChild(tfoot);
+
+        card.appendChild(table);
+        grid.appendChild(card);
+
+        // Initial totals
+        recomputeBranchTotals_(branch);
+      });
+
       recomputeMonthSummary();
     }
 
+    // URL-safe slug for use as element IDs.
+    function branchSlug_(b) {
+      return String(b).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+
+    // Per-branch totals + stretch %. Uses ALL 6 categories for the total
+    // (matches what the user sees as their full budget). Dashboard subset
+    // (5 categories) is rolled into the company summary instead.
+    function recomputeBranchTotals_(branch) {
+      var entry = getEntry_(branch, state.currentMonth);
+      var sumT = CATEGORIES.reduce(function(s, c) { return s + (Number(entry['true'][c])     || 0); }, 0);
+      var sumE = CATEGORIES.reduce(function(s, c) { return s + (Number(entry['enhanced'][c]) || 0); }, 0);
+      var slug = branchSlug_(branch);
+      var tEl = $('bt-true-' + slug); if (tEl) tEl.textContent = fmtMoney(sumT);
+      var eEl = $('bt-enh-'  + slug); if (eEl) eEl.textContent = fmtMoney(sumE);
+      var pEl = $('bp-pct-'  + slug);
+      if (pEl) {
+        var pct = stretchPct_(sumT, sumE);
+        pEl.textContent = pct.label;
+        pEl.classList.toggle('cs-pct-zero',     pct.kind === 'zero');
+        pEl.classList.toggle('cs-pct-negative', pct.kind === 'negative');
+      }
+    }
+
+    // Compute the "stretch" percentage Enhanced is above True. Returns a
+    // formatted label + a kind flag for CSS coloring (positive=green default,
+    // zero=dim, negative=salmon).
+    function stretchPct_(trueTotal, enhTotal) {
+      if (!trueTotal) {
+        if (!enhTotal) return { pct: 0, label: '+0%', kind: 'zero' };
+        return { pct: Infinity, label: '—', kind: 'zero' };
+      }
+      var pct = (enhTotal - trueTotal) / trueTotal * 100;
+      var sign = pct > 0 ? '+' : (pct < 0 ? '' : '+');
+      var label = sign + pct.toFixed(1) + '%';
+      var kind = pct === 0 ? 'zero' : (pct < 0 ? 'negative' : 'positive');
+      return { pct: pct, label: label, kind: kind };
+    }
+
     // Month-wide summary across both companies. Sums every branch's entry
-    // for the currently-selected month. Updates on month change + save.
+    // for the currently-selected month using the dashboard subset (5 cats —
+    // Total Platinum 1st-yr-free excluded since it carries no revenue).
     function recomputeMonthSummary() {
       var ym = state.currentMonth;
-      $('summary-title').textContent = 'Month Summary · ' + ($('month-select').selectedOptions[0] ? $('month-select').selectedOptions[0].text : ym);
+      var monthLabel = $('month-select').selectedOptions[0] ? $('month-select').selectedOptions[0].text : ym;
+      $('summary-title').textContent = 'Month Summary · ' + monthLabel;
 
       function sumBranches(branchList, tier, cats) {
         var total = 0;
         branchList.forEach(function(b) {
           var entry = state.budgets[b] && state.budgets[b][ym];
           if (!entry || !entry[tier]) return;
-          cats.forEach(function(c) {
-            total += Number(entry[tier][c]) || 0;
-          });
+          cats.forEach(function(c) { total += Number(entry[tier][c]) || 0; });
         });
         return total;
       }
 
-      var catTrue6     = sumBranches(CATSEYE_BRANCHES, 'true',     CATEGORIES);
-      var catEnh6      = sumBranches(CATSEYE_BRANCHES, 'enhanced', CATEGORIES);
-      var catTrue5     = sumBranches(CATSEYE_BRANCHES, 'true',     DASHBOARD_CATEGORIES);
-      var catEnh5      = sumBranches(CATSEYE_BRANCHES, 'enhanced', DASHBOARD_CATEGORIES);
-      var usxTrue6     = sumBranches(USX_BRANCHES,     'true',     CATEGORIES);
-      var usxEnh6      = sumBranches(USX_BRANCHES,     'enhanced', CATEGORIES);
-      var usxTrue5     = sumBranches(USX_BRANCHES,     'true',     DASHBOARD_CATEGORIES);
-      var usxEnh5      = sumBranches(USX_BRANCHES,     'enhanced', DASHBOARD_CATEGORIES);
+      var catTrue = sumBranches(CATSEYE_BRANCHES, 'true',     DASHBOARD_CATEGORIES);
+      var catEnh  = sumBranches(CATSEYE_BRANCHES, 'enhanced', DASHBOARD_CATEGORIES);
+      var usxTrue = sumBranches(USX_BRANCHES,     'true',     DASHBOARD_CATEGORIES);
+      var usxEnh  = sumBranches(USX_BRANCHES,     'enhanced', DASHBOARD_CATEGORIES);
+      var allTrue = catTrue + usxTrue;
+      var allEnh  = catEnh  + usxEnh;
 
-      $('ms-cat-true').textContent     = fmtMoney(catTrue6);
-      $('ms-cat-true-sub').textContent = 'Dashboard: ' + fmtMoney(catTrue5);
-      $('ms-cat-enh').textContent      = fmtMoney(catEnh6);
-      $('ms-cat-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(catEnh5);
-      $('ms-usx-true').textContent     = fmtMoney(usxTrue6);
-      $('ms-usx-true-sub').textContent = 'Dashboard: ' + fmtMoney(usxTrue5);
-      $('ms-usx-enh').textContent      = fmtMoney(usxEnh6);
-      $('ms-usx-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(usxEnh5);
-      // Combined totals (Joe 2026-05-26)
-      $('ms-all-true').textContent     = fmtMoney(catTrue6 + usxTrue6);
-      $('ms-all-true-sub').textContent = 'Dashboard: ' + fmtMoney(catTrue5 + usxTrue5);
-      $('ms-all-enh').textContent      = fmtMoney(catEnh6 + usxEnh6);
-      $('ms-all-enh-sub').textContent  = 'Dashboard: ' + fmtMoney(catEnh5 + usxEnh5);
-      applyCompanyToggle('month');
+      function setCard(prefix, sumT, sumE) {
+        $('cs-' + prefix + '-true').textContent = fmtMoney(sumT);
+        $('cs-' + prefix + '-enh').textContent  = fmtMoney(sumE);
+        var pct = stretchPct_(sumT, sumE);
+        var pEl = $('cs-' + prefix + '-pct');
+        pEl.textContent = pct.label;
+        pEl.classList.toggle('cs-pct-zero',     pct.kind === 'zero');
+        pEl.classList.toggle('cs-pct-negative', pct.kind === 'negative');
+      }
+      setCard('all', allTrue, allEnh);
+      setCard('cat', catTrue, catEnh);
+      setCard('usx', usxTrue, usxEnh);
     }
 
     // ── Company toggle (Combined / Catseye / USX) — Joe directive 2026-05-26 ──
@@ -908,12 +1041,22 @@
       applyCompanyToggle(group);
     });
 
-    function markDirty() {
-      state.dirty = true;
+    // Mark a specific branch as dirty (per-branch granularity so save can
+    // iterate only branches that actually changed). Adds the dirty-flag
+    // visual ring + "unsaved" badge on that branch's card.
+    function markBranchDirty_(branch) {
+      state.dirtyBranches[branch] = true;
+      var card = document.querySelector('[data-branch-card="' + branch + '"]');
+      if (card) card.classList.add('dirty');
       $('save-btn').disabled = false;
-      $('save-status').textContent = 'unsaved changes';
+      var n = Object.keys(state.dirtyBranches).length;
+      $('save-status').textContent = 'unsaved changes (' + n + ' branch' + (n > 1 ? 'es' : '') + ')';
       $('save-status').className = 'save-status';
     }
+
+    // Legacy single-branch markDirty — preserved as a no-op so any old code
+    // paths that still call it don't crash. Real per-branch logic above.
+    function markDirty() { /* superseded by markBranchDirty_ */ }
 
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, function(c) {
@@ -921,51 +1064,78 @@
       });
     }
 
-    // ── Save ──
+    // ── Save (multi-branch sequential POST) ──
+    // The Apps Script endpoint accepts one branch + month per request. Each
+    // dirty branch becomes its own POST; we report progress as we go and
+    // re-enable Save on partial failure so the user can retry.
     $('save-btn').addEventListener('click', function() {
-      if (!state.dirty) return;
-      var entry = getCurrentEntry();
-      $('save-status').textContent = 'saving…';
-      $('save-status').className = 'save-status';
+      var dirtyBranches = Object.keys(state.dirtyBranches);
+      if (dirtyBranches.length === 0) return;
       $('save-btn').disabled = true;
+      var total = dirtyBranches.length;
+      var done = 0, ok = 0, failed = [];
 
-      var payload = {
-        action:   'saveBudgets',
-        password: state.password,
-        branch:   state.currentBranch,
-        month:    state.currentMonth,
-        data:     entry
-      };
-
-      // Apps Script web apps require text/plain to avoid CORS preflight
-      fetch(ADMIN_ENDPOINT, {
-        method:  'POST',
-        mode:    'cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body:    JSON.stringify(payload)
-      })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-          if (res && res.ok) {
-            $('save-status').textContent = '✓ saved at ' + new Date().toLocaleTimeString();
-            $('save-status').className = 'save-status success';
-            state.dirty = false;
-          } else if (res && res.error === 'unauthorized') {
-            $('save-status').textContent = '✗ wrong password — refresh to retry';
-            $('save-status').className = 'save-status error';
-            $('save-btn').disabled = true;
-          } else {
-            $('save-status').textContent = '✗ save failed: ' + (res && res.error ? res.error : 'unknown');
-            $('save-status').className = 'save-status error';
-            $('save-btn').disabled = false;
-          }
-        })
-        .catch(function(err) {
-          console.error('save error', err);
-          $('save-status').textContent = '✗ network error — see console';
+      function reportProgress() {
+        $('save-status').textContent = 'saving ' + (done + 1) + ' of ' + total + '…';
+        $('save-status').className = 'save-status';
+      }
+      function finalize() {
+        if (failed.length === 0) {
+          $('save-status').textContent = '✓ saved ' + ok + ' branch' + (ok > 1 ? 'es' : '') + ' at ' + new Date().toLocaleTimeString();
+          $('save-status').className = 'save-status success';
+          state.dirtyBranches = {};
+          document.querySelectorAll('.branch-card.dirty').forEach(function(c) { c.classList.remove('dirty'); });
+        } else {
+          $('save-status').textContent = '✗ ' + failed.length + ' branch' + (failed.length > 1 ? 'es' : '') + ' failed (' + failed.join(', ') + ') — see console';
           $('save-status').className = 'save-status error';
           $('save-btn').disabled = false;
-        });
+        }
+      }
+      function saveBranch(branch) {
+        reportProgress();
+        var entry = getEntry_(branch, state.currentMonth);
+        var payload = {
+          action:   'saveBudgets',
+          password: state.password,
+          branch:   branch,
+          month:    state.currentMonth,
+          data:     entry
+        };
+        return fetch(ADMIN_ENDPOINT, {
+          method:  'POST',
+          mode:    'cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body:    JSON.stringify(payload)
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(res) {
+            if (res && res.ok) {
+              ok++;
+              delete state.dirtyBranches[branch];
+              var card = document.querySelector('[data-branch-card="' + branch + '"]');
+              if (card) card.classList.remove('dirty');
+            } else if (res && res.error === 'unauthorized') {
+              failed.push(branch + ' (unauthorized)');
+              $('save-btn').disabled = true;
+              throw new Error('unauthorized');
+            } else {
+              failed.push(branch);
+              console.error('save failed for ' + branch + ':', res);
+            }
+          })
+          .catch(function(err) {
+            if (err.message !== 'unauthorized') {
+              failed.push(branch);
+              console.error('save error for ' + branch + ':', err);
+            }
+          })
+          .then(function() { done++; });
+      }
+      // Sequential save — keeps load on Apps Script light and lets the
+      // status text reflect progress per-branch.
+      var chain = Promise.resolve();
+      dirtyBranches.forEach(function(b) { chain = chain.then(function() { return saveBranch(b); }); });
+      chain.then(finalize);
     });
 
     // Warn on browser close with unsaved changes
@@ -1138,22 +1308,21 @@
       $('yr-table').innerHTML = thead + '<tbody>' + bodyRows + totalRow + dashRow + '</tbody>';
 
       // Wire click handlers — clicking any non-total cell jumps to month editor
+      // and scrolls to the relevant branch's card (Joe directive 2026-05-30 —
+      // all-branches month view replaced the per-branch dropdown).
       [].slice.call($('yr-table').querySelectorAll('td.month-cell[data-ym]')).forEach(function(td) {
         td.addEventListener('click', function() {
           var ym = td.dataset.ym;
           var b  = td.dataset.branch;
           if (!ym || !b) return;
           if (!confirmIfDirty()) return;
-          // Set selectors and switch back to month view
-          $('branch-select').value = b;
           $('month-select').value  = ym;
-          // Synthesize the change event so listeners run
-          state.currentBranch = b;
+          state.currentBranch = b;          // kept for year-view internals
           state.currentMonth  = ym;
           renderGrid();
           setView('month');
-          // Smooth scroll to the editor grid so the user sees the changed values
-          var card = document.querySelector('.grid-card');
+          // Scroll to the clicked branch's card so the user lands on it.
+          var card = document.getElementById('bc-' + branchSlug_(b));
           if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
       });
