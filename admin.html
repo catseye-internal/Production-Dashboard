@@ -447,6 +447,12 @@
     table.year-grid td.month-cell:hover {
       background: rgba(244, 123, 32, 0.10); color: var(--orange);
     }
+    /* Aggregate cells (Catseye Total / USX Total) — not editable */
+    table.year-grid td.month-cell.agg-cell { cursor: default; }
+    table.year-grid td.month-cell.agg-cell:hover {
+      background: transparent; color: var(--text);
+    }
+    table.year-grid td.month-cell.agg-cell.empty:hover { color: var(--text-dim); }
     table.year-grid td.month-cell.empty {
       color: var(--text-dim);
     }
@@ -621,12 +627,12 @@
           </div>
           <div class="year-summary-grid">
             <div class="ms-card ms-catseye">
-              <div class="ms-card-label">Branch · True</div>
+              <div class="ms-card-label" id="yr-brn-true-label">Scope · True</div>
               <div class="ms-card-value" id="yr-brn-true">$0</div>
               <div class="ms-card-sub" id="yr-brn-true-sub">Dashboard: $0</div>
             </div>
             <div class="ms-card ms-catseye">
-              <div class="ms-card-label">Branch · Enhanced</div>
+              <div class="ms-card-label" id="yr-brn-enh-label">Scope · Enhanced</div>
               <div class="ms-card-value" id="yr-brn-enh">$0</div>
               <div class="ms-card-sub" id="yr-brn-enh-sub">Dashboard: $0</div>
             </div>
@@ -1173,16 +1179,25 @@
     $('view-year-btn').addEventListener('click',  function() { setView('year');  });
 
     function ensureYearControls_() {
-      // Branch dropdown — sync with month editor's current branch on first open
+      // Branch dropdown — defaults to "Catseye Total" (sum of MA + CT + RI).
+      // Other options: "USX Total" (sum of USX-MA + USX-NY), then 5 individual
+      // branches. Joe directive 2026-05-30 — see company aggregates first,
+      // drill into a branch only when needed.
       var brn = $('yr-branch');
       if (!brn.options.length) {
+        var aggCatseye = el('option', { value: '__catseye_total__', text: 'Catseye Pest Control (Total)' }, []);
+        var aggUsx     = el('option', { value: '__usx_total__',     text: 'USX Pest (Total)' }, []);
+        aggCatseye.selected = true;
+        brn.appendChild(aggCatseye);
+        brn.appendChild(aggUsx);
+        // Visual divider — disabled option, can't be selected
+        var divider = el('option', { value: '__divider__', text: '──── individual branches ────' }, []);
+        divider.disabled = true;
+        brn.appendChild(divider);
         BRANCHES.forEach(function(b) {
           brn.appendChild(el('option', { value: b, text: b }, []));
         });
         brn.addEventListener('change', renderYearGrid_);
-      }
-      if (state.currentBranch && brn.value !== state.currentBranch) {
-        brn.value = state.currentBranch;
       }
 
       // Year dropdown — derive from the months currently in the data, plus prev+next
@@ -1223,18 +1238,43 @@
     }
 
     function renderYearGrid_() {
-      var branch = $('yr-branch').value;
-      var year   = $('yr-year').value;
-      var tier   = $('yr-tier').value;          // 'enhanced' | 'true'
-      var now    = new Date();
+      var selected = $('yr-branch').value;
+      var year     = $('yr-year').value;
+      var tier     = $('yr-tier').value;        // 'enhanced' | 'true'
+      var now      = new Date();
       var currentYm = year + '-' + String(now.getMonth() + 1).padStart(2, '0');
 
-      $('yr-grid-title').textContent = branch + ' · ' + year + ' · ' + (tier === 'true' ? 'TRUE (private)' : 'ENHANCED (team-facing)');
-      $('yr-branch-info').innerHTML  = 'Annual view for <strong>' + escapeHtml(branch) + '</strong> · tier <strong>' + (tier === 'true' ? 'TRUE' : 'ENHANCED') + '</strong>. Hidden categories include Recurring — Total Platinum (excluded from dashboard total). Click any cell to edit it in the Month editor.';
+      // Aggregate vs single-branch mode (Joe directive 2026-05-30).
+      // Aggregates sum across multiple branches; cells aren't editable since
+      // a click can't map to a single branch's month editor.
+      var isAggregate = false;
+      var scopeBranches = [selected];
+      var scopeLabel = selected;
+      if (selected === '__catseye_total__') {
+        isAggregate = true; scopeBranches = CATSEYE_BRANCHES; scopeLabel = 'Catseye Pest Control (Total)';
+      } else if (selected === '__usx_total__') {
+        isAggregate = true; scopeBranches = USX_BRANCHES; scopeLabel = 'USX Pest (Total)';
+      }
+
+      $('yr-grid-title').textContent = scopeLabel + ' · ' + year + ' · ' + (tier === 'true' ? 'TRUE (private)' : 'ENHANCED (team-facing)');
+      var infoSuffix = isAggregate
+        ? ' Aggregate view across ' + scopeBranches.length + ' branches — click an individual-branch dropdown option to drill in.'
+        : ' Click any cell to edit it in the Month editor.';
+      $('yr-branch-info').innerHTML  = 'Annual view for <strong>' + escapeHtml(scopeLabel) + '</strong> · tier <strong>' + (tier === 'true' ? 'TRUE' : 'ENHANCED') + '</strong>. Hidden categories include Recurring — Total Platinum (excluded from dashboard total).' + infoSuffix;
 
       var modePill = $('yr-mode-pill');
       modePill.className = 'tier-mode-pill ' + (tier === 'true' ? 'tier-true' : 'tier-enhanced');
       modePill.textContent = tier === 'true' ? '🔒 TRUE · read-only' : '✨ ENHANCED · read-only';
+
+      // Helper — sum a single (branch, month, cat) value across scopeBranches.
+      function valFor(ym, cat) {
+        var t = 0;
+        for (var b = 0; b < scopeBranches.length; b++) {
+          var v = ((state.budgets[scopeBranches[b]] || {})[ym] || {})[tier] || {};
+          t += Number(v[cat]) || 0;
+        }
+        return t;
+      }
 
       // ── Build table ──
       var months = [];
@@ -1255,12 +1295,14 @@
       var bodyRows = CATEGORIES.map(function(cat) {
         var rowTotal = 0;
         var cells = months.map(function(ym, i) {
-          var v = ((state.budgets[branch] || {})[ym] || {})[tier] || {};
-          var n = Number(v[cat]) || 0;
+          var n = valFor(ym, cat);
           rowTotal += n;
           monthTotals[i] += n;
           var cls = 'month-cell' + (n === 0 ? ' empty' : '') + (ym === currentYm ? ' current-month' : '');
-          return '<td class="' + cls + '" data-ym="' + ym + '" data-branch="' + escapeHtml(branch) + '" title="' + escapeHtml(branch) + ' · ' + ym + ' · ' + cat + '">' + fmtMoneyShort_(n) + '</td>';
+          // Aggregate cells get NO data-branch — click handler skips them.
+          var cellAttrs = 'data-ym="' + ym + '"' + (isAggregate ? '' : ' data-branch="' + escapeHtml(selected) + '"');
+          var title = (isAggregate ? scopeLabel : selected) + ' · ' + ym + ' · ' + cat;
+          return '<td class="' + cls + (isAggregate ? ' agg-cell' : '') + '" ' + cellAttrs + ' title="' + escapeHtml(title) + '">' + fmtMoneyShort_(n) + '</td>';
         }).join('');
         grandTotal += rowTotal;
         return '<tr>' +
@@ -1282,13 +1324,13 @@
           '<td class="row-total-cell ' + tierTotalCls + '">' + fmtMoneyShort_(grandTotal) + '</td>' +
         '</tr>';
 
-      // Dashboard subset row (5-of-6 cats — what the live dashboard actually shows)
+      // Dashboard subset row (5-of-6 cats — what the live dashboard actually shows).
+      // Aggregate-aware: sums across scopeBranches just like the main rows.
       var dashMonthTotals = months.map(function() { return 0; });
       var dashGrand = 0;
       months.forEach(function(ym, i) {
-        var v = ((state.budgets[branch] || {})[ym] || {})[tier] || {};
         DASHBOARD_CATEGORIES.forEach(function(c) {
-          dashMonthTotals[i] += Number(v[c]) || 0;
+          dashMonthTotals[i] += valFor(ym, c);
         });
         dashGrand += dashMonthTotals[i];
       });
@@ -1307,10 +1349,9 @@
 
       $('yr-table').innerHTML = thead + '<tbody>' + bodyRows + totalRow + dashRow + '</tbody>';
 
-      // Wire click handlers — clicking any non-total cell jumps to month editor
-      // and scrolls to the relevant branch's card (Joe directive 2026-05-30 —
-      // all-branches month view replaced the per-branch dropdown).
-      [].slice.call($('yr-table').querySelectorAll('td.month-cell[data-ym]')).forEach(function(td) {
+      // Wire click handlers — only individual-branch cells (those with data-branch)
+      // are clickable. Aggregate cells skip since they don't map to one branch.
+      [].slice.call($('yr-table').querySelectorAll('td.month-cell[data-ym][data-branch]')).forEach(function(td) {
         td.addEventListener('click', function() {
           var ym = td.dataset.ym;
           var b  = td.dataset.branch;
@@ -1327,7 +1368,7 @@
         });
       });
 
-      // ── Annual summary card (branch totals + company totals) ──
+      // ── Annual summary card (branch/scope totals + company totals) ──
       function sumYear_(branchList, tier, cats) {
         var t = 0;
         branchList.forEach(function(b) {
@@ -1338,12 +1379,18 @@
         });
         return t;
       }
-      var brnTrue6 = sumYear_([branch], 'true',     CATEGORIES);
-      var brnEnh6  = sumYear_([branch], 'enhanced', CATEGORIES);
-      var brnTrue5 = sumYear_([branch], 'true',     DASHBOARD_CATEGORIES);
-      var brnEnh5  = sumYear_([branch], 'enhanced', DASHBOARD_CATEGORIES);
+      // Branch card now reflects the SCOPE (Catseye Total / USX Total / single branch).
+      var brnTrue6 = sumYear_(scopeBranches, 'true',     CATEGORIES);
+      var brnEnh6  = sumYear_(scopeBranches, 'enhanced', CATEGORIES);
+      var brnTrue5 = sumYear_(scopeBranches, 'true',     DASHBOARD_CATEGORIES);
+      var brnEnh5  = sumYear_(scopeBranches, 'enhanced', DASHBOARD_CATEGORIES);
 
       $('yr-summary-title').textContent = 'Annual Summary · ' + year;
+      var scopeShortLabel = isAggregate
+        ? (selected === '__catseye_total__' ? 'Catseye Total' : 'USX Total')
+        : selected;
+      $('yr-brn-true-label').textContent = scopeShortLabel + ' · True';
+      $('yr-brn-enh-label').textContent  = scopeShortLabel + ' · Enhanced';
       $('yr-brn-true').textContent     = fmtMoney(brnTrue6);
       $('yr-brn-true-sub').textContent = 'Dashboard: ' + fmtMoney(brnTrue5);
       $('yr-brn-enh').textContent      = fmtMoney(brnEnh6);
